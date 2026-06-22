@@ -1333,24 +1333,19 @@ function exportJSON() {
 </html>
 """
 
-# ============================================================
-# BAŞLAT
-# ============================================================
 if __name__ == "__main__":
     if not os.path.exists(KEYS_FILE):
         save_keys({})
 
-    threading.Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:5000")).start()
-
+    import os
+    port = int(os.environ.get("PORT", 5000))
+    
     print("""
     ╔══════════════════════════════════════════════════════════════════╗
     ║     🔱 RODA - API KEŞİF + CHECKER (TÜRKÇE)                     ║
-    ║     http://127.0.0.1:5000                                     ║
-    ║     Admin girişi için şifre gizlidir.                         ║
-    ║     Kullanıcılar: Tüm menüler görünür ama yetkisiz sayfalar   ║
-    ║     admin uyarısı verir.                                      ║
-    ║     API Keşif sayfasında platform butonları eklendi.          ║
+    ║     Render üzerinde çalışıyor                                  ║
+    ║     Giriş anahtarı: Roda@2026#Secure!X7                       ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=port, debug=False)
