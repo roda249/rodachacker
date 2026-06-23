@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Roda - API Discovery + Checker (Türkçe)
-Admin/Üye ayrımı | Key sistemi | Sabit menü | API Keşif'te platform butonları
+Eski menü | Admin/Üye ayrımı backend'de | Key sistemi
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64
@@ -478,7 +478,7 @@ def fetch_proxies_route():
         return jsonify({"success": False, "error": str(e)})
 
 # ============================================================
-# HTML (SABİT MENÜ + API KEŞİF'TE PLATFORM BUTONLARI)
+# HTML (ESKİ MENÜ GERİ DÖNDÜ)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -614,10 +614,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 .hit-filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .hit-filter select{padding:4px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;outline:none}
 .hit-filter select:focus{border-color:var(--p)}
-.discovery-platforms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-.discovery-platforms button{padding:4px 12px;background:rgba(255,107,0,0.06);border:1px solid rgba(255,107,0,0.1);border-radius:6px;color:#8a9bb0;font-size:11px;cursor:pointer;transition:0.2s}
-.discovery-platforms button:hover{background:rgba(255,107,0,0.12);border-color:var(--p);color:#fff}
-.discovery-platforms button.active{background:rgba(255,107,0,0.15);border-color:var(--p);color:var(--p)}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,107,0,0.2);border-radius:4px}
 </style>
 </head>
@@ -738,7 +734,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 <input id="targetDomain" placeholder="hedef.com (örn: youtube.com)" value="example.com">
 <button id="scanBtn" onclick="startScan()"><i class="fa-solid fa-play"></i> Tara</button>
 </div>
-<div class="discovery-platforms" id="discoveryPlatforms"></div>
 </div>
 <div class="stats-row">
 <div class="stat-card stat-hit"><div class="stat-val" id="totalCount">0</div><div class="stat-lbl">Toplam</div></div>
@@ -850,7 +845,6 @@ function doLogin() {
                 document.getElementById("userBadge").style.display = "none";
             }
             loadPlatforms();
-            loadDiscoveryPlatforms();
             loadHitFilter();
             switchPage('checker');
         } else {
@@ -869,7 +863,7 @@ document.getElementById("authKey").addEventListener("keypress", function(e) {
 });
 
 // ============================================================
-// PLATFORM YÜKLEME (Checker + API Keşif)
+// PLATFORM YÜKLEME
 // ============================================================
 function loadPlatforms() {
     var sel = document.getElementById("checkerPlatformSelect");
@@ -892,21 +886,6 @@ function loadPlatforms() {
         var first = sel.querySelector("button");
         if (first) first.click();
     }
-}
-
-function loadDiscoveryPlatforms() {
-    var container = document.getElementById("discoveryPlatforms");
-    container.innerHTML = "";
-    platforms.forEach(function(p) {
-        var btn = document.createElement("button");
-        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
-        btn.onclick = function() {
-            document.querySelectorAll("#discoveryPlatforms button").forEach(function(b) { b.classList.remove("active"); });
-            btn.classList.add("active");
-            document.getElementById("targetDomain").value = p.domain;
-        };
-        container.appendChild(btn);
-    });
 }
 
 function loadHitFilter() {
@@ -1084,35 +1063,22 @@ document.querySelectorAll('input[name="chkFilter"]').forEach(function(el) {
 });
 
 // ============================================================
-// SAYFA GEÇİŞİ (SABİT MENÜ)
+// SAYFA GEÇİŞİ
 // ============================================================
 function switchPage(page) {
-    // Yetki kontrolü
+    // Yetki kontrolü (backend'de zaten var, frontend'de uyarı ver)
     if ((page === "discovery" || page === "stats" || page === "keys") && !isAdmin) {
         alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
         return;
     }
-    document.querySelectorAll(".nav-item").forEach(function(el) {
-        el.classList.remove("active");
-    });
+    document.querySelectorAll(".nav-item").forEach(function(el) { el.classList.remove("active"); });
     var el = document.querySelector('.nav-item[data-page="' + page + '"]');
     if (el) el.classList.add("active");
-    
-    document.querySelectorAll(".page").forEach(function(el) {
-        el.classList.remove("active");
-    });
+    document.querySelectorAll(".page").forEach(function(el) { el.classList.remove("active"); });
     var pg = document.getElementById("page-" + page);
     if (pg) pg.classList.add("active");
-    
-    var titles = {
-        checker: "Checker",
-        proxy: "Proxy",
-        discovery: "API Keşif",
-        stats: "İstatistik",
-        keys: "Key Yönetimi"
-    };
+    var titles = { checker: "Checker", proxy: "Proxy", discovery: "API Keşif", stats: "İstatistik", keys: "Key Yönetimi" };
     document.getElementById("pageTitle").innerText = titles[page] || page;
-    
     if (page === "keys" && isAdmin) loadKeys();
 }
 
@@ -1345,11 +1311,10 @@ if __name__ == "__main__":
     print("""
     ╔══════════════════════════════════════════════════════════════════╗
     ║     🔱 RODA - API KEŞİF + CHECKER (TÜRKÇE)                     ║
+    ║     Anahtar: Roda@2026#Secure!X7                               ║
     ║     http://127.0.0.1:5000                                     ║
-    ║     Admin girişi için şifre gizlidir.                         ║
     ║     Kullanıcılar: Tüm menüler görünür ama yetkisiz sayfalar   ║
     ║     admin uyarısı verir.                                      ║
-    ║     API Keşif sayfasında platform butonları eklendi.          ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
