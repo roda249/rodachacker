@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RODA - TAM SİSTEM
+RODA - TAM SİSTEM (LOGİN DÜZELTİLDİ)
 Renk: #60FF00 + #009fc5 | Login Çalışır | 20 Platform | Log Sistemi
 """
 
@@ -348,7 +348,7 @@ def scan():
     return Response(generate(), mimetype="text/event-stream")
 
 # ============================================================
-# HTML - RENK: #60FF00 + #009fc5
+# HTML - RENK: #60FF00 + #009fc5 | LOGİN DÜZELTİLDİ
 # ============================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -520,7 +520,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <h1>RODA</h1>
 <p class="sub">API Discovery + Checker</p>
 <input class="inp" type="password" id="authKey" placeholder="Güvenlik Anahtarı" autofocus>
-<button class="btn" type="button" onclick="doLogin()" style="margin-top:12px">Giriş Yap</button>
+<button class="btn" id="loginBtn" style="margin-top:12px">Giriş Yap</button>
 <p id="loginError" style="color:var(--r);margin-top:12px;display:none"></p>
 </div>
 </div>
@@ -746,16 +746,28 @@ var platforms = [
     {name:"PUBG", domain:"pubg.com", icon:"fa-solid fa-crosshairs"}
 ];
 
+// ============================================================
+// LOGIN - DÜZELTİLDİ (addEventListener ile)
+// ============================================================
 function doLogin() {
+    console.log("Login fonksiyonu çalıştı!");
     var k = document.getElementById("authKey").value.trim();
-    if (!k) { alert("Anahtar girin!"); return; }
+    if (!k) {
+        alert("Anahtar girin!");
+        return;
+    }
+    console.log("Anahtar:", k);
     fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: k })
     })
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+        console.log("Cevap kodu:", r.status);
+        return r.json();
+    })
     .then(function(d) {
+        console.log("Gelen veri:", d);
         if (d.success) {
             currentKey = k;
             isAdmin = d.isAdmin || false;
@@ -778,10 +790,26 @@ function doLogin() {
         }
     })
     .catch(function(e) {
+        console.error("Hata:", e);
         alert("Sunucuya bağlanılamadı! Flask çalışıyor mu?");
-        console.error(e);
     });
 }
+
+// Butona addEventListener ile bağla
+document.addEventListener("DOMContentLoaded", function() {
+    var btn = document.getElementById("loginBtn");
+    if (btn) {
+        btn.addEventListener("click", doLogin);
+        console.log("Login butonu bağlandı!");
+    } else {
+        console.error("Login butonu bulunamadı!");
+    }
+});
+
+// Enter tuşu ile login
+document.getElementById("authKey").addEventListener("keypress", function(e) {
+    if (e.key === "Enter") doLogin();
+});
 
 function saveWebhook() {
     var url = document.getElementById("webhookUrl").value.trim();
@@ -1384,10 +1412,6 @@ document.getElementById("filterContainer").addEventListener("change", function()
         }
     });
 });
-
-document.getElementById("authKey").addEventListener("keypress", function(e) {
-    if (e.key === "Enter") doLogin();
-});
 </script>
 </body>
 </html>
@@ -1412,6 +1436,7 @@ if __name__ == "__main__":
     ║     ✅ 1 Key = 1 IP | ✅ Admin Log Sistemi                   ║
     ║     ✅ Key Süresi: Dakika/Saat/Gün                           ║
     ║     ✅ Renk: #60FF00 + #009fc5                               ║
+    ║     ✅ Login Düzeltildi (addEventListener)                   ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
