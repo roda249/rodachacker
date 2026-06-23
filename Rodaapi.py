@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Roda - API Discovery + Checker (Türkçe)
-Eski menü | Admin/Üye ayrımı backend'de | Key sistemi
+Admin/Üye ayrımı | Key sistemi | Sabit menü | Ayrıştırma
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64
@@ -478,7 +478,7 @@ def fetch_proxies_route():
         return jsonify({"success": False, "error": str(e)})
 
 # ============================================================
-# HTML (ESKİ MENÜ GERİ DÖNDÜ)
+# HTML (SABİT MENÜ + API KEŞİF'TE PLATFORM BUTONLARI + AYRIŞTIRMA)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -614,6 +614,18 @@ input:checked+.slider:before{transform:translateX(18px)}
 .hit-filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .hit-filter select{padding:4px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;outline:none}
 .hit-filter select:focus{border-color:var(--p)}
+/* AYRIŞTIRMA */
+.parse-area{display:flex;flex-direction:column;gap:10px}
+.parse-area textarea{width:100%;height:180px;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;font-family:monospace;resize:vertical;outline:none}
+.parse-area textarea:focus{border-color:var(--p)}
+.parse-buttons{display:flex;gap:10px;flex-wrap:wrap}
+.parse-result{max-height:200px;overflow-y:auto;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:8px;padding:8px}
+.parse-result .parse-line{padding:2px 6px;font-size:12px;font-family:monospace;color:#c8d0dc}
+.parse-result .parse-count{color:var(--g);font-weight:600;font-size:13px}
+.discovery-platforms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.discovery-platforms button{padding:4px 12px;background:rgba(255,107,0,0.06);border:1px solid rgba(255,107,0,0.1);border-radius:6px;color:#8a9bb0;font-size:11px;cursor:pointer;transition:0.2s}
+.discovery-platforms button:hover{background:rgba(255,107,0,0.12);border-color:var(--p);color:#fff}
+.discovery-platforms button.active{background:rgba(255,107,0,0.15);border-color:var(--p);color:var(--p)}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,107,0,0.2);border-radius:4px}
 </style>
 </head>
@@ -635,6 +647,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div class="nav-item active" data-page="checker" onclick="switchPage('checker')"><i class="fa-solid fa-check-double"></i> Checker</div>
 <div class="nav-item" data-page="proxy" onclick="switchPage('proxy')"><i class="fa-solid fa-server"></i> Proxy</div>
 <div class="nav-item" data-page="discovery" onclick="switchPage('discovery')"><i class="fa-solid fa-compass"></i> API Keşif</div>
+<div class="nav-item" data-page="parse" onclick="switchPage('parse')"><i class="fa-solid fa-scissors"></i> Ayrıştırma</div>
 <div class="nav-item" data-page="stats" onclick="switchPage('stats')"><i class="fa-solid fa-chart-simple"></i> İstatistik</div>
 <div class="nav-item" data-page="keys" onclick="switchPage('keys')"><i class="fa-solid fa-key"></i> Key Yönetimi</div>
 </div>
@@ -734,6 +747,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <input id="targetDomain" placeholder="hedef.com (örn: youtube.com)" value="example.com">
 <button id="scanBtn" onclick="startScan()"><i class="fa-solid fa-play"></i> Tara</button>
 </div>
+<div class="discovery-platforms" id="discoveryPlatforms"></div>
 </div>
 <div class="stats-row">
 <div class="stat-card stat-hit"><div class="stat-val" id="totalCount">0</div><div class="stat-lbl">Toplam</div></div>
@@ -757,6 +771,28 @@ input:checked+.slider:before{transform:translateX(18px)}
 <input id="webhookUrl" placeholder="Discord Webhook URL">
 <button onclick="sendWebhook()"><i class="fa-brands fa-discord"></i> Discord</button>
 <button onclick="exportJSON()" class="btn sm b"><i class="fa-solid fa-download"></i> JSON</button>
+</div>
+</div>
+<!-- AYRIŞTIRMA (HERKESE AÇIK) -->
+<div id="page-parse" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-scissors"></i> Ayrıştırma</h3>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Karmaşık metinleri (başlıklar, numaralar, linkler) temizler, sadece <strong>email:şifre</strong> formatındaki satırları bırakır.</p>
+<div class="parse-area">
+<textarea id="parseInput" placeholder="Buraya karışık metni yapıştır..."></textarea>
+<div class="parse-buttons">
+<button class="btn sm g" onclick="parseData()"><i class="fa-solid fa-wand-magic-sparkles"></i> Ayrıştır</button>
+<button class="btn sm b" onclick="parseToChecker()"><i class="fa-solid fa-arrow-right"></i> Checker'a Aktar</button>
+<button class="btn sm r" onclick="clearParse()"><i class="fa-solid fa-eraser"></i> Temizle</button>
+<button class="btn sm" style="background:#6c7a8f" onclick="loadParseFile()"><i class="fa-solid fa-folder-open"></i> Dosya Yükle</button>
+</div>
+<div class="parse-result" id="parseResult">
+<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>
+</div>
+<div style="margin-top:6px;font-size:12px;color:var(--muted)">
+<span id="parseCount">0 satır</span> | <span id="parseValid">0 geçerli</span>
+</div>
+</div>
 </div>
 </div>
 <!-- İSTATİSTİK (SADECE ADMIN) -->
@@ -796,6 +832,7 @@ var checkerRunning = false;
 var checkerResults = [];
 var currentPlatform = "";
 var hitData = {};
+var parsedLines = [];
 
 // Platform listesi
 var platforms = [
@@ -837,7 +874,6 @@ function doLogin() {
             isAdmin = d.isAdmin || false;
             document.getElementById("login-screen").style.display = "none";
             document.getElementById("app").style.display = "flex";
-            
             if (isAdmin) {
                 document.getElementById("userBadge").style.display = "inline-block";
                 loadKeys();
@@ -845,6 +881,7 @@ function doLogin() {
                 document.getElementById("userBadge").style.display = "none";
             }
             loadPlatforms();
+            loadDiscoveryPlatforms();
             loadHitFilter();
             switchPage('checker');
         } else {
@@ -857,7 +894,6 @@ function doLogin() {
         console.error(e);
     });
 }
-
 document.getElementById("authKey").addEventListener("keypress", function(e) {
     if (e.key === "Enter") doLogin();
 });
@@ -886,6 +922,21 @@ function loadPlatforms() {
         var first = sel.querySelector("button");
         if (first) first.click();
     }
+}
+
+function loadDiscoveryPlatforms() {
+    var container = document.getElementById("discoveryPlatforms");
+    container.innerHTML = "";
+    platforms.forEach(function(p) {
+        var btn = document.createElement("button");
+        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
+        btn.onclick = function() {
+            document.querySelectorAll("#discoveryPlatforms button").forEach(function(b) { b.classList.remove("active"); });
+            btn.classList.add("active");
+            document.getElementById("targetDomain").value = p.domain;
+        };
+        container.appendChild(btn);
+    });
 }
 
 function loadHitFilter() {
@@ -919,9 +970,7 @@ function renderHits() {
     var filter = document.getElementById("hitPlatformFilter").value;
     var hitContainer = document.getElementById("hitList");
     var twofaContainer = document.getElementById("twofaList");
-
     var hits = [], twofas = [];
-
     if (filter === "all") {
         for (var p in hitData) {
             if (hitData[p].hits) {
@@ -949,10 +998,8 @@ function renderHits() {
             }
         }
     }
-
     hitContainer.innerHTML = hits.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>' :
         hits.map(function(h) { return '<div class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>'; }).join('');
-
     twofaContainer.innerHTML = twofas.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>' :
         twofas.map(function(t) { return '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
 }
@@ -973,12 +1020,10 @@ function startChecker() {
     var comboText = document.getElementById("checkerCombo").value.trim();
     if (!comboText) return alert("Combo girin (email:password)");
     if (!currentPlatform) return alert("Önce bir platform seçin");
-
     checkerRunning = true;
     document.getElementById("checkerStartBtn").disabled = true;
     document.getElementById("checkerStopBtn").style.display = "inline-block";
     document.getElementById("checkerResults").innerHTML = "";
-
     var lines = comboText.split("\n").filter(function(l) { return l.includes(":"); });
     var total = lines.length;
     var hit = 0, bad = 0, two = 0, err = 0;
@@ -997,12 +1042,10 @@ function startChecker() {
         var email = parts[0];
         var password = parts.slice(1).join(":") || "";
         var res = { email: email, password: password, status: status };
-
         if (status === "HIT") { hit++; addHit(currentPlatform, email, password, "HIT"); }
         else if (status === "BAD") bad++;
         else if (status === "2FA") { two++; addHit(currentPlatform, email, password, "2FA"); }
         else err++;
-
         checkerResults.push(res);
         addCheckerRow(res);
         updateCheckerStats(total, hit, bad, two, err);
@@ -1022,7 +1065,6 @@ function addCheckerRow(res) {
     var container = document.getElementById("checkerResults");
     var placeholder = container.querySelector("div[style]");
     if (placeholder) placeholder.remove();
-
     var row = document.createElement("div");
     row.className = "checker-result-row";
     var cls = "chk-" + res.status.toLowerCase();
@@ -1063,21 +1105,122 @@ document.querySelectorAll('input[name="chkFilter"]').forEach(function(el) {
 });
 
 // ============================================================
-// SAYFA GEÇİŞİ
+// AYRIŞTIRMA FONKSİYONLARI
+// ============================================================
+function parseData() {
+    var raw = document.getElementById("parseInput").value;
+    if (!raw.trim()) { alert("Ayrıştırılacak metin girin!"); return; }
+    var lines = raw.split("\n");
+    var result = [];
+    var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+    lines.forEach(function(line) {
+        line = line.trim();
+        if (!line) return;
+        // Önce : ile ayır
+        if (line.includes(":")) {
+            var parts = line.split(":");
+            // İlk parçada email var mı?
+            if (emailRegex.test(parts[0])) {
+                var email = parts[0].trim();
+                var password = parts.slice(1).join(":").trim();
+                if (email && password) {
+                    result.push(email + ":" + password);
+                    return;
+                }
+            }
+            // Alternatif: satırda email bul, sonra iki nokta ile ayır
+            var match = line.match(emailRegex);
+            if (match) {
+                var idx = line.indexOf(match[0]);
+                var rest = line.substring(idx + match[0].length).trim();
+                if (rest.startsWith(":")) rest = rest.substring(1).trim();
+                // Şifreyi temizle (başındaki gereksiz karakterleri at)
+                // Eğer rest boş değilse, son kısmı şifre olarak al
+                if (rest) {
+                    result.push(match[0] + ":" + rest);
+                }
+            }
+        }
+    });
+    // Tekrarları temizle
+    result = result.filter(function(item, index) {
+        return result.indexOf(item) === index;
+    });
+    parsedLines = result;
+    var container = document.getElementById("parseResult");
+    if (result.length === 0) {
+        container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Geçerli email:şifre satırı bulunamadı.</div>';
+    } else {
+        var html = '<div class="parse-count">' + result.length + ' satır bulundu</div>';
+        result.forEach(function(line) {
+            html += '<div class="parse-line">' + line + '</div>';
+        });
+        container.innerHTML = html;
+    }
+    document.getElementById("parseCount").innerText = result.length + " satır";
+    document.getElementById("parseValid").innerText = result.length + " geçerli";
+}
+
+function parseToChecker() {
+    if (parsedLines.length === 0) {
+        alert("Önce ayrıştırma yapın!");
+        return;
+    }
+    document.getElementById("checkerCombo").value = parsedLines.join("\n");
+    alert(parsedLines.length + " satır Checker'a aktarıldı!");
+}
+
+function clearParse() {
+    document.getElementById("parseInput").value = "";
+    document.getElementById("parseResult").innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>';
+    parsedLines = [];
+    document.getElementById("parseCount").innerText = "0 satır";
+    document.getElementById("parseValid").innerText = "0 geçerli";
+}
+
+function loadParseFile() {
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".txt";
+    input.onchange = function(e) {
+        var file = e.target.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(event) {
+            document.getElementById("parseInput").value = event.target.result;
+            parseData();
+        };
+        reader.readAsText(file);
+    };
+    input.click();
+}
+
+// ============================================================
+// SAYFA GEÇİŞİ (SABİT MENÜ)
 // ============================================================
 function switchPage(page) {
-    // Yetki kontrolü (backend'de zaten var, frontend'de uyarı ver)
     if ((page === "discovery" || page === "stats" || page === "keys") && !isAdmin) {
         alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
         return;
     }
-    document.querySelectorAll(".nav-item").forEach(function(el) { el.classList.remove("active"); });
+    document.querySelectorAll(".nav-item").forEach(function(el) {
+        el.classList.remove("active");
+    });
     var el = document.querySelector('.nav-item[data-page="' + page + '"]');
     if (el) el.classList.add("active");
-    document.querySelectorAll(".page").forEach(function(el) { el.classList.remove("active"); });
+    document.querySelectorAll(".page").forEach(function(el) {
+        el.classList.remove("active");
+    });
     var pg = document.getElementById("page-" + page);
     if (pg) pg.classList.add("active");
-    var titles = { checker: "Checker", proxy: "Proxy", discovery: "API Keşif", stats: "İstatistik", keys: "Key Yönetimi" };
+    var titles = {
+        checker: "Checker",
+        proxy: "Proxy",
+        discovery: "API Keşif",
+        parse: "Ayrıştırma",
+        stats: "İstatistik",
+        keys: "Key Yönetimi"
+    };
     document.getElementById("pageTitle").innerText = titles[page] || page;
     if (page === "keys" && isAdmin) loadKeys();
 }
@@ -1310,11 +1453,11 @@ if __name__ == "__main__":
 
     print("""
     ╔══════════════════════════════════════════════════════════════════╗
-    ║     🔱 RODA - API KEŞİF + CHECKER (TÜRKÇE)                     ║
-    ║     Anahtar: Roda@2026#Secure!X7                               ║
+    ║     🔱 RODA - API KEŞİF + CHECKER + AYRIŞTIRMA (TÜRKÇE)        ║
     ║     http://127.0.0.1:5000                                     ║
-    ║     Kullanıcılar: Tüm menüler görünür ama yetkisiz sayfalar   ║
-    ║     admin uyarısı verir.                                      ║
+    ║     Admin girişi için şifre gizlidir.                         ║
+    ║     Kullanıcılar: Checker, Proxy, Ayrıştırma                 ║
+    ║     Admin: Tüm yetkiler                                       ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
