@@ -3,6 +3,7 @@
 """
 RODA - TAM SİSTEM (TURUNCU TEMA) - Render Uyumlu
 Port: process.env.PORT veya 4000
+Giriş: Roda@2026#Secure!X7 (Admin)
 """
 
 import os, json, re, time, random, string, threading, concurrent.futures, base64
@@ -218,12 +219,19 @@ def index():
 def login():
     try:
         data = request.json
+        if not data:
+            return jsonify({"success": False, "error": "Geçersiz istek"}), 400
         key = data.get("key", "").strip()
+        if not key:
+            return jsonify({"success": False, "error": "Anahtar girin"}), 400
         client_ip = request.remote_addr
         valid, role = is_key_valid(key, client_ip)
-        return jsonify({"success": valid, "user": role, "isAdmin": role == "Admin"})
+        if valid:
+            return jsonify({"success": True, "user": role, "isAdmin": role == "Admin"})
+        else:
+            return jsonify({"success": False, "error": "Geçersiz anahtar!"}), 401
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route("/api/checker", methods=["POST"])
 def checker():
@@ -814,13 +822,21 @@ var platforms = [
 
 function doLogin() {
     var k = document.getElementById("authKey").value.trim();
-    if (!k) { alert("Anahtar girin!"); return; }
+    if (!k) {
+        alert("Anahtar girin!");
+        return;
+    }
     fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: k })
     })
-    .then(function(r) { return r.json(); })
+    .then(function(r) {
+        if (!r.ok) {
+            return r.json().then(function(d) { throw new Error(d.error || "Hata"); });
+        }
+        return r.json();
+    })
     .then(function(d) {
         if (d.success) {
             currentKey = k;
@@ -840,12 +856,17 @@ function doLogin() {
             updateStatsUI();
             switchPage('checker');
         } else {
-            document.getElementById("loginError").innerText = "❌ Geçersiz anahtar!";
+            document.getElementById("loginError").innerText = "❌ " + (d.error || "Geçersiz anahtar!");
             document.getElementById("loginError").style.display = "block";
         }
     })
-    .catch(function(e) { alert("Sunucuya bağlanılamadı!"); });
+    .catch(function(e) {
+        document.getElementById("loginError").innerText = "❌ Sunucu hatası: " + e.message;
+        document.getElementById("loginError").style.display = "block";
+    });
 }
+
+// Enter tuşu
 document.getElementById("authKey").addEventListener("keypress", function(e) {
     if (e.key === "Enter") doLogin();
 });
@@ -1409,7 +1430,7 @@ if __name__ == "__main__":
     ╔══════════════════════════════════════════════════════════════════╗
     ║     🔱 RODA - TAM SİSTEM (TURUNCU TEMA)                       ║
     ║     Render'da çalışıyor - Port: {port}                         ║
-    ║     Admin Key: Gizlidir                                       ║
+    ║     Giriş Anahtarı: Roda@2026#Secure!X7                       ║
     ║     ✅ 20 Platform | ✅ 2 Parse Modu | ✅ Webhook             ║
     ║     ✅ 1 Key = 1 IP | ✅ Admin Log Sistemi                   ║
     ║     ✅ Key Süresi: Dakika/Saat/Gün                           ║
