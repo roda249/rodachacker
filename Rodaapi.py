@@ -755,11 +755,11 @@ var platforms = [
 // ============================================================
 function doLogin() {
     console.log("Login fonksiyonu çalıştı!");
-    var k = document.getElementById("authKey").value.trim();
-    if (!k) {
-        alert("Anahtar girin!");
-        return;
-    }
+    document.getElementById("authKey").value.trim()
+     if (!k) {
+     alert("Anahtar girin!");
+     return;
+     }
     console.log("Anahtar:", k);
     fetch("/api/login", {
         method: "POST",
