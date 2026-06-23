@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RODA - TAM SİSTEM (TURUNCU TEMA)
-Renk: #ff6b00 + #7c3aed | Login Çalışır | 20 Platform | Log Sistemi
+RODA - TAM SİSTEM (TURUNCU TEMA - LOGİN DÜZELTİLDİ)
 """
 
 import os, json, re, time, random, string, threading, concurrent.futures, base64
@@ -353,7 +352,7 @@ def scan():
     return Response(generate(), mimetype="text/event-stream")
 
 # ============================================================
-# HTML - TURUNCU TEMA
+# HTML - TURUNCU TEMA (LOGİN DÜZELTİLDİ)
 # ============================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -525,7 +524,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <h1>RODA</h1>
 <p class="sub">API Discovery + Checker</p>
 <input class="inp" type="password" id="authKey" placeholder="Güvenlik Anahtarı" autofocus>
-<button class="btn" id="loginBtn" style="margin-top:12px">Giriş Yap</button>
+<button class="btn" onclick="doLogin()" style="margin-top:12px">Giriş Yap</button>
 <p id="loginError" style="color:var(--r);margin-top:12px;display:none"></p>
 </div>
 </div>
@@ -752,7 +751,7 @@ var platforms = [
 ];
 
 // ============================================================
-// LOGIN - DÜZELTİLDİ
+// LOGIN - ONCLICK İLE DÜZELTİLDİ
 // ============================================================
 function doLogin() {
     console.log("Login fonksiyonu çalıştı!");
@@ -800,18 +799,7 @@ function doLogin() {
     });
 }
 
-// Butona addEventListener ile bağla
-document.addEventListener("DOMContentLoaded", function() {
-    var btn = document.getElementById("loginBtn");
-    if (btn) {
-        btn.addEventListener("click", doLogin);
-        console.log("Login butonu bağlandı!");
-    } else {
-        console.error("Login butonu bulunamadı!");
-    }
-});
-
-// Enter tuşu ile login
+// Enter tuşu ile login (sadece yardımcı)
 document.getElementById("authKey").addEventListener("keypress", function(e) {
     if (e.key === "Enter") doLogin();
 });
@@ -1435,13 +1423,13 @@ if __name__ == "__main__":
     print("""
     ╔══════════════════════════════════════════════════════════════════╗
     ║     🔱 RODA - TAM SİSTEM (TURUNCU TEMA)                       ║
-    ║     http://127.0.0.1:""" + str(port) + """                               ║
+    ║     Render üzerinde çalışıyor                                 ║
     ║     Admin Key: Gizlidir                                       ║
     ║     ✅ 20 Platform | ✅ 2 Parse Modu | ✅ Webhook             ║
     ║     ✅ 1 Key = 1 IP | ✅ Admin Log Sistemi                   ║
     ║     ✅ Key Süresi: Dakika/Saat/Gün                           ║
     ║     ✅ Valorant API Aktif                                    ║
-    ║     ✅ Login Düzeltildi                                      ║
+    ║     ✅ Login Düzeltildi (onclick)                            ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
