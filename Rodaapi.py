@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Roda - API Discovery + Checker (Türkçe)
-PUBG ve Duolingo eklendi | Render uyumlu | GitHub'da keys.json
+IP Bazlı Key Sistemi | Valorant (Riot API) | PUBG | Duolingo | Ayrıştırma | Webhook
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64
@@ -15,13 +15,10 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # ============================================================
-# MASTER KEY (Base64 + ENV)
+# MASTER KEY (BASE64 ile gizlenmiş)
 # ============================================================
 ENCODED_MASTER = "Um9kYUAyMDI2I1NlY3VyZSFYNw=="
-FALLBACK_KEY = base64.b64decode(ENCODED_MASTER).decode('utf-8')
-MASTER_KEY = os.environ.get("MASTER_KEY", FALLBACK_KEY)
-
-# keys.json dosyasını GitHub'da tutuyoruz (Render disk sorununa çözüm)
+MASTER_KEY = base64.b64decode(ENCODED_MASTER).decode('utf-8')
 KEYS_FILE = "keys.json"
 
 def load_keys():
@@ -34,12 +31,15 @@ def save_keys(data):
     with open(KEYS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-def is_key_valid(key):
+def is_key_valid(key, client_ip=None):
     if key == MASTER_KEY:
         return True, "Admin"
     keys = load_keys()
     if key in keys:
         entry = keys[key]
+        if client_ip and entry.get("allowed_ip"):
+            if entry["allowed_ip"] != client_ip:
+                return False, None
         exp = entry.get("expires")
         if exp:
             if datetime.now() < datetime.fromisoformat(exp):
@@ -56,7 +56,7 @@ def is_admin(key):
     return valid and role == "Admin"
 
 # ============================================================
-# PLATFORMLAR (PUBG VE DUOLINGO EKLENDİ)
+# PLATFORMLAR (Valorant doğru eklendi)
 # ============================================================
 PLATFORMS = [
     {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
@@ -78,7 +78,7 @@ PLATFORMS = [
     {"name": "Valorant", "domain": "valorant.com", "icon": "fa-solid fa-crosshairs"},
     {"name": "Minecraft", "domain": "minecraft.net", "icon": "fa-solid fa-cube"},
     {"name": "Duolingo", "domain": "duolingo.com", "icon": "fa-solid fa-language"},
-    {"name": "PUBG", "domain": "pubg.com", "icon": "fa-solid fa-gun"},
+    {"name": "PUBG", "domain": "pubg.com", "icon": "fa-solid fa-crosshairs"},
 ]
 
 # ============================================================
@@ -86,21 +86,21 @@ PLATFORMS = [
 # ============================================================
 def categorize_endpoint(endpoint):
     ep = endpoint.lower()
-    if any(x in ep for x in ['login', 'auth', 'signin', 'signup', 'register', 'token', 'verify', 'validate', 'authenticate', 'session', 'logout', 'oauth', 'passport']):
+    if any(x in ep for x in ['login', 'auth', 'signin', 'signup', 'register', 'token', 'verify', 'validate', 'authenticate', 'session', 'logout', 'oauth', 'passport', 'authorize']):
         return 'Auth'
     elif any(x in ep for x in ['admin', 'panel', 'dashboard', 'manage', 'system', 'mod']):
         return 'Admin'
-    elif any(x in ep for x in ['user', 'profile', 'account', 'me', 'preferences', 'settings', 'my']):
+    elif any(x in ep for x in ['user', 'profile', 'account', 'me', 'preferences', 'settings', 'my', 'player']):
         return 'User'
     elif any(x in ep for x in ['health', 'ping', 'status', 'check', 'heartbeat', 'live']):
         return 'Health'
-    elif any(x in ep for x in ['api', 'v1', 'v2', 'v3', 'v4', 'rest', 'graphql', 'rpc']):
+    elif any(x in ep for x in ['api', 'v1', 'v2', 'v3', 'v4', 'rest', 'graphql', 'rpc', 'pd', 'pas']):
         return 'API'
     else:
         return 'Genel'
 
 # ============================================================
-# ENDPOINT ÇIKARICILAR (KISALTILDI - AYNI)
+# ENDPOINT ÇIKARICILAR (Aynı)
 # ============================================================
 def extract_from_html(html, base_url):
     endpoints = set()
@@ -171,7 +171,7 @@ def fetch_proxies():
     return list(proxies)
 
 # ============================================================
-# TARAMA MOTORU (API Discovery)
+# TARAMA MOTORU (API Discovery) - VALORANT EKLENDİ
 # ============================================================
 class APIScanner:
     def __init__(self, proxy_list=None):
@@ -301,19 +301,24 @@ class APIScanner:
             "/api/hesapcomtr", "/api/hesapcomtr/v1",
             "/api/itemsatis", "/api/itemsatis/v1",
             "/api/epinify", "/api/epinify/v1",
-            "/api/valorant", "/api/valorant/v1",
-            "/api/minecraft", "/api/minecraft/v1",
-            # DUOLINGO
-            "/api/duolingo", "/api/duolingo/v1", "/api/duolingo/v2",
-            "/api/users", "/api/users/v1",
-            "/api/sessions", "/api/sessions/v1",
-            "/api/streak", "/api/streak/v1",
-            "/api/leaderboard", "/api/leaderboard/v1",
-            "/api/learn", "/api/learn/v1",
-            "/api/lessons", "/api/lessons/v1",
-            "/api/skills", "/api/skills/v1",
-            "/api/words", "/api/words/v1",
-            "/api/translations", "/api/translations/v1",
+            # VALORANT (Riot Games API) - DOĞRU EKLENDİ
+            "/authorize", "/authorize?redirect_uri=http%3A%2F%2Flocalhost%2Fredirect&client_id=riot-client&response_type=token%20id_token&nonce=1&scope=openid%20link%20ban%20account%20email%20mobile_number",
+            "/api/token/v1",
+            "/userinfo",
+            "/pas/v1/service/valorant",
+            "/account-xp/v1/players/{puuid}",
+            "/store/v1/wallet/{puuid}",
+            "/store/v1/entitlements/{puuid}/e7c63390-eda7-46e0-bb7a-a6abdacd2433",
+            "/mmr/v1/players/{puuid}",
+            "/restrictions/v3/player",
+            "/api/valorant", "/api/valorant/v1", "/api/valorant/v2",
+            "/api/players", "/api/players/v1",
+            "/api/matches", "/api/matches/v1",
+            "/api/rank", "/api/rank/v1",
+            "/api/skins", "/api/skins/v1",
+            "/api/storefront", "/api/storefront/v1",
+            "/api/content", "/api/content/v1",
+            "/api/status", "/api/status/v1",
             # PUBG
             "/api/pubg", "/api/pubg/v1", "/api/pubg/v2",
             "/api/players", "/api/players/v1",
@@ -325,6 +330,17 @@ class APIScanner:
             "/api/maps", "/api/maps/v1",
             "/api/seasons", "/api/seasons/v1",
             "/api/tournaments", "/api/tournaments/v1",
+            # Duolingo
+            "/api/duolingo", "/api/duolingo/v1",
+            "/api/users", "/api/users/v1",
+            "/api/sessions", "/api/sessions/v1",
+            "/api/streak", "/api/streak/v1",
+            "/api/leaderboard", "/api/leaderboard/v1",
+            "/api/learn", "/api/learn/v1",
+            "/api/lessons", "/api/lessons/v1",
+            "/api/skills", "/api/skills/v1",
+            "/api/words", "/api/words/v1",
+            "/api/translations", "/api/translations/v1",
         ]
 
     def _test(self, full_url, endpoint):
@@ -400,7 +416,8 @@ def index():
 def login():
     data = request.json
     key = data.get("key", "").strip()
-    valid, role = is_key_valid(key)
+    client_ip = request.remote_addr
+    valid, role = is_key_valid(key, client_ip)
     return jsonify({"success": valid, "user": role, "isAdmin": role == "Admin"})
 
 @app.route("/api/scan", methods=["GET"])
@@ -437,12 +454,23 @@ def admin_generate():
         return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
     note = data.get("note", "Oluşturuldu")
     hours = int(data.get("hours", 24))
+    allowed_ip = data.get("allowed_ip", "").strip()
     expires = datetime.now() + timedelta(hours=hours)
     new_key = "RODA-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=16))
     keys = load_keys()
-    keys[new_key] = {"note": note, "expires": expires.isoformat(), "created": datetime.now().isoformat()}
+    keys[new_key] = {
+        "note": note,
+        "expires": expires.isoformat(),
+        "created": datetime.now().isoformat(),
+        "allowed_ip": allowed_ip if allowed_ip else ""
+    }
     save_keys(keys)
-    return jsonify({"success": True, "key": new_key, "expires": expires.strftime("%Y-%m-%d %H:%M:%S")})
+    return jsonify({
+        "success": True,
+        "key": new_key,
+        "expires": expires.strftime("%Y-%m-%d %H:%M:%S"),
+        "allowed_ip": allowed_ip if allowed_ip else "Herhangi IP"
+    })
 
 @app.route("/api/admin/delete", methods=["POST"])
 def admin_delete():
@@ -504,7 +532,7 @@ def fetch_proxies_route():
         return jsonify({"success": False, "error": str(e)})
 
 # ============================================================
-# HTML (SADECE GÖRSELLİK, TÜM ÖZELLİKLER MEVCUT)
+# HTML (KISALTILMIŞ - ÖNEMLİ BÖLÜMLER)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -655,6 +683,8 @@ input:checked+.slider:before{transform:translateX(18px)}
 .stat-card-custom{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}
 .stat-card-custom h3{font-size:12px;color:var(--muted)}
 .stat-card-custom p{font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.key-ip-input{width:200px;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:13px;outline:none}
+.key-ip-input:focus{border-color:var(--p)}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,107,0,0.2);border-radius:4px}
 </style>
 </head>
@@ -670,7 +700,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 <div id="sidebar">
-<div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.1</div></div>
+<div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.2</div></div>
 <div class="sidebar-nav">
 <div class="nav-divider">📁 MENÜ</div>
 <div class="nav-item active" data-page="checker" onclick="switchPage('checker')"><i class="fa-solid fa-check-double"></i> Checker</div>
@@ -843,8 +873,10 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
 <div style="flex:1"><label style="font-size:11px;color:var(--muted)">Not</label><input class="inp" id="genNote" placeholder="Müşteri" style="margin-top:4px;padding:10px"></div>
 <div style="width:130px"><label style="font-size:11px;color:var(--muted)">Süre</label><select class="inp" id="genHours" style="margin-top:4px;padding:10px"><option value="1">1 Saat</option><option value="24" selected>24 Saat</option><option value="168">7 Gün</option><option value="720">30 Gün</option></select></div>
+<div style="flex:1"><label style="font-size:11px;color:var(--muted)">IP (opsiyonel)</label><input class="inp key-ip-input" id="genIp" placeholder="örn: 192.168.1.1" style="margin-top:4px;padding:10px;width:100%"></div>
 <button class="btn sm g" onclick="generateKey()" style="margin-top:22px"><i class="fa-solid fa-plus"></i> Oluştur</button>
 </div>
+<p style="font-size:11px;color:var(--muted);margin-top:6px">💡 IP boş bırakılırsa herhangi bir IP'den giriş yapılabilir.</p>
 </div>
 <div class="card"><h3><i class="fa-solid fa-list"></i> Aktif Anahtarlar</h3><div id="keyList"><p style="color:var(--muted);font-size:12px">Yükleniyor...</p></div></div>
 </div>
@@ -886,7 +918,7 @@ var platforms = [
     {name:"Valorant", domain:"valorant.com", icon:"fa-solid fa-crosshairs"},
     {name:"Minecraft", domain:"minecraft.net", icon:"fa-solid fa-cube"},
     {name:"Duolingo", domain:"duolingo.com", icon:"fa-solid fa-language"},
-    {name:"PUBG", domain:"pubg.com", icon:"fa-solid fa-gun"}
+    {name:"PUBG", domain:"pubg.com", icon:"fa-solid fa-crosshairs"}
 ];
 
 // ============================================================
@@ -1391,7 +1423,8 @@ function loadKeys() {
             for (var k in d) {
                 var v = d[k];
                 var exp = v.expires ? new Date(v.expires).toLocaleString() : "Süresiz";
-                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><div><strong style="font-size:13px">' + k + '</strong><br><small style="color:var(--muted);font-size:10px">' + v.note + ' | ' + exp + '</small></div><button class="btn sm r" onclick="deleteKey(\'' + k + '\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
+                var ip = v.allowed_ip || "Herhangi";
+                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><div><strong style="font-size:13px">' + k + '</strong><br><small style="color:var(--muted);font-size:10px">' + v.note + ' | ' + exp + ' | IP: ' + ip + '</small></div><button class="btn sm r" onclick="deleteKey(\'' + k + '\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
             }
             list.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Hiç key yok.</p>';
         })
@@ -1402,15 +1435,16 @@ function generateKey() {
     if (!isAdmin) return;
     var note = document.getElementById("genNote").value || "Oluşturuldu";
     var hours = document.getElementById("genHours").value;
+    var allowed_ip = document.getElementById("genIp").value.trim();
     fetch("/api/admin/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, note: note, hours: hours })
+        body: JSON.stringify({ master_key: currentKey, note: note, hours: hours, allowed_ip: allowed_ip })
     })
     .then(function(r) { return r.json(); })
     .then(function(d) {
         if (d.success) {
-            alert("Key Oluşturuldu!\n\nKey: " + d.key + "\nBitiş: " + d.expires);
+            alert("Key Oluşturuldu!\n\nKey: " + d.key + "\nBitiş: " + d.expires + "\nIP: " + d.allowed_ip);
             loadKeys();
         } else alert("Başarısız: " + (d.error || ""));
     })
@@ -1568,9 +1602,11 @@ if __name__ == "__main__":
     ╔══════════════════════════════════════════════════════════════════╗
     ║     🔱 RODA - API KEŞİF + CHECKER + AYRIŞTIRMA (TÜRKÇE)        ║
     ║     Render üzerinde çalışıyor                                  ║
-    ║     PUBG ve Duolingo eklendi                                  ║
-    ║     Giriş anahtarı gizlidir                                   ║
-    ║     Key'ler GitHub'da kalıcı                                  ║
+    ║     🔒 IP Bazlı Key Sistemi Aktif                             ║
+    ║     ✅ Valorant (Riot API) eklendi                           ║
+    ║     ✅ PUBG + Duolingo eklendi                               ║
+    ║     Ayrıştırma ve istatistikler herkese açık                  ║
+    ║     Key'ler süresi boyunca kalıcı                             ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
