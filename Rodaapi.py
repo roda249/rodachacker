@@ -2,24 +2,21 @@
 # -*- coding: utf-8 -*-
 """
 Roda - API Discovery + Checker (Türkçe)
-Admin/Üye ayrımı | Key sistemi | Sabit menü | API Keşif'te platform butonları
+Turuncu-Mor Tema | Hit/2FA Web Panel | 18 Platform
 """
 
-import os, json, re, time, random, string, threading, webbrowser, base64
+import os, json, re, time, random, string, threading, webbrowser
 from datetime import datetime, timedelta
 from urllib.parse import urljoin
 import requests
 from flask import Flask, request, jsonify, Response
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24)
 
 # ============================================================
-# MASTER KEY (BASE64 ile gizlenmiş)
+# ANAHTAR
 # ============================================================
-ENCODED_MASTER = "Um9kYUAyMDI2I1NlY3VyZSFYNw=="
-MASTER_KEY = base64.b64decode(ENCODED_MASTER).decode('utf-8')
-
+MASTER_KEY = "Roda12345"
 KEYS_FILE = "keys.json"
 
 def load_keys():
@@ -48,10 +45,6 @@ def is_key_valid(key):
         else:
             return True, entry.get("note", "Kullanıcı")
     return False, None
-
-def is_admin(key):
-    valid, role = is_key_valid(key)
-    return valid and role == "Admin"
 
 # ============================================================
 # PLATFORMLAR
@@ -167,14 +160,15 @@ def fetch_proxies():
     return list(proxies)
 
 # ============================================================
-# TARAMA MOTORU (API Discovery)
+# TARAMA MOTORU
 # ============================================================
 class APIScanner:
     def __init__(self, proxy_list=None):
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Accept': 'application/json, text/plain, */*',
+            'Accept-Language': 'tr-TR,tr;q=0.9,en;q=0.8',
         })
         if proxy_list:
             proxy = random.choice(proxy_list) if proxy_list else None
@@ -374,17 +368,17 @@ def index():
 def login():
     data = request.json
     key = data.get("key", "").strip()
-    valid, role = is_key_valid(key)
-    return jsonify({"success": valid, "user": role, "isAdmin": role == "Admin"})
+    valid, user = is_key_valid(key)
+    return jsonify({"success": valid, "user": user})
 
 @app.route("/api/scan", methods=["GET"])
 def scan():
     key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
     domain = request.args.get("domain")
     proxy_list = request.args.get("proxies", "").split(",") if request.args.get("proxies") else []
     use_proxy = request.args.get("use_proxy", "false").lower() == "true"
+    if key != MASTER_KEY:
+        return jsonify({"error": "Yetkisiz"}), 401
 
     def generate():
         proxy_list_filtered = [p.strip() for p in proxy_list if p.strip() and ':' in p]
@@ -396,48 +390,17 @@ def scan():
 
     return Response(generate(), mimetype="text/event-stream")
 
-@app.route("/api/admin/keys")
-def admin_keys():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
-    return jsonify(load_keys())
+@app.route("/api/fetch_proxies", methods=["GET"])
+def fetch_proxies_route():
+    try:
+        proxies = fetch_proxies()
+        return jsonify({"success": True, "proxies": proxies, "count": len(proxies)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
-@app.route("/api/admin/generate", methods=["POST"])
-def admin_generate():
+@app.route("/api/webhook", methods=["POST"])
+def webhook():
     data = request.json
-    key = data.get("master_key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
-    note = data.get("note", "Oluşturuldu")
-    hours = int(data.get("hours", 24))
-    expires = datetime.now() + timedelta(hours=hours)
-    new_key = "RODA-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=16))
-    keys = load_keys()
-    keys[new_key] = {"note": note, "expires": expires.isoformat(), "created": datetime.now().isoformat()}
-    save_keys(keys)
-    return jsonify({"success": True, "key": new_key, "expires": expires.strftime("%Y-%m-%d %H:%M:%S")})
-
-@app.route("/api/admin/delete", methods=["POST"])
-def admin_delete():
-    data = request.json
-    key = data.get("master_key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
-    keys = load_keys()
-    target = data.get("target_key", "")
-    if target in keys:
-        del keys[target]
-        save_keys(keys)
-        return jsonify({"success": True})
-    return jsonify({"success": False})
-
-@app.route("/api/admin/webhook", methods=["POST"])
-def admin_webhook():
-    data = request.json
-    key = data.get("master_key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
     url = data.get("webhook_url")
     endpoints = data.get("endpoints", [])
     categories = data.get("categories", [])
@@ -469,16 +432,41 @@ def admin_webhook():
     except:
         return jsonify({"success": False}), 500
 
-@app.route("/api/fetch_proxies", methods=["GET"])
-def fetch_proxies_route():
-    try:
-        proxies = fetch_proxies()
-        return jsonify({"success": True, "proxies": proxies, "count": len(proxies)})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+@app.route("/api/admin/keys")
+def admin_keys():
+    if request.args.get("key") != MASTER_KEY:
+        return jsonify({"error": "Yetkisiz"}), 401
+    return jsonify(load_keys())
+
+@app.route("/api/admin/generate", methods=["POST"])
+def admin_generate():
+    d = request.json
+    if d.get("master_key") != MASTER_KEY:
+        return jsonify({"error": "Yetkisiz"}), 401
+    note = d.get("note", "Oluşturuldu")
+    hours = int(d.get("hours", 24))
+    expires = datetime.now() + timedelta(hours=hours)
+    new_key = "RODA-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=16))
+    keys = load_keys()
+    keys[new_key] = {"note": note, "expires": expires.isoformat(), "created": datetime.now().isoformat()}
+    save_keys(keys)
+    return jsonify({"success": True, "key": new_key, "expires": expires.strftime("%Y-%m-%d %H:%M:%S")})
+
+@app.route("/api/admin/delete", methods=["POST"])
+def admin_delete():
+    d = request.json
+    if d.get("master_key") != MASTER_KEY:
+        return jsonify({"error": "Yetkisiz"}), 401
+    keys = load_keys()
+    target = d.get("target_key", "")
+    if target in keys:
+        del keys[target]
+        save_keys(keys)
+        return jsonify({"success": True})
+    return jsonify({"success": False})
 
 # ============================================================
-# HTML (SABİT MENÜ + API KEŞİF'TE PLATFORM BUTONLARI)
+# HTML (Tamamen Yenilendi)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -510,6 +498,10 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .sidebar-header .version{font-size:10px;color:var(--muted);letter-spacing:1px;margin-top:2px}
 .sidebar-nav{flex:1;padding:12px 12px;overflow-y:auto}
 .nav-divider{padding:8px 12px;font-size:10px;color:#4a5a70;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:6px}
+.platform-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:6px}
+.platform-btn{padding:5px 8px;background:rgba(255,107,0,0.06);border:1px solid rgba(255,107,0,0.08);border-radius:6px;color:#8a9bb0;font-size:11px;cursor:pointer;transition:0.2s;text-align:center}
+.platform-btn:hover{background:rgba(255,107,0,0.12);border-color:var(--p);color:#fff}
+.platform-btn.active{background:rgba(255,107,0,0.15);border-color:var(--p);color:var(--p)}
 .nav-item{display:flex;align-items:center;gap:12px;padding:9px 14px;border-radius:8px;cursor:pointer;color:#8a9bb0;font-weight:500;font-size:13px;transition:0.2s;margin-top:2px}
 .nav-item:hover{background:rgba(255,107,0,0.06);color:#fff}
 .nav-item.active{background:rgba(255,107,0,0.12);color:var(--p);border-left:3px solid var(--p)}
@@ -603,6 +595,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 .checker-stats{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0;font-size:12px}
 .checker-stats span{color:var(--muted)}
 .checker-stats .chk-count{font-weight:700;color:var(--text)}
+/* HIT / 2FA PANEL */
 .hit-panel{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
 .hit-panel .hit-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px}
 .hit-panel .hit-box h4{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px}
@@ -614,11 +607,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 .hit-filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .hit-filter select{padding:4px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;outline:none}
 .hit-filter select:focus{border-color:var(--p)}
-/* API Keşif platform butonları */
-.discovery-platforms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-.discovery-platforms button{padding:4px 12px;background:rgba(255,107,0,0.06);border:1px solid rgba(255,107,0,0.1);border-radius:6px;color:#8a9bb0;font-size:11px;cursor:pointer;transition:0.2s}
-.discovery-platforms button:hover{background:rgba(255,107,0,0.12);border-color:var(--p);color:#fff}
-.discovery-platforms button.active{background:rgba(255,107,0,0.15);border-color:var(--p);color:var(--p)}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(255,107,0,0.2);border-radius:4px}
 </style>
 </head>
@@ -636,12 +624,14 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div id="sidebar">
 <div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.0</div></div>
 <div class="sidebar-nav">
-<div class="nav-divider">📁 MENÜ</div>
-<div class="nav-item active" data-page="checker" onclick="switchPage('checker')"><i class="fa-solid fa-check-double"></i> Checker</div>
+<div class="nav-divider">⚡ PLATFORMLAR</div>
+<div class="platform-grid" id="platformList"></div>
+<div class="nav-divider" style="margin-top:12px">📁 MENÜ</div>
+<div class="nav-item active" data-page="discovery" onclick="switchPage('discovery')"><i class="fa-solid fa-compass"></i> Keşif</div>
 <div class="nav-item" data-page="proxy" onclick="switchPage('proxy')"><i class="fa-solid fa-server"></i> Proxy</div>
-<div class="nav-item" data-page="discovery" onclick="switchPage('discovery')"><i class="fa-solid fa-compass"></i> API Keşif</div>
+<div class="nav-item" data-page="checker" onclick="switchPage('checker')"><i class="fa-solid fa-check-double"></i> Checker</div>
 <div class="nav-item" data-page="stats" onclick="switchPage('stats')"><i class="fa-solid fa-chart-simple"></i> İstatistik</div>
-<div class="nav-item" data-page="keys" onclick="switchPage('keys')"><i class="fa-solid fa-key"></i> Key Yönetimi</div>
+<div class="nav-item" data-page="keys" onclick="switchPage('keys')"><i class="fa-solid fa-key"></i> Anahtarlar</div>
 </div>
 <div class="sidebar-stats">
 <div class="mini-stat mini-hit"><div class="val" id="sideTotal">0</div><div class="lbl">Bulunan</div></div>
@@ -653,20 +643,69 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 <div id="app">
 <div class="topbar">
-<div class="topbar-title"><i class="fa-solid fa-gauge-high"></i> <span id="pageTitle">Checker</span></div>
+<div class="topbar-title"><i class="fa-solid fa-gauge-high"></i> <span id="pageTitle">Keşif</span></div>
 <div class="topbar-right">
 <span style="font-size:11px;color:var(--muted)">Durum:</span>
 <div class="pulse-dot idle" id="statusDot"></div>
 <span style="font-size:12px;font-weight:600" id="statusText">Boşta</span>
-<span id="userBadge" style="font-size:11px;background:var(--p);padding:2px 10px;border-radius:12px;display:none">Admin</span>
 </div>
 </div>
 <div class="main-content">
-<!-- CHECKER -->
-<div id="page-checker" class="page active">
+<!-- DISCOVERY -->
+<div id="page-discovery" class="page active">
+<div class="card" style="padding:10px 14px">
+<div class="scan-top">
+<input id="targetDomain" placeholder="hedef.com (örn: youtube.com)" value="example.com">
+<button id="scanBtn" onclick="startScan()"><i class="fa-solid fa-play"></i> Tara</button>
+</div>
+</div>
+<div class="stats-row">
+<div class="stat-card stat-hit"><div class="stat-val" id="totalCount">0</div><div class="stat-lbl">Toplam</div></div>
+<div class="stat-card stat-2fa"><div class="stat-val" id="authCount">0</div><div class="stat-lbl">Auth</div></div>
+<div class="stat-card stat-bad"><div class="stat-val" id="apiCount">0</div><div class="stat-lbl">API</div></div>
+<div class="stat-card stat-total"><div class="stat-val" id="adminCount">0</div><div class="stat-lbl">Admin</div></div>
+</div>
+<div class="filters" id="filterContainer">
+<label><input type="checkbox" value="Auth" checked> Auth</label>
+<label><input type="checkbox" value="Admin" checked> Admin</label>
+<label><input type="checkbox" value="User" checked> User</label>
+<label><input type="checkbox" value="Health" checked> Health</label>
+<label><input type="checkbox" value="API" checked> API</label>
+<label><input type="checkbox" value="Genel" checked> Genel</label>
+</div>
+<div class="results-container">
+<div class="result-header"><div>Metod</div><div>Durum</div><div>Endpoint</div><div>Kategori</div></div>
+<div id="resultsList"></div>
+</div>
+<div class="webhook-area">
+<input id="webhookUrl" placeholder="Discord Webhook URL">
+<button onclick="sendWebhook()"><i class="fa-brands fa-discord"></i> Discord</button>
+<button onclick="exportJSON()" class="btn sm b"><i class="fa-solid fa-download"></i> JSON</button>
+</div>
+</div>
+<!-- PROXY -->
+<div id="page-proxy" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-server"></i> Proxy Yöneticisi</h3>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+<button class="btn sm g" onclick="fetchProxies()"><i class="fa-solid fa-cloud-arrow-down"></i> Proxy Çek</button>
+<button class="btn sm r" onclick="clearProxies()"><i class="fa-solid fa-trash"></i> Temizle</button>
+</div>
+<div class="setting-row">
+<div><label>Proxy Kullan</label><div class="desc">Tarama sırasında proxy kullan</div></div>
+<label class="switch"><input type="checkbox" id="useProxy" onchange="toggleProxy()"><span class="slider"></span></label>
+</div>
+<div class="proxy-area">
+<textarea id="proxyList" placeholder="ip:port&#10;ip:port"></textarea>
+</div>
+<div style="margin-top:6px"><span id="proxyCount" style="color:var(--g);font-size:12px">0 proxy yüklendi</span></div>
+</div>
+</div>
+<!-- CHECKER + HIT/2FA PANEL -->
+<div id="page-checker" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-check-double"></i> Platform Checker</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın.</p>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın. <span style="color:var(--gold)">✅ HIT ve 2FA sonuçları altta listelenir.</span></p>
 <div class="checker-platform-select" id="checkerPlatformSelect"></div>
 <div class="checker-panel" id="checkerPanel">
 <div class="checker-top">
@@ -694,7 +733,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 </div>
-<!-- HIT / 2FA PANEL -->
+<!-- HIT / 2FA PANEL (Checker altında) -->
 <div class="card">
 <h3><i class="fa-solid fa-database"></i> HIT & 2FA Arşivi</h3>
 <div class="hit-filter">
@@ -705,68 +744,20 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div class="hit-panel">
 <div class="hit-box">
 <h4 style="color:var(--g)"><i class="fa-solid fa-check-circle"></i> HIT</h4>
-<div class="hit-list" id="hitList"><div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div></div>
+<div class="hit-list" id="hitList">
+<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>
+</div>
 </div>
 <div class="hit-box">
 <h4 style="color:var(--gold)"><i class="fa-solid fa-shield-halved"></i> 2FA</h4>
-<div class="hit-list" id="twofaList"><div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div></div>
+<div class="hit-list" id="twofaList">
+<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>
 </div>
 </div>
 </div>
 </div>
-<!-- PROXY -->
-<div id="page-proxy" class="page">
-<div class="card">
-<h3><i class="fa-solid fa-server"></i> Proxy Yöneticisi</h3>
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-<button class="btn sm g" onclick="fetchProxies()"><i class="fa-solid fa-cloud-arrow-down"></i> Proxy Çek</button>
-<button class="btn sm r" onclick="clearProxies()"><i class="fa-solid fa-trash"></i> Temizle</button>
 </div>
-<div class="setting-row">
-<div><label>Proxy Kullan</label><div class="desc">Checker sırasında proxy kullan</div></div>
-<label class="switch"><input type="checkbox" id="useProxy" onchange="toggleProxy()"><span class="slider"></span></label>
-</div>
-<div class="proxy-area">
-<textarea id="proxyList" placeholder="ip:port&#10;ip:port"></textarea>
-</div>
-<div style="margin-top:6px"><span id="proxyCount" style="color:var(--g);font-size:12px">0 proxy yüklendi</span></div>
-</div>
-</div>
-<!-- API KEŞİF (SADECE ADMIN) -->
-<div id="page-discovery" class="page">
-<div class="card" style="padding:10px 14px">
-<div class="scan-top">
-<input id="targetDomain" placeholder="hedef.com (örn: youtube.com)" value="example.com">
-<button id="scanBtn" onclick="startScan()"><i class="fa-solid fa-play"></i> Tara</button>
-</div>
-<!-- API KEŞİF PLATFORM BUTONLARI -->
-<div class="discovery-platforms" id="discoveryPlatforms"></div>
-</div>
-<div class="stats-row">
-<div class="stat-card stat-hit"><div class="stat-val" id="totalCount">0</div><div class="stat-lbl">Toplam</div></div>
-<div class="stat-card stat-2fa"><div class="stat-val" id="authCount">0</div><div class="stat-lbl">Auth</div></div>
-<div class="stat-card stat-bad"><div class="stat-val" id="apiCount">0</div><div class="stat-lbl">API</div></div>
-<div class="stat-card stat-total"><div class="stat-val" id="adminCount">0</div><div class="stat-lbl">Admin</div></div>
-</div>
-<div class="filters" id="filterContainer">
-<label><input type="checkbox" value="Auth" checked> Auth</label>
-<label><input type="checkbox" value="Admin" checked> Admin</label>
-<label><input type="checkbox" value="User" checked> User</label>
-<label><input type="checkbox" value="Health" checked> Health</label>
-<label><input type="checkbox" value="API" checked> API</label>
-<label><input type="checkbox" value="Genel" checked> Genel</label>
-</div>
-<div class="results-container">
-<div class="result-header"><div>Metod</div><div>Durum</div><div>Endpoint</div><div>Kategori</div></div>
-<div id="resultsList"></div>
-</div>
-<div class="webhook-area">
-<input id="webhookUrl" placeholder="Discord Webhook URL">
-<button onclick="sendWebhook()"><i class="fa-brands fa-discord"></i> Discord</button>
-<button onclick="exportJSON()" class="btn sm b"><i class="fa-solid fa-download"></i> JSON</button>
-</div>
-</div>
-<!-- İSTATİSTİK (SADECE ADMIN) -->
+<!-- STATS -->
 <div id="page-stats" class="page">
 <h2 style="margin-bottom:14px;font-weight:700;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent">📊 Tarama İstatistikleri</h2>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px">
@@ -775,13 +766,13 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Bulunan API</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statEndpoints">0</p></div>
 </div>
 </div>
-<!-- KEY YÖNETİMİ (SADECE ADMIN) -->
+<!-- KEYS -->
 <div id="page-keys" class="page">
 <div class="card">
-<h3><i class="fa-solid fa-key"></i> Key Oluştur</h3>
+<h3><i class="fa-solid fa-key"></i> Anahtar Oluştur</h3>
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
 <div style="flex:1"><label style="font-size:11px;color:var(--muted)">Not</label><input class="inp" id="genNote" placeholder="Müşteri" style="margin-top:4px;padding:10px"></div>
-<div style="width:130px"><label style="font-size:11px;color:var(--muted)">Süre</label><select class="inp" id="genHours" style="margin-top:4px;padding:10px"><option value="1">1 Saat</option><option value="24" selected>24 Saat</option><option value="168">7 Gün</option><option value="720">30 Gün</option></select></div>
+<div style="width:130px"><label style="font-size:11px;color:var(--muted)">Süre</label><select class="inp" id="genHours" style="margin-top:4px;padding:10px"><option value="1">1 Saat</option><option value="24" selected>24 Saat</option><option value="168">7 Gün</option></select></div>
 <button class="btn sm g" onclick="generateKey()" style="margin-top:22px"><i class="fa-solid fa-plus"></i> Oluştur</button>
 </div>
 </div>
@@ -794,7 +785,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 // GLOBAL
 // ============================================================
 var currentKey = "";
-var isAdmin = false;
 var scanning = false;
 var eventSource = null;
 var foundEndpoints = [];
@@ -802,9 +792,9 @@ var useProxy = false;
 var checkerRunning = false;
 var checkerResults = [];
 var currentPlatform = "";
-var hitData = {};
+var hitData = {}; // { "YouTube": { hits: [{email, password, time}], twofa: [{email, password, time}] } }
 
-// Platform listesi
+// Platform listesi (backend'den gelenle aynı)
 var platforms = [
     {name:"YouTube", domain:"youtube.com", icon:"fa-brands fa-youtube"},
     {name:"TikTok", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
@@ -827,7 +817,7 @@ var platforms = [
 ];
 
 // ============================================================
-// LOGIN
+// LOGIN (DÜZELTİLDİ)
 // ============================================================
 function doLogin() {
     var k = document.getElementById("authKey").value.trim();
@@ -841,20 +831,11 @@ function doLogin() {
     .then(function(d) {
         if (d.success) {
             currentKey = k;
-            isAdmin = d.isAdmin || false;
             document.getElementById("login-screen").style.display = "none";
             document.getElementById("app").style.display = "flex";
-            
-            if (isAdmin) {
-                document.getElementById("userBadge").style.display = "inline-block";
-                loadKeys();
-            } else {
-                document.getElementById("userBadge").style.display = "none";
-            }
+            loadKeys();
             loadPlatforms();
-            loadDiscoveryPlatforms();
             loadHitFilter();
-            switchPage('checker');
         } else {
             document.getElementById("loginError").innerText = "❌ Geçersiz anahtar!";
             document.getElementById("loginError").style.display = "block";
@@ -866,14 +847,30 @@ function doLogin() {
     });
 }
 
+// Enter ile giriş
 document.getElementById("authKey").addEventListener("keypress", function(e) {
     if (e.key === "Enter") doLogin();
 });
 
 // ============================================================
-// PLATFORM YÜKLEME (Checker + API Keşif)
+// PLATFORM YÜKLEME
 // ============================================================
 function loadPlatforms() {
+    var container = document.getElementById("platformList");
+    container.innerHTML = "";
+    platforms.forEach(function(p) {
+        var btn = document.createElement("div");
+        btn.className = "platform-btn";
+        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
+        btn.onclick = function() {
+            document.getElementById("targetDomain").value = p.domain;
+            document.querySelectorAll(".platform-btn").forEach(function(b) { b.classList.remove("active"); });
+            btn.classList.add("active");
+        };
+        container.appendChild(btn);
+    });
+
+    // Checker platform seçimi
     var sel = document.getElementById("checkerPlatformSelect");
     sel.innerHTML = "";
     platforms.forEach(function(p) {
@@ -884,31 +881,17 @@ function loadPlatforms() {
             btn.classList.add("active");
             currentPlatform = p.name;
             document.getElementById("checkerPanel").classList.add("active");
-            document.getElementById("checkerResults").innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">' + p.name + ' checker hazır.</div>';
+            document.getElementById("checkerResults").innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">' + p.name + ' checker hazır. Combo girip başlatabilirsiniz.</div>';
             resetCheckerStats();
             checkerResults = [];
         };
         sel.appendChild(btn);
     });
+    // ilk platformu aktif yap
     if (platforms.length > 0) {
         var first = sel.querySelector("button");
         if (first) first.click();
     }
-}
-
-function loadDiscoveryPlatforms() {
-    var container = document.getElementById("discoveryPlatforms");
-    container.innerHTML = "";
-    platforms.forEach(function(p) {
-        var btn = document.createElement("button");
-        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
-        btn.onclick = function() {
-            document.querySelectorAll("#discoveryPlatforms button").forEach(function(b) { b.classList.remove("active"); });
-            btn.classList.add("active");
-            document.getElementById("targetDomain").value = p.domain;
-        };
-        container.appendChild(btn);
-    });
 }
 
 function loadHitFilter() {
@@ -923,7 +906,7 @@ function loadHitFilter() {
 }
 
 // ============================================================
-// HIT KAYDETME
+// HIT KAYDETME (WEB BELLEĞİ)
 // ============================================================
 function addHit(platform, email, password, status) {
     if (!hitData[platform]) {
@@ -943,7 +926,8 @@ function renderHits() {
     var hitContainer = document.getElementById("hitList");
     var twofaContainer = document.getElementById("twofaList");
 
-    var hits = [], twofas = [];
+    var hits = [];
+    var twofas = [];
 
     if (filter === "all") {
         for (var p in hitData) {
@@ -973,15 +957,31 @@ function renderHits() {
         }
     }
 
-    hitContainer.innerHTML = hits.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>' :
-        hits.map(function(h) { return '<div class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>'; }).join('');
+    // Render HIT
+    if (hits.length === 0) {
+        hitContainer.innerHTML = '<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>';
+    } else {
+        var html = "";
+        hits.forEach(function(h) {
+            html += '<div class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>';
+        });
+        hitContainer.innerHTML = html;
+    }
 
-    twofaContainer.innerHTML = twofas.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>' :
-        twofas.map(function(t) { return '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
+    // Render 2FA
+    if (twofas.length === 0) {
+        twofaContainer.innerHTML = '<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>';
+    } else {
+        var html2 = "";
+        twofas.forEach(function(t) {
+            html2 += '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>';
+        });
+        twofaContainer.innerHTML = html2;
+    }
 }
 
 // ============================================================
-// CHECKER FONKSİYONLARI
+// CHECKER FONKSİYONLARI (SİMÜLASYON + HIT KAYDI)
 // ============================================================
 function resetCheckerStats() {
     document.getElementById("chkTotal").innerText = 0;
@@ -1086,124 +1086,21 @@ document.querySelectorAll('input[name="chkFilter"]').forEach(function(el) {
 });
 
 // ============================================================
-// SAYFA GEÇİŞİ (SABİT MENÜ)
+// API DISCOVERY FONKSİYONLARI
 // ============================================================
 function switchPage(page) {
-    // Yetki kontrolü
-    if ((page === "discovery" || page === "stats" || page === "keys") && !isAdmin) {
-        alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
-        return;
-    }
-    document.querySelectorAll(".nav-item").forEach(function(el) {
-        el.classList.remove("active");
-    });
+    document.querySelectorAll(".nav-item").forEach(function(el) { el.classList.remove("active"); });
     var el = document.querySelector('.nav-item[data-page="' + page + '"]');
     if (el) el.classList.add("active");
-    
-    document.querySelectorAll(".page").forEach(function(el) {
-        el.classList.remove("active");
-    });
+    document.querySelectorAll(".page").forEach(function(el) { el.classList.remove("active"); });
     var pg = document.getElementById("page-" + page);
     if (pg) pg.classList.add("active");
-    
-    var titles = {
-        checker: "Checker",
-        proxy: "Proxy",
-        discovery: "API Keşif",
-        stats: "İstatistik",
-        keys: "Key Yönetimi"
-    };
-    document.getElementById("pageTitle").innerText = titles[page] || page;
-    
-    if (page === "keys" && isAdmin) loadKeys();
+    var titles = { discovery: "Keşif", proxy: "Proxy", checker: "Checker", stats: "İstatistik", keys: "Anahtarlar" };
+    document.getElementById("pageTitle").innerText = titles[page] || "";
+    if (page === "keys") loadKeys();
 }
 
-// ============================================================
-// PROXY FONKSİYONLARI (HERKESE AÇIK)
-// ============================================================
-function fetchProxies() {
-    document.getElementById("proxyCount").innerText = "Çekiliyor...";
-    fetch("/api/fetch_proxies")
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.success) {
-                document.getElementById("proxyList").value = d.proxies.join("\n");
-                document.getElementById("proxyCount").innerText = d.proxies.length + " proxy yüklendi";
-            }
-        })
-        .catch(function(e) { document.getElementById("proxyCount").innerText = "Başarısız"; });
-}
-
-function clearProxies() {
-    document.getElementById("proxyList").value = "";
-    document.getElementById("proxyCount").innerText = "0 proxy";
-}
-
-function toggleProxy() {
-    useProxy = document.getElementById("useProxy").checked;
-}
-
-// ============================================================
-// ADMIN FONKSİYONLARI (SADECE ADMIN)
-// ============================================================
-function loadKeys() {
-    if (!isAdmin) return;
-    fetch("/api/admin/keys?key=" + encodeURIComponent(currentKey))
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.error) { alert(d.error); return; }
-            var list = document.getElementById("keyList");
-            var html = "";
-            for (var k in d) {
-                var v = d[k];
-                var exp = v.expires ? new Date(v.expires).toLocaleString() : "Süresiz";
-                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><div><strong style="font-size:13px">' + k + '</strong><br><small style="color:var(--muted);font-size:10px">' + v.note + ' | ' + exp + '</small></div><button class="btn sm r" onclick="deleteKey(\'' + k + '\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
-            }
-            list.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Hiç key yok.</p>';
-        })
-        .catch(function(e) { console.error(e); });
-}
-
-function generateKey() {
-    if (!isAdmin) return;
-    var note = document.getElementById("genNote").value || "Oluşturuldu";
-    var hours = document.getElementById("genHours").value;
-    fetch("/api/admin/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, note: note, hours: hours })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success) {
-            alert("Key Oluşturuldu!\n\nKey: " + d.key + "\nBitiş: " + d.expires);
-            loadKeys();
-        } else alert("Başarısız: " + (d.error || ""));
-    })
-    .catch(function(e) { alert("Hata: " + e.message); });
-}
-
-function deleteKey(target) {
-    if (!isAdmin) return;
-    if (!confirm("Bu anahtarı sil?")) return;
-    fetch("/api/admin/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, target_key: target })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success) loadKeys();
-        else alert("Silinemedi");
-    })
-    .catch(function(e) { alert("Hata: " + e.message); });
-}
-
-// ============================================================
-// API KEŞİF (SADECE ADMIN)
-// ============================================================
 function updateStatsUI() {
-    if (!isAdmin) return;
     document.getElementById("totalCount").innerText = foundEndpoints.length;
     document.getElementById("sideTotal").innerText = foundEndpoints.length;
     var auth = foundEndpoints.filter(function(e) { return e.category === "Auth"; }).length;
@@ -1219,10 +1116,6 @@ function updateStatsUI() {
 }
 
 function startScan() {
-    if (!isAdmin) {
-        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
-        return;
-    }
     if (scanning) return;
     var domain = document.getElementById("targetDomain").value.trim();
     if (!domain) return alert("Hedef domain girin");
@@ -1299,19 +1192,15 @@ document.getElementById("filterContainer").addEventListener("change", function()
 });
 
 function sendWebhook() {
-    if (!isAdmin) {
-        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
-        return;
-    }
     var url = document.getElementById("webhookUrl").value.trim();
     if (!url) return alert("Webhook URL girin");
     var categories = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c) { return c.value; });
     if (!categories.length) return alert("En az bir kategori seçin");
     if (!foundEndpoints.length) return alert("Önce tarama yapın");
-    fetch("/api/admin/webhook", {
+    fetch("/api/webhook", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, webhook_url: url, endpoints: foundEndpoints, categories: categories })
+        body: JSON.stringify({ webhook_url: url, endpoints: foundEndpoints, categories: categories })
     })
     .then(function(r) { return r.json(); })
     .then(function(d) { alert(d.success ? "✅ Discord'a gönderildi!" : "❌ Gönderilemedi"); })
@@ -1319,16 +1208,82 @@ function sendWebhook() {
 }
 
 function exportJSON() {
-    if (!isAdmin) {
-        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
-        return;
-    }
     if (!foundEndpoints.length) return alert("Veri yok");
     var blob = new Blob([JSON.stringify(foundEndpoints, null, 2)], { type: "application/json" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "roda_api_scan.json";
     a.click();
+}
+
+function fetchProxies() {
+    document.getElementById("proxyCount").innerText = "Çekiliyor...";
+    fetch("/api/fetch_proxies")
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.success) {
+                document.getElementById("proxyList").value = d.proxies.join("\n");
+                document.getElementById("proxyCount").innerText = d.proxies.length + " proxy yüklendi";
+            }
+        })
+        .catch(function(e) { document.getElementById("proxyCount").innerText = "Başarısız"; });
+}
+
+function clearProxies() {
+    document.getElementById("proxyList").value = "";
+    document.getElementById("proxyCount").innerText = "0 proxy";
+}
+
+function toggleProxy() {
+    useProxy = document.getElementById("useProxy").checked;
+}
+
+// ============================================================
+// KEY YÖNETİMİ
+// ============================================================
+function loadKeys() {
+    fetch("/api/admin/keys?key=" + encodeURIComponent(currentKey))
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.error) return;
+            var list = document.getElementById("keyList");
+            var html = "";
+            for (var k in d) {
+                var v = d[k];
+                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><div><strong style="font-size:13px">' + k + '</strong><br><small style="color:var(--muted);font-size:10px">' + v.note + '</small></div><button class="btn sm r" onclick="deleteKey(\'' + k + '\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
+            }
+            list.innerHTML = html;
+        })
+        .catch(function(e) {});
+}
+
+function generateKey() {
+    var note = document.getElementById("genNote").value || "Oluşturuldu";
+    var hours = document.getElementById("genHours").value;
+    fetch("/api/admin/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ master_key: currentKey, note: note, hours: hours })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+        if (d.success) {
+            alert("Anahtar Oluşturuldu!\n\nAnahtar: " + d.key + "\nBitiş: " + d.expires);
+            loadKeys();
+        } else alert("Başarısız");
+    })
+    .catch(function(e) { alert("Hata"); });
+}
+
+function deleteKey(target) {
+    if (!confirm("Bu anahtarı sil?")) return;
+    fetch("/api/admin/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ master_key: currentKey, target_key: target })
+    })
+    .then(function() { loadKeys(); })
+    .catch(function(e) { alert("Hata"); });
 }
 </script>
 </body>
@@ -1340,18 +1295,20 @@ function exportJSON() {
 # ============================================================
 if __name__ == "__main__":
     if not os.path.exists(KEYS_FILE):
-        save_keys({})
+        save_keys({MASTER_KEY: {"note": "Master Admin", "expires": "2099-12-31T23:59:59"}})
 
     threading.Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:5000")).start()
 
     print("""
     ╔══════════════════════════════════════════════════════════════════╗
     ║     🔱 RODA - API KEŞİF + CHECKER (TÜRKÇE)                     ║
+    ║     Anahtar: Roda12345                                         ║
     ║     http://127.0.0.1:5000                                     ║
-    ║     Admin girişi için şifre gizlidir.                         ║
-    ║     Kullanıcılar: Tüm menüler görünür ama yetkisiz sayfalar   ║
-    ║     admin uyarısı verir.                                      ║
-    ║     API Keşif sayfasında platform butonları eklendi.          ║
+    ║     Renk: Turuncu-Mor | HIT/2FA Web Panel                     ║
+    ║     18 Platform: YouTube, TikTok, Spotify, Roblox, Netflix   ║
+    ║     CapCut, Discord, Epic Games, Hesapcomtr, Itemsatış       ║
+    ║     Epinify, Twitch, Steam, PlayStation, Xbox, GitHub        ║
+    ║     Valorant, Minecraft                                      ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
 
