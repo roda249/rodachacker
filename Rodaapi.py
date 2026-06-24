@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Roda - API Discovery + Checker (Türkçe)
-Admin/Üye ayrımı | Key sistemi (1 Key 1 IP + Tek Kullanım) | Sabit menü | Ayrıştırma (2 Mod)
+Admin/Üye ayrımı | Key sistemi (1 Key 1 IP + Tek Kullanım) | Sabit menü | Ayrıştırma (2 Mod) | Log Sistemi
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64
@@ -22,6 +22,22 @@ MASTER_KEY = base64.b64decode(ENCODED_MASTER).decode('utf-8')
 
 KEYS_FILE = "keys.json"
 
+# ============================================================
+# LOG SİSTEMİ
+# ============================================================
+LOGS = []
+MAX_LOGS = 1000
+
+def add_log(message, level="INFO"):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    LOGS.append({"timestamp": timestamp, "level": level, "message": message})
+    if len(LOGS) > MAX_LOGS:
+        LOGS.pop(0)
+    print(f"[{timestamp}] [{level}] {message}")
+
+# ============================================================
+# KEY FONKSİYONLARI
+# ============================================================
 def load_keys():
     if os.path.exists(KEYS_FILE):
         with open(KEYS_FILE, "r", encoding="utf-8") as f:
@@ -32,13 +48,11 @@ def save_keys(data):
     with open(KEYS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
-# IP alma fonksiyonu (proxy arkasında da çalışır)
 def get_client_ip():
     if request.headers.get('X-Forwarded-For'):
         return request.headers.get('X-Forwarded-For').split(',')[0].strip()
     return request.remote_addr
 
-# KEY KONTROL (1 Key 1 IP + Tek Kullanım)
 def is_key_valid(key):
     if key == MASTER_KEY:
         return True, "Admin", None
@@ -49,21 +63,21 @@ def is_key_valid(key):
     entry = keys[key]
     client_ip = get_client_ip()
     
-    # Süre kontrolü
     exp = entry.get("expires")
     if exp:
         if datetime.now() >= datetime.fromisoformat(exp):
             del keys[key]
             save_keys(keys)
+            add_log(f"Key süresi doldu: {key}", "WARNING")
             return False, None, None
     
-    # IP kontrolü (eğer bağlanmışsa)
     bound_ip = entry.get("bound_ip")
     if bound_ip and bound_ip != client_ip:
+        add_log(f"IP eşleşmedi! Key: {key}, Beklenen: {bound_ip}, Gelen: {client_ip}", "WARNING")
         return False, None, None
     
-    # Tek kullanım kontrolü
     if entry.get("used", False):
+        add_log(f"Key zaten kullanılmış: {key}", "WARNING")
         return False, None, None
     
     return True, entry.get("note", "Kullanıcı"), entry
@@ -405,18 +419,24 @@ def login():
     valid, role, entry = is_key_valid(key)
     
     if valid:
-        # IP bağlama (eğer bağlanmamışsa)
         if entry and not entry.get("bound_ip"):
             keys = load_keys()
             keys[key]["bound_ip"] = client_ip
             save_keys(keys)
         
-        # Key'i kullanıldı olarak işaretle
         mark_key_used(key)
-        
+        add_log(f"Giriş başarılı: {key[:4]}... (IP: {client_ip}, Rol: {role})", "SUCCESS")
         return jsonify({"success": True, "user": role, "isAdmin": role == "Admin"})
     else:
+        add_log(f"Giriş başarısız: {key[:4]}... (IP: {client_ip})", "WARNING")
         return jsonify({"success": False, "error": "Geçersiz anahtar!"})
+
+@app.route("/api/logs", methods=["GET"])
+def get_logs():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    return jsonify({"logs": LOGS[-100:]})
 
 @app.route("/api/scan", methods=["GET"])
 def scan():
@@ -434,6 +454,7 @@ def scan():
         for res in results:
             yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
         yield "data: [DONE]\n\n"
+        add_log(f"API Keşfi tamamlandı: {domain} - {len(results)} endpoint bulundu", "SUCCESS")
 
     return Response(generate(), mimetype="text/event-stream")
 
@@ -455,7 +476,6 @@ def admin_generate():
     expires = datetime.now() + timedelta(hours=hours)
     new_key = "RODA-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=16))
     keys = load_keys()
-    # used, bound_ip alanları eklenir
     keys[new_key] = {
         "note": note,
         "expires": expires.isoformat(),
@@ -464,6 +484,7 @@ def admin_generate():
         "bound_ip": None
     }
     save_keys(keys)
+    add_log(f"Yeni key oluşturuldu: {new_key} - {note} ({hours} saat)", "SUCCESS")
     return jsonify({"success": True, "key": new_key, "expires": expires.strftime("%Y-%m-%d %H:%M:%S")})
 
 @app.route("/api/admin/delete", methods=["POST"])
@@ -477,6 +498,7 @@ def admin_delete():
     if target in keys:
         del keys[target]
         save_keys(keys)
+        add_log(f"Key silindi: {target}", "INFO")
         return jsonify({"success": True})
     return jsonify({"success": False})
 
@@ -513,6 +535,7 @@ def admin_webhook():
     files = {'file': ('roda_api_scan.txt', content)}
     try:
         r = requests.post(url, data={'content': '🔱 **Roda API Taraması Tamamlandı!**'}, files=files, timeout=10)
+        add_log(f"Webhook gönderildi: {len(filtered)} endpoint", "SUCCESS")
         return jsonify({"success": r.status_code in [200, 204]})
     except:
         return jsonify({"success": False}), 500
@@ -521,12 +544,13 @@ def admin_webhook():
 def fetch_proxies_route():
     try:
         proxies = fetch_proxies()
+        add_log(f"{len(proxies)} proxy çekildi", "INFO")
         return jsonify({"success": True, "proxies": proxies, "count": len(proxies)})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
 # ============================================================
-# HTML (YEŞİLİMSİ MAVİ TEMA + 2 MOD AYRIŞTIRMA + WEBHOOK)
+# HTML (YEŞİLİMSİ MAVİ TEMA + 2 MOD AYRIŞTIRMA + WEBHOOK + LOGLAR)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -698,6 +722,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div class="nav-item" data-page="parse" onclick="switchPage('parse')"><i class="fa-solid fa-scissors"></i> Ayrıştırma</div>
 <div class="nav-item" data-page="stats" onclick="switchPage('stats')"><i class="fa-solid fa-chart-simple"></i> İstatistik</div>
 <div class="nav-item" data-page="keys" onclick="switchPage('keys')"><i class="fa-solid fa-key"></i> Key Yönetimi</div>
+<div class="nav-item" data-page="logs" onclick="switchPage('logs')" id="logsMenuItem" style="display:none"><i class="fa-solid fa-history"></i> Loglar</div>
 </div>
 <div class="sidebar-stats">
 <div class="mini-stat mini-hit"><div class="val" id="sideTotal">0</div><div class="lbl">Bulunan</div></div>
@@ -875,6 +900,14 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 <div class="card"><h3><i class="fa-solid fa-list"></i> Aktif Anahtarlar</h3><div id="keyList"><p style="color:var(--muted);font-size:12px">Yükleniyor...</p></div></div>
 </div>
+<!-- LOGLAR (SADECE ADMIN) -->
+<div id="page-logs" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-history"></i> Sistem Logları</h3>
+<button class="btn sm" onclick="refreshLogs()" style="width:auto;margin-bottom:10px"><i class="fa-solid fa-rotate"></i> Yenile</button>
+<div id="logsContainer" style="max-height:400px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-family:monospace;font-size:12px;"></div>
+</div>
+</div>
 </div>
 </div>
 <script>
@@ -990,9 +1023,11 @@ function doLogin() {
             document.getElementById("app").style.display = "flex";
             if (isAdmin) {
                 document.getElementById("userBadge").style.display = "inline-block";
+                document.getElementById("logsMenuItem").style.display = "flex";
                 loadKeys();
             } else {
                 document.getElementById("userBadge").style.display = "none";
+                document.getElementById("logsMenuItem").style.display = "none";
             }
             loadPlatforms();
             loadDiscoveryPlatforms();
@@ -1328,10 +1363,28 @@ function loadParseFile() {
 }
 
 // ============================================================
+// LOGLAR (ADMIN)
+// ============================================================
+function refreshLogs() {
+    if (!isAdmin) return;
+    fetch("/api/logs?key=" + encodeURIComponent(currentKey))
+        .then(r => r.json())
+        .then(d => {
+            if (d.error) { alert(d.error); return; }
+            var container = document.getElementById("logsContainer");
+            var html = d.logs.map(log => {
+                var color = log.level === "ERROR" ? "var(--r)" : (log.level === "SUCCESS" ? "var(--g)" : "var(--muted)");
+                return `<div style="padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);color:${color}">[${log.timestamp}] ${log.message}</div>`;
+            }).join('');
+            container.innerHTML = html || '<div style="color:var(--muted)">Henüz log yok.</div>';
+        });
+}
+
+// ============================================================
 // SAYFA GEÇİŞİ (SABİT MENÜ)
 // ============================================================
 function switchPage(page) {
-    if ((page === "discovery" || page === "stats" || page === "keys") && !isAdmin) {
+    if ((page === "discovery" || page === "stats" || page === "keys" || page === "logs") && !isAdmin) {
         alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
         return;
     }
@@ -1351,10 +1404,12 @@ function switchPage(page) {
         discovery: "API Keşif",
         parse: "Ayrıştırma",
         stats: "İstatistik",
-        keys: "Key Yönetimi"
+        keys: "Key Yönetimi",
+        logs: "Loglar"
     };
     document.getElementById("pageTitle").innerText = titles[page] || page;
     if (page === "keys" && isAdmin) loadKeys();
+    if (page === "logs" && isAdmin) refreshLogs();
     if (page === "stats") {
         document.getElementById("statScans").innerText = 1;
         document.getElementById("statLast").innerText = new Date().toLocaleString();
@@ -1599,6 +1654,7 @@ if __name__ == "__main__":
     ║     http://0.0.0.0:""" + str(port) + """                               ║
     ║     Admin girişi için şifre gizlidir.                         ║
     ║     1 KEY 1 IP - 1 KULLANIM                                  ║
+    ║     LOG SİSTEMİ AKTİF                                       ║
     ║     YEŞİLİMSİ MAVİ TEMA                                      ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
