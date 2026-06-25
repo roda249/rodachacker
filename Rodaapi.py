@@ -3,6 +3,7 @@
 """
 Roda - API Discovery + Checker (Türkçe)
 Admin/Üye ayrımı | Key sistemi (1 Key 1 IP + Tek Kullanım) | Sabit menü | Ayrıştırma (2 Mod) | Log Sistemi
+Valorant kaldırıldı.
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64
@@ -23,7 +24,7 @@ MASTER_KEY = base64.b64decode(ENCODED_MASTER).decode('utf-8')
 KEYS_FILE = "keys.json"
 
 # ============================================================
-# LOG SİSTEMİ
+# LOG SİSTEMİ (TÜM İŞLEMLER KAYIT ALTINDA)
 # ============================================================
 LOGS = []
 MAX_LOGS = 1000
@@ -94,7 +95,7 @@ def is_admin(key):
     return valid and role == "Admin"
 
 # ============================================================
-# PLATFORMLAR
+# PLATFORMLAR (VALORANT KALDIRILDI)
 # ============================================================
 PLATFORMS = [
     {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
@@ -113,7 +114,6 @@ PLATFORMS = [
     {"name": "PlayStation", "domain": "playstation.com", "icon": "fa-solid fa-play"},
     {"name": "Xbox", "domain": "xbox.com", "icon": "fa-brands fa-xbox"},
     {"name": "GitHub", "domain": "github.com", "icon": "fa-brands fa-github"},
-    {"name": "Valorant", "domain": "valorant.com", "icon": "fa-solid fa-crosshairs"},
     {"name": "Minecraft", "domain": "minecraft.net", "icon": "fa-solid fa-cube"},
 ]
 
@@ -337,7 +337,6 @@ class APIScanner:
             "/api/hesapcomtr", "/api/hesapcomtr/v1",
             "/api/itemsatis", "/api/itemsatis/v1",
             "/api/epinify", "/api/epinify/v1",
-            "/api/valorant", "/api/valorant/v1",
             "/api/minecraft", "/api/minecraft/v1",
         ]
 
@@ -928,7 +927,7 @@ var parsedLines = [];
 var totalLines = 0;
 var processedCount = 0;
 
-// Platform listesi
+// Platform listesi (Valorant yok)
 var platforms = [
     {name:"YouTube", domain:"youtube.com", icon:"fa-brands fa-youtube"},
     {name:"TikTok", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
@@ -946,7 +945,6 @@ var platforms = [
     {name:"PlayStation", domain:"playstation.com", icon:"fa-solid fa-play"},
     {name:"Xbox", domain:"xbox.com", icon:"fa-brands fa-xbox"},
     {name:"GitHub", domain:"github.com", icon:"fa-brands fa-github"},
-    {name:"Valorant", domain:"valorant.com", icon:"fa-solid fa-crosshairs"},
     {name:"Minecraft", domain:"minecraft.net", icon:"fa-solid fa-cube"}
 ];
 
@@ -1110,8 +1108,11 @@ function addHit(platform, email, password, status) {
     var entry = { email: email, password: password, time: new Date().toLocaleString() };
     if (status === "HIT") {
         hitData[platform].hits.push(entry);
+        // Log'a ekle
+        console.log("HIT bulundu: " + platform + " - " + email);
     } else if (status === "2FA") {
         hitData[platform].twofa.push(entry);
+        console.log("2FA bulundu: " + platform + " - " + email);
     }
     renderHits();
 }
@@ -1654,7 +1655,8 @@ if __name__ == "__main__":
     ║     http://0.0.0.0:""" + str(port) + """                               ║
     ║     Admin girişi için şifre gizlidir.                         ║
     ║     1 KEY 1 IP - 1 KULLANIM                                  ║
-    ║     LOG SİSTEMİ AKTİF                                       ║
+    ║     LOG SİSTEMİ AKTİF - Tüm işlemler kayıt altında           ║
+    ║     VALORANT KALDIRILDI                                      ║
     ║     YEŞİLİMSİ MAVİ TEMA                                      ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
