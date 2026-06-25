@@ -1,2 +1,5 @@
 flask
 requests
+beautifulsoup4
+user_agent
+urllib3
