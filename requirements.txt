@@ -1,5 +1,2 @@
-flask
-requests
-beautifulsoup4
-user_agent
-urllib3
+pip install PySide6 requests bs4 user-agent psutil
+python Roda.py
