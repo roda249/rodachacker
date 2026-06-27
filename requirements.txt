@@ -1,2 +1,5 @@
-pip install PySide6 requests bs4 user-agent psutil
-python Roda.py
+PySide6
+requests
+bs4
+user-agent
+pusti1
