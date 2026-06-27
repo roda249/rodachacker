@@ -1,5 +1,5 @@
-PySide6
+flask
 requests
 bs4
 user-agent
-pusti1
+pycryptodome
