@@ -1,5 +1,2 @@
-flask
+discord.py
 requests
-bs4
-user-agent
-pycryptodome
