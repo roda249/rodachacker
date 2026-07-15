@@ -274,6 +274,39 @@ async def tick(ctx):
     embed.set_footer(text="Zirve Ticket | 7/24 Destek")
     await ctx.send(embed=embed, view=KategoriView())
 
+# ===================== DM BİLDİRİM GÖNDERME =====================
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def dm(ctx, member: discord.Member, *, mesaj: str):
+    """Belirtilen kullanıcıya DM gönder. Kullanım: !dm @kullanici mesaj"""
+    try:
+        await member.send(f"📨 **Zirve Gift Bildirimi**\n\n{mesaj}")
+        await ctx.send(f"✅ {member.mention} adlı kullanıcıya DM gönderildi.")
+    except discord.Forbidden:
+        await ctx.send(f"❌ {member.mention} DM'ye kapalı, mesaj gönderilemedi.")
+    except Exception as e:
+        await ctx.send(f"❌ Hata: {e}")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def dm_herkese(ctx, *, mesaj: str):
+    """Sunucudaki tüm üyelere DM gönder. Kullanım: !dm_herkese mesaj"""
+    guild = ctx.guild
+    basarili = 0
+    basarisiz = 0
+    await ctx.send(f"📨 Tüm üyelere DM gönderiliyor... Bu işlem uzun sürebilir.")
+    
+    for member in guild.members:
+        if member.bot:
+            continue
+        try:
+            await member.send(f"📨 **Zirve Gift Duyuru**\n\n{mesaj}")
+            basarili += 1
+        except:
+            basarisiz += 1
+        await asyncio.sleep(0.5)  # Rate-limit koruması
+    
+    await ctx.send(f"✅ {basarili} kişiye DM gönderildi. ❌ {basarisiz} kişiye gönderilemedi (DM kapalı veya hata).")
 # ===== BOT HAZIR =====
 @bot.event
 async def on_ready():
