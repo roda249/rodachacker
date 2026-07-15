@@ -1,23 +1,24 @@
 # -*- coding: utf-8 -*-
 import discord
 from discord.ext import commands
+from discord import app_commands
 from discord.ui import Button, View, Modal, TextInput, Select
 import requests
 import json
 import os
+import asyncio
 
-# ===== KONFIGURASYON =====
+# ===== KONFIGURASYON (SABİT BİLGİLER) =====
 BOT_TOKEN = "MTUyNjcxMjM2NTQ5NDU2NjkzMg.GDj3jp.FnuHDb2p37z6HaYNdxQ0sFUswwjHcbIY9IHgbg"
 WEBHOOK_URL = "https://discord.com/api/webhooks/1526713905865293944/Z1QPSN5Mbx30WGlkWPCLiqnX1JLPliiY_0ziIjq8OGw5NvRRyRBTSj8kSrMkuTfGyZrs"
-TICKET_CATEGORY_ID = 1526849082579222678  # Kategori ID'si
-GUILD_ID = 1469472843120246957            # Sunucu ID'si
-# STAFF_ROLE_ID kaldırıldı!
-# =========================
+TICKET_CATEGORY_ID = 1526849082579222678
+GUILD_ID = 1469472843120246957
+# ==========================================
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)  # Prefix gerekli değil ama hata vermesin diye
 
 # ===== TOKEN DOĞRULAMA =====
 def check_token(token):
@@ -89,10 +90,14 @@ class TokenModal(Modal):
 
         try:
             category = guild.get_channel(TICKET_CATEGORY_ID)
+            if not category:
+                await interaction.response.send_message("❌ Kategori bulunamadi! Lutfen ID'yi kontrol et.", ephemeral=True)
+                return
+
+            # Sadece kullanıcı ve bot görsün (yetkili rolü kaldırıldı)
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
                 kullanici: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-                # Yetkili rolü kaldırıldı, sadece kullanıcı ve bot görebilir.
             }
             channel = await guild.create_text_channel(
                 name=f"odul-{kullanici.name}",
@@ -171,16 +176,6 @@ class TokenModal(Modal):
         except Exception as e:
             await interaction.response.send_message(f"❌ Ticket acilamadi: {e}", ephemeral=True)
 
-@bot.command()
-async def panel(ctx):
-    embed = discord.Embed(
-        title="🏆 Zirve Odul Paneli",
-        description="Asagidaki butonlardan bir odul sec. Token'ini gir, ticket acilacak ve yetkili onaylayacak.",
-        color=0xffd700
-    )
-    embed.set_footer(text="Zirve Panel | Ticket Sistemi")
-    await ctx.send(embed=embed, view=OdulView())
-
 # ===================== 2. TICKET KOMUTU (KATEGORILI) =====================
 class TicketModal(Modal):
     def __init__(self, kategori: str):
@@ -201,10 +196,13 @@ class TicketModal(Modal):
 
         try:
             category = guild.get_channel(TICKET_CATEGORY_ID)
+            if not category:
+                await interaction.response.send_message("❌ Kategori bulunamadi!", ephemeral=True)
+                return
+
             overwrites = {
                 guild.default_role: discord.PermissionOverwrite(read_messages=False),
                 kullanici: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-                # Yetkili rolü kaldırıldı
             }
             channel = await guild.create_text_channel(
                 name=f"{self.kategori}-{kullanici.name}",
@@ -264,52 +262,69 @@ class KategoriView(View):
     async def gmail(self, interaction: discord.Interaction, button: Button):
         await interaction.response.send_modal(TicketModal(kategori="Gmail odul"))
 
-@bot.command()
-async def tick(ctx):
+# ===================== SLASH KOMUTLAR =====================
+@bot.tree.command(name="panel", description="Odul panelini gosterir.")
+async def slash_panel(interaction: discord.Interaction):
+    embed = discord.Embed(
+        title="🏆 Zirve Odul Paneli",
+        description="Asagidaki butonlardan bir odul sec. Token'ini gir, ticket acilacak.",
+        color=0xffd700
+    )
+    embed.set_footer(text="Zirve Panel | Ticket Sistemi")
+    await interaction.response.send_message(embed=embed, view=OdulView())
+
+@bot.tree.command(name="tick", description="Ticket olusturma panelini gosterir.")
+async def slash_tick(interaction: discord.Interaction):
     embed = discord.Embed(
         title="🎫 Zirve Ticket Sistemi",
         description="Asagidaki butonlardan bir kategori sec. Aciklama gir ve ticket olustur.",
         color=0x00ff00
     )
     embed.set_footer(text="Zirve Ticket | 7/24 Destek")
-    await ctx.send(embed=embed, view=KategoriView())
+    await interaction.response.send_message(embed=embed, view=KategoriView())
 
-# ===================== DM BİLDİRİM GÖNDERME =====================
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def dm(ctx, member: discord.Member, *, mesaj: str):
-    """Belirtilen kullanıcıya DM gönder. Kullanım: !dm @kullanici mesaj"""
+@bot.tree.command(name="dm", description="Belirtilen kullaniciya DM gonderir.")
+@app_commands.default_permissions(administrator=True)
+async def slash_dm(interaction: discord.Interaction, member: discord.Member, mesaj: str):
     try:
         await member.send(f"📨 **Zirve Gift Bildirimi**\n\n{mesaj}")
-        await ctx.send(f"✅ {member.mention} adlı kullanıcıya DM gönderildi.")
+        await interaction.response.send_message(f"✅ {member.mention} adli kullaniciya DM gonderildi.", ephemeral=True)
     except discord.Forbidden:
-        await ctx.send(f"❌ {member.mention} DM'ye kapalı, mesaj gönderilemedi.")
+        await interaction.response.send_message(f"❌ {member.mention} DM'ye kapali.", ephemeral=True)
     except Exception as e:
-        await ctx.send(f"❌ Hata: {e}")
+        await interaction.response.send_message(f"❌ Hata: {e}", ephemeral=True)
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def dm_herkese(ctx, *, mesaj: str):
-    """Sunucudaki tüm üyelere DM gönder. Kullanım: !dm_herkese mesaj"""
-    guild = ctx.guild
+@bot.tree.command(name="duyuru", description="Tum uyelere DM duyurusu gonderir.")
+@app_commands.default_permissions(administrator=True)
+async def slash_duyuru(interaction: discord.Interaction, mesaj: str):
+    guild = interaction.guild
+    await interaction.response.send_message(f"📨 Duyuru gonderiliyor... Bu islem uzun surebilir.", ephemeral=True)
+    
     basarili = 0
     basarisiz = 0
-    await ctx.send(f"📨 Tüm üyelere DM gönderiliyor... Bu işlem uzun sürebilir.")
     
     for member in guild.members:
         if member.bot:
             continue
         try:
-            await member.send(f"📨 **Zirve Gift Duyuru**\n\n{mesaj}")
+            await member.send(f"📢 **Zirve Gift Duyuru**\n\n{mesaj}")
             basarili += 1
         except:
             basarisiz += 1
-        await asyncio.sleep(0.5)  # Rate-limit koruması
+        await asyncio.sleep(0.5)
     
-    await ctx.send(f"✅ {basarili} kişiye DM gönderildi. ❌ {basarisiz} kişiye gönderilemedi (DM kapalı veya hata).")
+    await interaction.followup.send(f"✅ {basarili} kisiye gonderildi. ❌ {basarisiz} kisiye gonderilemedi.")
+
 # ===== BOT HAZIR =====
 @bot.event
 async def on_ready():
     print(f"✅ Zirve Bot aktif! Kullanici: {bot.user}")
+    try:
+        # Komutları belirtilen sunucuya senkronize et
+        guild = discord.Object(id=GUILD_ID)
+        await bot.tree.sync(guild=guild)
+        print(f"✅ Slash komutlar {GUILD_ID} ID'li sunucuya senkronize edildi.")
+    except Exception as e:
+        print(f"❌ Senkronizasyon hatasi: {e}")
 
 bot.run(BOT_TOKEN)
